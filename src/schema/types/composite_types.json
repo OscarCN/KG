@@ -1,0 +1,40 @@
+{
+    "LocationCoords": {
+        "meta": {
+            "description": "Geographic coordinates (latitude, longitude)"
+        },
+        "schema": {
+            "lat": {"type": "float"},
+            "lon": {"type": "float"}
+        }
+    },
+    "PeriodDates": {
+        "meta": {
+            "description": "Date period with a start and end datetime"
+        },
+        "schema": {
+            "start": {"type": "datetime"},
+            "end":   {"type": "datetime"}
+        }
+    },
+    "DateRange": {
+        "meta": {
+            "description": "Date range with timezone"
+        },
+        "schema": {
+            "date_range": {"type": "PeriodDates"},
+            "timezone":   {"type": "str"}
+        }
+    },
+    "DateRangeFromUnstructured": {
+        "meta": {
+            "description": "Represents a date period extracted from unstructured text, with a date start and end, optional timezone, the original unstructured mention e.g. 'durante la segunda semana de enero', and the precision confidence period in days (the amount of uncertainty we have given the unstructured mention)"
+        },
+        "schema": {
+            "date_range":     {"type": "PeriodDates"},
+            "timezone":       {"type": "str"},
+            "mention":        {"type": "str"},
+            "precision_days": {"type": "int"}
+        }
+    }
+}

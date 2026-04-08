@@ -1,0 +1,91 @@
+{
+    "News": {
+        "meta": {
+            "description": "News document as expected by the news ingest pipeline, with source metadata and supplier information"
+        },
+        "schema": {
+            "author":                       {"type": "List[str]"},
+            "body":                         {"type": "str",         "required": true},
+            "body_links":                   {"type": "str"},
+            "footnote":                     {"type": "str"},
+            "highlights":                   {"type": "str"},
+            "lead":                         {"type": "str"},
+            "location":                     {"type": "str"},
+            "media_pictures":               {"type": "str"},
+            "column_name":                  {"type": "str"},
+            "column_author":                {"type": "str"},
+            "media_videos":                 {"type": "str"},
+            "source":                       {"type": "str",         "required": true},
+            "source_category":              {"type": "str"},
+            "source_comments":              {"type": "str"},
+            "source_related":               {"type": "str"},
+            "source_social_networks_shares": {"type": "str"},
+            "source_tags":                  {"type": "str"},
+            "timestamp":                    {"type": "datetime",    "required": true},
+            "timestamp_added":              {"type": "datetime",    "default_fn": "date_now"},
+            "title":                        {"type": "str",         "required": true},
+            "type":                         {"type": "EnumStr",     "default": "news", "enum": ["news", "X", "Facebook", "impreso", "Instagram", "Radio", "TV"]},
+            "url":                          {"type": "Url",         "required_fn": "require_url"},
+            "media_urls":                   {"type": "List[Url]"},
+            "comments":                     {"type": "list"},
+            "location_ids":                 {"type": "list"},
+            "source_extra":                 {"type": "SourceExtra"},
+            "supplier":                     {"type": "Supplier"}
+        }
+    },
+    "SourceExtra": {
+        "meta": {
+            "description": "Extra metadata about the source, including whether the source was found in the sources database"
+        },
+        "schema": {
+            "stats":                {"type": "SourceExtraStats"},
+            "__FOUND_SOURCE__":     {"type": "bool",    "default_fn": "default_source_extra_found_source"}
+        }
+    },
+    "SourceExtraStats": {
+        "meta": {
+            "description": "Statistics for a news article's source, including engagement metrics and author location"
+        },
+        "schema": {
+            "article_value":                    {"type": "int"},
+            "website_visits":                   {"type": "int"},
+            "likes":                            {"type": "int"},
+            "shares":                           {"type": "int"},
+            "views":                            {"type": "int"},
+            "n_comments":                       {"type": "int"},
+            "profile_url":                      {"type": "str"},
+            "post_type":                        {"type": "str"},
+            "location_author_formatted_name":   {"type": "str"},
+            "location_author_geoid":            {"type": "str"},
+            "location_author_coords":           {"type": "LocationCoords"},
+            "location_author_precision_level":  {"type": "int"},
+            "location_author_level_1":          {"type": "str"},
+            "location_author_level_1_id":       {"type": "str"},
+            "location_author_level_2":          {"type": "str"},
+            "location_author_level_2_id":       {"type": "str"},
+            "location_author_level_3":          {"type": "str"},
+            "location_author_level_3_id":       {"type": "str"},
+            "author_full_name":                 {"type": "str"},
+            "author_profile_bio":               {"type": "str"}
+        }
+    },
+    "Supplier": {
+        "meta": {
+            "description": "Supplier or provider of the news content"
+        },
+        "schema": {
+            "name":     {"type": "str"},
+            "creador":  {"type": "int"},
+            "opinion":  {"type": "str"}
+        }
+    },
+    "MessageWrapper": {
+        "meta": {
+            "description": "Top-level message wrapper containing a News document"
+        },
+        "schema": {
+            "type":     {"type": "str",     "default": "news"},
+            "message":  {"type": "News"}
+        }
+    }
+}

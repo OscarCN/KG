@@ -1,0 +1,411 @@
+
+estoy escribiendo un prompt para extraer información, ayúdame a redactar mejor el siguiente prompt para que sea mas claro para un LLM.
+
+
+Prompt:
+
+
+Si la nota habla de la construcción de un nuevo desarrollo comercial o de oficinas, lee la nota y extrae la siguiente información del desarrollo o los nuevos desarrollos en cuestión:
+
+1. Nombre del desarrollo (nombre_desarrollo): Por ejemplo "Torre Mitikah", "Cittá San Jerónimo", etc.
+
+2. Nombre de la compañía desarrolladora (desarrolladora): Por ejemplo "Sordo Madaleno", "Grupo Carso", etc.
+
+3. Inversión estimada (inversion): Por ejemplo "Sordo Madaleno", "Grupo Carso", etc.
+
+4. Ubicación (ubicacion): escribe la ubicación del desarrollo con la información disponible en la nota, extrae los datos de ubicación de manera estructurada en País, Ciudad, Colonia, Zona de la ciudad, Calle, Número Exterior, con el siguiente formato de ejemplo: {"pais": "México", "ciudad": "Ciudad de México", "colonia": "San Angel", "zona": "zona sur", "calle": null, "numero": null} Si alguno no se menciona deja el dato vacío.
+
+5. Fecha de anuncio (fecha_anuncio): si la fecha se anuncia, escribe el texto tal cual se menciona, y una fecha en formato 'dd/mm/aaa' Por ejemplo {"mencion": "el pasado 6 de abril", "fecha": "06/04/2025"}, como referencia, la fecha de hoy es {date_now}
+
+6. Fecha estimada de finalización (fecha_finalizacion): si la fecha estimada de finalización se anuncia, escribe el texto tal cual se menciona, y una fecha estimada en formato 'dd/mm/aaa' Por ejemplo {"mencion": "el pasado 6 de abril", "fecha": "06/04/2025"}, como referencia, la fecha de hoy es {date_now}, si se menciona un periodo o fecha ambigua, (p.ej, "finales del año"), estima una fecha como "31/12/2025"
+
+7. Contexto (contexto): Si la información existe, escribe un texto libre resumiendo el contexto con información de permisos, entidades gubernamentales relacionadas, regulaciones, contexto de la zona, razones y motivos, retrasos o problemas de construcción, burocráticos, sociales, etc.
+
+8 Estatus de construcción (estatus): entre el siguiente catálogo: "Anunciado", "En progreso adecuado", "Retrasado", "Detenido", "Cerca de finalizar", "Completado"
+
+Si en cualquiera de los campos anteriores no se menciona el dato o no existe, por ejemplo no se menciona la inversión estimada, o el desarrollo no tiene nombre, responde un valor vacío
+
+Responde en una lista formato json sin añadir ninguna otra información o texto, con un elemento de la lista por cada mención, como el siguiente ejemplo:
+
+[{
+  "nombre_desarrollo": "Plaza Paseo Reforma",
+  "desarrolladora": "Grupo GIA",
+  "inversion": "1,200 millones de pesos",
+  "ubicacion": {
+    "pais": "México",
+    "ciudad": "Ciudad de México",
+    "colonia": null,
+    "zona": "zona centro de la ciudad",
+    "calle": "Mariano Escobedo",
+    "numero": 456
+  },
+  "fecha_anuncio": {
+    "mencion": "el 15 de marzo",
+    "fecha": "15/03/2025"
+  },
+  "fecha_finalizacion": {
+    "mencion": "primer trimestre de 2026",
+    "fecha": "01/03/2026"
+  },
+  "contexto": "El proyecto fue aprobado por la Secretaría de Desarrollo Urbano y Vivienda (SEDUVI) y se enmarca dentro de un plan de renovación de corredores comerciales en la zona centro. Se ha señalado que la construcción ha generado inquietudes entre vecinos por el posible aumento de tráfico, aunque las autoridades aseguran que se han tomado medidas de mitigación.",
+  "estatus": "En progreso adecuado"
+}]
+
+
+
+
+
+
+
+
+
+############################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################
+
+
+Instrucciones para extracción de información estructurada:
+
+Se te va a presentar un artículo de noticias, se cree que habla o hace referencia a algún desarrollo inmobiliario.
+
+Si el texto habla sobre nuevos desarrollos inmobiliarios (por ejemplo centros comerciales, torres de oficinas, vivienda, edificios, hoteles, centros de convenciones, universidades, estadios, auditorios, centro de transportes, complejo turístico, rascacielos, etc.), con que se mencione un desarrollo inmobiliario, desarrollado por una empresa inmobiliaria del sector privado, ya sea por anuncios, noticias relacionadas con un desarrollo, eventos relacionados, etc. extrae y organiza la información mencionada sobre cada uno de los desarrollos identificados, usando los siguientes campos:
+
+
+
+1. nombre_desarrollo: Nombre propio del desarrollo. Ejemplos: "Torre Mitikah", "Cittá San Jerónimo". Si no se menciona, deja el valor vacío.
+
+
+
+2. desarrolladora: Nombre de la compañía desarrolladora o promotora del proyecto. Ejemplos: "Sordo Madaleno", "Grupo Carso". Si no se menciona, deja el valor vacío.
+
+
+
+3. inversion: Monto estimado de inversión. Extrae el valor tal como se menciona en el texto, por ejemplo: "1,200 millones de pesos". Si no se menciona, deja el valor vacío.
+
+
+
+4. ubicacion: Extrae la información de ubicación en el siguiente formato ejemplo:
+
+"ubicacion": {
+"pais": "México",
+"ciudad": "Ciudad de México",
+"colonia": null,
+"zona": zona centro,
+"calle": "Mariano Escobedo",
+"numero": null
+}
+
+Llena solo los campos mencionados explícitamente en la nota. Si un dato no está presente, deja el campo null.
+
+
+
+5. fecha_anuncio: Si se menciona cuándo fue anunciado el proyecto, extrae un objeto con dos campos:
+
+"fecha_anuncio": {
+"mencion": "texto exacto mencionado",
+"fecha": "dd/mm/aaaa"
+}
+
+Ejemplo:
+"fecha_anuncio": { "mencion": "el pasado 6 de abril", "fecha": "06/04/2025" }
+
+Si no se menciona ninguna fecha, deja el valor vacío. Si solo se menciona un periodo aproximado (por ejemplo, "finales del año"), interpreta una fecha estimada razonable. Por ejemplo: {"mencion": "inicio de 2022", "fecha": "01/01/2025" }. Como contexto, la fecha actual es {date_now}
+
+
+
+6. fecha_finalizacion: Si se menciona una fecha estimada de finalización, extrae en el mismo formato que fecha_anuncio. Si solo se menciona un periodo aproximado (por ejemplo, "finales del año"), interpreta una fecha estimada razonable. Por ejemplo:
+
+"fecha_finalizacion": { "mencion": "finales de 2025", "fecha": "31/12/2025" }
+
+Si no se menciona, deja el valor vacío. Como contexto, la fecha actual es {date_now}.
+
+
+
+7. contexto: En formato de texto libre, resume cualquier información contextual relevante: permisos, autoridades involucradas, regulaciones, impacto urbano o social, causas de retrasos, controversias, etc. Si no hay contexto adicional, deja el campo vacío.
+
+
+
+8. estatus: El estatus de construcción o anuncio del desarrollo. Elige uno del siguiente catálogo según lo que indique la nota:
+
+"En concepto"
+"Planeado"
+"Anunciado"
+"En progreso adecuado"
+"Retrasado"
+"Detenido"
+"Cerca de finalizar"
+"Completado"
+
+
+9. tipo_desarrollo: El tipo de desarrollo de acuerdo a su finalidad, uno o varios valores del siguiente catálogo:
+
+"Centro comercial"
+"Edificio de oficinas"
+"Vivienda"
+"Departamentos"
+"Edificio"
+"Hotel"
+"Centro de convenciones"
+"Universidad"
+"Estadio"
+"Auditorio"
+"Complejo comercial"
+"Centro de transportes"
+"Complejo turístico"
+"Rascacielos"
+"Parque industrial"
+
+Por ejemplo: "tipo_desarrollo": ["Complejo Comercial", "Edificio", "Departamentos"]
+
+
+
+10. tipo_construccion: El tipo de proceso de construcción o renovación que se asume en la noticia, es un valor del siguiente catálogo:
+
+"Construcción"
+"Remodelación"
+"Inauguración"
+"Cierre"
+"Suspensión de obra"
+
+
+
+Si la nota no menciona ningún desarrollo inmobiliario, responde con un texto vacío "". Sólo usa información que esté disponible en la nota
+
+
+Formato de respuesta:
+
+Responde con una lista en formato JSON, donde cada elemento representa un desarrollo detectado en la nota. No añadas texto adicional fuera del JSON.
+
+Ejemplo de formato esperado:
+
+[
+{
+"nombre_desarrollo": "Plaza Paseo Reforma",
+"desarrolladora": "Grupo GIA",
+"inversion": "1,200 millones de pesos",
+"ubicacion": {
+"pais": "México",
+"ciudad": "Ciudad de México",
+"colonia": null,
+"zona": "zona centro de la ciudad",
+"calle": "Mariano Escobedo",
+"numero": 456
+},
+"fecha_anuncio": {
+"mencion": "el 15 de marzo",
+"fecha": "15/03/2025"
+},
+"fecha_finalizacion": {
+"mencion": "primer trimestre de 2026",
+"fecha": "01/03/2026"
+},
+"contexto": "El proyecto fue aprobado por la Secretaría de Desarrollo Urbano y Vivienda (SEDUVI) y se enmarca dentro de un plan de renovación de corredores comerciales en la zona centro. Se ha señalado que la construcción ha generado inquietudes entre vecinos por el posible aumento de tráfico, aunque las autoridades aseguran que se han tomado medidas de mitigación.",
+"estatus": "En progreso adecuado",
+"tipo_desarrollo": ["Complejo Comercial", "Edificio", "Departamentos"],
+"tipo_construccion": "Suspensión de obra"
+}
+]
+
+
+
+
+
+
+############################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################
+
+
+estoy escribiendo un prompt para extraer información, ayúdame a escribir un ejemplo de respuesta esperada en formato json, para incluirlo como ejemplo, con datos inventados pero que tengan sentido.
+
+
+Prompt:
+
+
+
+Buscamos eventos descritos en un artículo de noticias. Buscamos eventos de cualquier tipo, que tengan una fecha específica o un rango de fechas, y que esta se mencione en la noticia. Ejemplos de eventos son conciertos, festivales, eventos deportivos, anuncios planeados, cierres de carreteras, manifestaciones, congresos, fiestas, etc.
+
+Para cada evento mencionado en la nota que tenga una fecha (exacta o estimada), extrae los siguientes campos. Si no se menciona un campo, deja su valor null. No inventes eventos, solo extrae lo que está relacionado explícitamente.
+
+Para cada evento que encuentres en la noticia, si se menciona la fecha (real o estimada, o un periodo), extrae la siguiente información
+
+
+
+1. Tipo de evento (tipo_evento): obtén el tipo de evento del siguiente catálogo, usando la categoría que sea más específica al evento:
+
+"Concierto"
+"Festival"
+"Fiesta"
+"Feria"
+"Evento cultural"
+"Evento religioso"
+"Evento deportivo"
+"Cierre de calle o carretera"
+"Suspensión de operaciones"
+"Manifestación"
+"Congreso"
+"Exposición"
+"Convención"
+"Evento político"
+"Evento económico"
+"Evento climático"
+"Evento de seguridad"
+"Incendio"
+"Explosion"
+"Accidente"
+"Emergencia"
+"Entrada en vigor de una ley o regulación"
+"Inauguración"
+"Otro"
+
+
+
+2. Subtipo de evento (subtipo_evento): propón un subtipo de evento dado el contexto. Por ejemplo, si el tipo es "Evento deportivo", el subtipo podría ser "Partido de fútbol", "Partido de beisbol", etc.
+
+
+
+3. Estatus del evento (estatus): el estatus actual que se anuncia en la noticia, del siguiente catálogo:
+
+"Planeado"
+"Pasado"
+"Suspendido"
+"En transcurso"
+"Cancelado"
+"Pospuesto"
+
+
+
+4. Afluencia estimada (afluencia): Si es un evento en el que participan personas, y la noticia menciona un estimado de personas. Por ejemplo, para un congreso o concierto se puede mencionar la afluencia estimada. Responde con el texto tal cual se menciona en la nota (mencion), y un estimado razonable que tú hagas en formato de número (afluencia)
+
+Por ejemplo:
+
+{"afluencia": { "mencion": "más de 5 mil personas", "afluencia": 5000 }}
+
+Si no se menciona, deja el valor vacío.
+
+
+
+5. Capacidad del lugar (capacidad): Si el evento es en un lugar físico, como un estadio, teatro, sala de convenciones, etc. y la noticia menciona la capacidad del lugar. Responde con el texto tal cual se menciona en la nota (mencion), y un estimado razonable que tú hagas en formato de número (capacidad)
+
+Por ejemplo:
+
+{"capacidad": { "mencion": "15 mil personas", "capacidad": 15000 }}
+
+
+
+6. Fecha del evento (fecha_evento): Es la fecha del evento, responde con el texto tal cual se menciona en la nota (mencion), un periodo de fechas, que sean el inicio y fin del evento (fecha), si no se menciona un periodo, pon solo la fecha de inicio, y la zona horaria, si esta se menciona (zona_horaria). 
+
+Si solo se menciona un periodo aproximado (por ejemplo, "finales del año", o "el proximo año", etc.), interpreta una fecha estimada razonable y escribe un periodo de precisión (en el que muy probablemente se encuentre la fecha real). Por ejemplo: {"mencion": "inicio de 2022", "fecha": {"inicio": "01/01/2022T00:00:00", "fin": null}, "precision": "3 meses" }. Otro ejemplo: {"mencion": "el proximo año", "fecha": {"inicio": "01/01/2026T00:00:00", "fin": null}, "precision": "1 año" }
+
+cuatro ejemplos:
+
+"fecha_evento": { "mencion": "durante el mes de agosto de este año", "fecha": {"inicio": "2025-08-01T00:00:00", "fin": "2025-08-30T00:00:00"}, "precision": "1 mes" }
+
+"fecha_evento": { "mencion": "a las 4 de la tarde del próximo martes 4 de julio", "fecha": { "inicio": "2025-07-04T16:00:00", "fin": null } }
+
+"fecha_evento": { "mencion": "mañana 4 de julio a las 4 de la tarde, hora del este ", "fecha": { "inicio": "2025-07-04T16:00:00", "fin": null }, "zona_horaria": "hora del este" }
+
+"fecha_evento": { "mencion": "julio del 2026", "fecha": { "inicio": "2025-07-01T00:00:00", "fin": null }, "precision": "1 mes" }
+
+Usa ese formato estandarizado de fechas "YYYY-mm-ddTHH:MM:SS"
+Como contexto, la fecha de hoy es {date_now}
+
+
+
+7. Nombre del evento (nombre): Si el evento tiene un nombre, o se puede llamar de alguna forma, escribelo, de otra manera deja el valor en null. Por ejemplo: "Partido América-Toluca", "Cuarta Feria de la Fresa", "Entrada en vigor de la ley 457C"
+
+
+
+8. Descripción del evento (descripcion): Redacta un texto libre con una descripción breve del evento.
+
+
+
+9. Etiquetas (etiquetas): palabras clave que encuentres o intuyas que pueden describir el evento
+
+Por ejemplo:
+
+"etiquetas": ["fútbol", "Clásico", "América", "Chivas", "Estadio Azteca"]
+
+
+
+10. Contexto (contexto): Si la información existe, escribe un texto libre resumiendo el contexto general del evento.
+
+
+
+11. Precio (precio): Si el evento tiene costo para los asistentes, y este se menciona, o si se menciona un rango de precios. Responde con el texto tal cual se menciona en la nota (mencion), un estimado razonable que tú hagas en formato de número (rango_precio), con el rango inferior y superior, y si se menciona la moneda (moneda)
+
+Tres ejemplos:
+
+{"precio": { "mencion": "precios que van desde 500 hasta 2500 pesos", "rango_precio": {"inferior": 500, "superior": 2500}, "moneda": "pesos" }}
+
+{"precio": { "mencion": "el evento no tiene costo", "rango_precio": {"inferior": 0, "superior": 0}, "moneda": null }}
+
+{"precio": { "mencion": "los boletos cuestan 450 dolares", "rango_precio": {"inferior": 450, "superior": 450}, "moneda": "dolares" }}
+
+
+
+12. Ubicación (ubicacion): Si el evento sucede en alguna ubicación, con la información disponible en la nota, extrae los datos de ubicación de manera estructurada, en el siguiente formato ejemplo:
+
+"ubicacion": {
+    "pais": "México",
+    "ciudad": "Ciudad de México",
+    "colonia": null,
+    "zona": zona centro,
+    "calle": "Mariano Escobedo",
+    "numero": null,
+    "lugar": "Auditorio Nacional"
+}
+
+en el campo de "lugar", escribe el nombre del lugar, si el lugar tiene nombre y este se menciona.
+
+
+
+Formato de respuesta:
+
+Responde con una lista en formato JSON, donde cada elemento representa un evento detectado en la nota. No añadas texto adicional fuera del JSON.
+
+Ejemplo de formato esperado:
+
+
+[
+  {
+    "tipo_evento": "Evento deportivo",
+    "subtipo_evento": "Partido de fútbol",
+    "estatus": "Planeado",
+    "afluencia": {
+      "mencion": "se espera la asistencia de más de 60 mil aficionados",
+      "afluencia": 60000
+    },
+    "capacidad": {
+      "mencion": "el Estadio Azteca tiene capacidad para 87 mil personas",
+      "capacidad": 87000
+    },
+    "fecha_evento": {
+      "mencion": "el próximo domingo 10 de agosto a las 6 de la tarde",
+      "fecha": {
+        "inicio": "2025-08-10T18:00:00",
+        "fin": null
+      }
+    },
+    "nombre": "Clásico América vs Chivas",
+    "descripcion": "Partido de alto perfil entre los equipos América y Chivas en el Estadio Azteca, correspondiente a la jornada 5 del torneo Apertura 2025.",
+    "contexto": "El evento ha generado gran expectación y se espera que haya un operativo de seguridad especial coordinado entre la Secretaría de Seguridad Ciudadana y la Liga MX. Se recomienda llegar con anticipación debido a cierres parciales en las avenidas cercanas.",
+    "ubicacion": {
+      "pais": "México",
+      "ciudad": "Ciudad de México",
+      "colonia": "Santa Úrsula Coapa",
+      "zona": "zona sur",
+      "calle": "Calzada de Tlalpan",
+      "numero": null,
+      "lugar": "Estadio Azteca"
+    },
+    "precio": {
+      "mencion": "los boletos cuestan entre 300 y 1500 pesos",
+      "precio": {
+        "inferior": 300,
+        "superior": 1500
+      },
+      "moneda": "pesos"
+    }
+  }
+]
+
+
+
+

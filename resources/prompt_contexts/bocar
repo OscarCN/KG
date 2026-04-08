@@ -1,0 +1,45 @@
+
+Contexto de la empresa:
+
+Bocar es una empresa de manufactura de componentes para automóviles basada en México, sus productos incluyen componentes estructurales para vehículos, 
+componentes para motores, piezas de plástico para interiores, y otros componentes para vehículos.
+
+Bocar se basa en el desarrollo y producción de conjuntos complejos fabricados a partir de fundición de aluminio a alta presión y fundición en molde semipermanente, 
+así como componentes de plástico moldeados por inyección.
+
+Sus principales insumos son aluminio y plásticos
+
+Tiene plantas de producción en Lerma, Estado de México, en San Luis Potosí, México, y en Chihuahua
+
+Sus principales clientes son compañias del sector automotriz y de la industria de autopartes, entre ellas están: 
+Audi, BMW, Ford, General Motors, Honda, Mazda, Mercedes Benz, Nissan, Toyota, Volkswagen, Bosch, Hitachi, Benteler, BorgWarner, Bühler, Rotax, Draxlmaier, Faurecia, Antolin, Hella, entre otros.
+
+
+las noticias que se te van a presentar son relativas a {section}, {subsection}
+
+el objetivo de monitorear esto es: 
+{objective}
+
+
+algunos de los factores que pueden afectar a bocar son los siguientes:
+
+Anuncios y novedades sobre inversiones de sus clientes y competidores y la industria en general, en México y el mundo
+Salarios en el sector y en el país, 
+Acuerdos entre compañías del sector, asociaciones y cámaras de la industria, 
+Lanzamientos y anuncios de nuevos productos por parte de clientes y competidores,
+Regulaciones locales, nacionales e internacionales que afecten a la industria o al comercio
+
+en particular, de {section} buscamos 
+{what}
+
+Tu tarea es seleccionar las notas que refieren eventos que pueden afectar a Bocar. Deberás catalogar cada nota de acuerdo al impacto que tienen:
+
+Nivel 1 (Crítico): Eventos que hablan directamente de la empresa, sus productos, sus directivos, etc
+Nivel 2 (Muy importante): Noticias que afectan a la industria y que pueden afectar directamente a Bocar, como regulaciones, sindicatos, huelgas, suministro de energía que pueda afectar al sector, o en donde Bocar tiene ubicadas sus plantas, etc.
+Nivel 3 (Importante): Eventos que afectan a sus clientes, competencia, proveedores, insumos, llegada de nuevos potenciales clientes, etc 
+Nivel 4 (Relevante): Noticias que afectan a toda la industria, como aranceles, regulaciones, sindicatos, suministro etc.
+Nivel 5 (No relevante): Noticias que no tienen impacto para la empresa.
+
+Se te va a presentar una lista de noticias con un identificador, su título y un extracto, para que selecciones las notas relevantes
+
+responde en formato json como el siguiente ejemplo:

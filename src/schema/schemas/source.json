@@ -1,0 +1,60 @@
+{
+    "Source": {
+        "meta": {
+            "description": "Crawler target with domain, URLs, and crawling configuration"
+        },
+        "schema": {
+            "minutes_to_sleep":     {"type": "int",         "default": 90},
+            "domain":               {"type": "str",         "required": true},
+            "crawler_type":         {"type": "str",         "default": "not_local"},
+            "sitio":                {"type": "str",         "default_fn": "default_sitio_from_domain"},
+            "depth":                {"type": "int",         "default": 2},
+            "urls":                 {"type": "List[Url]",   "required": true},
+            "fecha_maxima":         {"type": "int",         "default": 14},
+            "type":                 {"type": "str",         "default": "site"},
+            "crawl_strategy":       {"type": "str",         "default": "classic"},
+            "date_added":           {"type": "datetime",    "default_fn": "date_now"},
+            "stats":                {"type": "SourceStats"}
+        }
+    },
+    "SourceStats": {
+        "meta": {
+            "description": "Statistics and metadata for a source site, including reach, trust, location, and computed tier/valuation"
+        },
+        "schema": {
+            "stats_date_updated":               {"type": "datetime",        "default_fn": "date_now"},
+            "source":                           {"type": "str"},
+            "reuters_trust_pct":                {"type": "float"},
+            "tier":                             {"type": "int",             "default_fn": "default_tier"},
+            "extracted_news":                   {"type": "int"},
+            "article_value":                    {"type": "int",             "default_fn": "default_valuacion"},
+            "website_visits":                   {"type": "int"},
+            "reach_offline":                    {"type": "int"},
+            "reach_facebook":                   {"type": "int"},
+            "reach_instagram":                  {"type": "int"},
+            "reach_x":                          {"type": "int"},
+            "reach_tiktok":                     {"type": "int"},
+            "reach_online":                     {"type": "int"},
+            "reach_youtube":                    {"type": "int"},
+            "fraccion":                         {"type": "str"},
+            "location_author_formatted_name":   {"type": "str"},
+            "location_author_geoid":            {"type": "str"},
+            "location_author_coords":           {"type": "LocationCoords"},
+            "location_author_precision_level":  {"type": "int"},
+            "location_author_level_1":          {"type": "str"},
+            "location_author_level_1_id":       {"type": "str"},
+            "location_author_level_2":          {"type": "str"},
+            "location_author_level_2_id":       {"type": "str"},
+            "location_author_level_3":          {"type": "str"},
+            "location_author_level_3_id":       {"type": "str"},
+            "location_author_level_4":          {"type": "str"},
+            "location_author_level_4_id":       {"type": "str"},
+            "location_author_level_5":          {"type": "str"},
+            "location_author_level_5_id":       {"type": "str"},
+            "location_author_level_6":          {"type": "str"},
+            "location_author_level_6_id":       {"type": "str"},
+            "location_author_level_7":          {"type": "str"},
+            "location_author_level_7_id":       {"type": "str"}
+        }
+    }
+}
