@@ -9,9 +9,6 @@ from src.schema.types.string_helpers import _is_valid_url
 from .read_schema import load_schema
 
 
-news_types = ["news", "X", "Facebook", "impreso", "Instagram", "Radio", "TV"]
-
-
 def date_now(*args, **kwargs) -> datetime:
     return datetime.now(tz=ZoneInfo("America/Mexico_City"))
 
@@ -32,29 +29,13 @@ def require_url(obj: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -
     return True
 
 
-_CALLABLES = {
+CALLABLES = {
     "date_now": date_now,
     "default_source_extra_found_source": default_source_extra_found_source,
     "require_url": require_url,
 }
 
-_loaded = load_schema(
+loaded = load_schema(
     Path(__file__).parent / "news.json",
-    callables=_CALLABLES,
+    callables=CALLABLES,
 )
-
-NEWS_SCHEMA = _loaded["schemas"]["News"]
-SOURCE_EXTRA_SCHEMA = _loaded["schemas"]["SourceExtra"]
-SOURCE_EXTRA_STATS_SCHEMA = _loaded["schemas"]["SourceExtraStats"]
-SUPPLIER_SCHEMA = _loaded["schemas"]["Supplier"]
-MESSAGE_WRAPPER_SCHEMA = _loaded["schemas"]["MessageWrapper"]
-
-__all__ = [
-    "NEWS_SCHEMA",
-    "SOURCE_EXTRA_SCHEMA",
-    "SOURCE_EXTRA_STATS_SCHEMA",
-    "SUPPLIER_SCHEMA",
-    "MESSAGE_WRAPPER_SCHEMA",
-    "default_timestamp_added",
-    "default_source_extra_found_source",
-]

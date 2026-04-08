@@ -53,10 +53,27 @@ def resolve_type_string(type_str: str) -> Any:
     m = _GENERIC_RE.match(type_str)
     if m:
         element_type = resolve_type_string(m.group(2))
+        if isinstance(element_type, str):
+            # Element is an object/composite reference — keep as plain string
+            # so Parser can detect it via object_schemas lookup.
+            return type_str
         return List[element_type]
 
     # Unrecognized — treat as nested object reference (keep as string)
     return type_str
+
+
+def extract_list_object_type(field_type: Any) -> Optional[str]:
+    """Extract element type name from a 'List[ObjectType]' string.
+
+    Returns the inner type name if field_type is a string like
+    'List[DateRangeFromUnstructured]', otherwise None.
+    """
+    if isinstance(field_type, str):
+        m = _GENERIC_RE.match(field_type)
+        if m:
+            return m.group(2)
+    return None
 
 
 # Cache for dynamically created generic parsers (e.g. List[str], List[Url])

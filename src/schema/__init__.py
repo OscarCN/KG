@@ -1,67 +1,23 @@
-from .schemas.source import (
-    SOURCE_SCHEMA,
-    SOURCE_STATS_SCHEMA,
-    LOCATION_COORDS_SCHEMA
-)
-from .schemas.news import (
-    NEWS_SCHEMA, 
-    SOURCE_EXTRA_SCHEMA, 
-    SOURCE_EXTRA_STATS_SCHEMA, 
-    SUPPLIER_SCHEMA,
-    MESSAGE_WRAPPER_SCHEMA
-)
+from .schemas.source import loaded as _source_loaded
+from .schemas.news import loaded as _news_loaded
 from .parse_object import Parser
-from .types import (
-    Url,
-    IntParser,
-    FloatParser,
-    StrParser,
-    BoolParser,
-    DateTimeParser,
-    UrlParser,
-    EnumStrParser,
-    TYPE_PARSER_MAP,
-    resolve_parser_from_spec
-)
+from .schemas.read_schema import load_schema
 
-# Unified schema exports
-SCHEMA = {
-    "Source": SOURCE_SCHEMA,
-    "SourceStats": SOURCE_STATS_SCHEMA,
-    "LocationCoords": LOCATION_COORDS_SCHEMA,
-    "News": NEWS_SCHEMA,
-    "SourceExtra": SOURCE_EXTRA_SCHEMA,
-    "SourceExtraStats": SOURCE_EXTRA_STATS_SCHEMA,
-    "Supplier": SUPPLIER_SCHEMA,
-    "MessageWrapper": MESSAGE_WRAPPER_SCHEMA
-}
+# Merged schemas and meta from all JSON schema files
+SCHEMAS = {**_source_loaded["schemas"], **_news_loaded["schemas"]}
+META = {**_source_loaded["meta"], **_news_loaded["meta"]}
 
-# Convenience function for normalizing records
-def normalize_record(record: dict, type_name: str = "Source", context: dict = None) -> dict:
-    """
-    Normalize a record using the schema system.
-    
-    Args:
-        record: Raw data dictionary to normalize
-        type_name: Type name to use for normalization (default: "Source")
-        context: Optional context for default functions
-        
-    Returns:
-        Normalized record dictionary
-    """
-    parser = Parser(SCHEMA)
+
+def normalize_record(record: dict, type_name: str, context: dict = None) -> dict:
+    """Normalize a record using the loaded schemas."""
+    parser = Parser(SCHEMAS)
     return parser.normalize_record(record, type_name, context)
 
 
 __all__ = [
-    "SCHEMA",
-    "SOURCE_SCHEMA",
-    "SOURCE_STATS_SCHEMA",
-    "NEWS_SCHEMA",
-    "SOURCE_EXTRA_SCHEMA", 
-    "SOURCE_EXTRA_STATS_SCHEMA", 
-    "SUPPLIER_SCHEMA",
-    "MESSAGE_WRAPPER_SCHEMA",
+    "SCHEMAS",
+    "META",
     "Parser",
-    "normalize_record"
+    "load_schema",
+    "normalize_record",
 ]

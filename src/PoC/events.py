@@ -118,7 +118,7 @@ def cleanstr(st):
 
 
 #searches = pn.read_excel('../scripts/resources/kg/events.xlsx')
-searches = pn.read_excel('../scripts/resources/kg/events_leon.xlsx')  # TODO: REMOVE BBOX
+searches = pn.read_excel('../resources/kg/events_leon.xlsx')  # TODO: REMOVE BBOX
 
 searches = searches.assign(subsection=searches['subsection'].map(lambda t: '' if pn.isnull(t) else t))
 
@@ -240,7 +240,7 @@ Para cada evento que encuentres en la noticia, si se menciona la fecha (real o e
 
 
 
-1. Tipo de evento (tipo_evento): obtén el tipo de evento del siguiente catálogo, usando la categoría que sea más específica al evento:
+1. Tipo de evento (tipo_evento): obtén el tipo de evento del siguiente catálogo, usando la categoría que sea más específica al evento (e.g. Concierto es más específico que Evento cultural):
 
 "Concierto"
 "Festival"
@@ -268,10 +268,11 @@ Para cada evento que encuentres en la noticia, si se menciona la fecha (real o e
 "Homicidio"
 "Enfrentamiento"
 "Ataque"
+"Detención"
 "Evento político"
 "Evento económico"
 "Evento climático"
-"Evento de seguridad"
+"Evento de seguridad"  (se refiere a eventos de seguridad pública, policía, etc. tales como asalto, ataques, balaceras, detenciones, etc.)
 "Entrada en vigor de una ley o regulación"
 "Otro"
 
@@ -365,10 +366,10 @@ Tres ejemplos:
 
 "ubicacion": {
     "pais": "México",
-    "estado": "Michoacán"
+    "estado": "Michoacán",
     "ciudad_municipio": "Morelia",
     "colonia": null,
-    "zona": zona centro,
+    "zona": "zona centro",
     "calle": "Mariano Escobedo",
     "numero": null,
     "lugar": "Teatro de la Ciudad"

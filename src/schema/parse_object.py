@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import copy
 
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
 from .types import resolve_parser_from_spec
+from .types.registry import extract_list_object_type
 
 # ------------------------------
 # Structure mapping and normalization
@@ -37,15 +38,20 @@ class Parser:
             raw_value = obj.get(field_name)
             
             if field_type in self.object_schemas:  # nested object type
-                
+
                 nested_from_flat = self.parse_object_structure(obj, field_type)
 
                 if nested_from_flat:
                     structured[field_name] = nested_from_flat
-                
+
                 if isinstance(raw_value, dict):
                     structured[field_name].update(raw_value)
-                
+
+                continue
+
+            element_type = extract_list_object_type(field_type)
+            if element_type and element_type in self.object_schemas:
+                structured[field_name] = raw_value if isinstance(raw_value, list) else []
                 continue
 
             structured[field_name] = raw_value
@@ -70,6 +76,11 @@ class Parser:
             # Top-level only: do not recurse into nested objects here
             if field_type in self.object_schemas:
                 parsed[field_name] = raw_value if isinstance(raw_value, dict) else {}
+                continue
+
+            element_type = extract_list_object_type(field_type)
+            if element_type and element_type in self.object_schemas:
+                parsed[field_name] = raw_value if isinstance(raw_value, list) else []
                 continue
 
             parser = resolve_parser_from_spec(spec)
@@ -128,12 +139,24 @@ class Parser:
         schema = self.object_schemas[type_name]
         for field_name, spec in schema.items():
             field_type = spec.get("type")
-            
+
             if field_type in self.object_schemas:
                 child_in = obj.get(field_name) if isinstance(obj.get(field_name), dict) else {}
                 child_out = self.traverse_nested(processor, child_in, field_type, full_object, context)
-            
                 result[field_name] = child_out
+                continue
+
+            element_type = extract_list_object_type(field_type)
+            if element_type and element_type in self.object_schemas:
+                items = obj.get(field_name) if isinstance(obj.get(field_name), list) else []
+                result[field_name] = [
+                    self.traverse_nested(
+                        processor,
+                        item if isinstance(item, dict) else {},
+                        element_type, full_object, context,
+                    )
+                    for item in items
+                ]
 
         return result
 

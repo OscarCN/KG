@@ -14,14 +14,16 @@ Three main subsystems:
 ## Architecture
 
 ### Schema system (`src/schema/`)
-- **`types.py`** — Type parsers (`IntParser`, `DateTimeParser`, `UrlParser`, etc.) with `parse()` and `validate()` methods. `resolve_parser_from_spec()` maps field specs to parsers.
+- **`schemas/*.json`** — Schema definitions in JSON with string type references, meta descriptions, `default_fn`/`required_fn` for callable defaults/validators.
+- **`schemas/read_schema.py`** — Loads JSON schemas, resolves type strings to Python types, wires callables, auto-resolves composite type dependencies.
+- **`schemas/source.py`, `schemas/news.py`** — Define callable defaults and load their respective JSON files.
+- **`types/`** — Type parsers (`IntParser`, `DateTimeParser`, `UrlParser`, etc.) with `parse()` and `validate()` methods. `registry.py` maps type strings to Python types and Python types to parsers.
+- **`types/composite_types.json`** — Reusable multi-field types (`LocationCoords`, `DateRangeFromUnstructured`, etc.) auto-resolved when referenced.
 - **`parse_object.py`** — `Parser` class. Core pipeline: `normalize_record()` → `parse_object_structure()` → `traverse_nested(parse_object_types)` → `traverse_nested(_apply_defaults)` → `traverse_nested(_validate)`.
-- **`schemas/news.py`** — `NEWS_SCHEMA` with nested `SOURCE_EXTRA_SCHEMA`, `SUPPLIER_SCHEMA`. Supports conditional requirements (e.g., URL required unless type is "impreso") and callable defaults.
-- **`schemas/source.py`** — `SOURCE_SCHEMA` for crawler targets with computed defaults (tier from website visits, sitio from domain).
 
 Usage:
 ```python
-from src.schema import Parser, SCHEMA, normalize_record
+from src.schema import SCHEMAS, META, normalize_record
 normalized = normalize_record(record, "Source")
 ```
 
@@ -55,8 +57,10 @@ The schema system can be used as a library with no external services.
 
 ## Important Conventions
 
-- Schemas are Python dicts (not Pydantic/dataclasses); field specs include `type`, `required`, `default` (can be callable with context), and `enum`.
-- External helper module `src.helpers.str_fn` is imported by `types.py` for URL validation and null checking (lives outside this repo).
+- Schemas are defined in JSON files (`schemas/*.json`), loaded via `load_schema()`. Callable defaults/validators stay in Python companion files and are referenced by name (`default_fn`, `required_fn`).
+- Reusable composite types live in `types/composite_types.json` and are auto-resolved by the loader.
 - External modules `utils.connections`, `utils.es`, `tools.lsh`, `es.es` are imported by PoC scripts (live outside this repo).
 - Datetimes default to Mexico City timezone (`America/Mexico_City`).
 - Event type taxonomy and prompts are in Spanish.
+- After each non-trivial change/implementation/fix, add or change the relevant documentation in README.md and/or any pertinent documentation sub-file (e.g. schema/readme_schema.md). After every change check that documentation files are kept consistent, and that none of their content is kept outdated
+- Keep all documentation files well organized, consistent, clear, complete and lean.

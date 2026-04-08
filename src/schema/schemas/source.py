@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Optional
 import re
 from datetime import datetime
 from pathlib import Path
@@ -48,20 +48,14 @@ def date_now(*args, **kwargs) -> datetime:
     return datetime.now()
 
 
-_CALLABLES = {
+CALLABLES = {
     "date_now": date_now,
     "default_sitio_from_domain": lambda obj, ctx: default_sitio_from_domain(obj.get("domain")),
     "default_tier": lambda obj, ctx: default_tier(obj.get("stats", {}).get("website_visits")),
     "default_valuacion": lambda obj, ctx: default_valuacion(obj.get("stats", {}).get("website_visits")),
 }
 
-_loaded = load_schema(
+loaded = load_schema(
     Path(__file__).parent / "source.json",
-    callables=_CALLABLES,
+    callables=CALLABLES,
 )
-
-SOURCE_SCHEMA = _loaded["schemas"]["Source"]
-SOURCE_STATS_SCHEMA = _loaded["schemas"]["SourceStats"]
-LOCATION_COORDS_SCHEMA = _loaded["schemas"]["LocationCoords"]  # auto-resolved from composite types
-
-__all__ = ["SOURCE_SCHEMA", "SOURCE_STATS_SCHEMA", "LOCATION_COORDS_SCHEMA", "default_sitio_from_domain"]

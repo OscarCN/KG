@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Optional, Union
 
 
-from src.schema.types.registry import resolve_type_string
+from src.schema.types.registry import resolve_type_string, extract_list_object_type
 from src.schema.types.composite_types import COMPOSITE_TYPES, COMPOSITE_META
 
 
@@ -111,9 +111,18 @@ def _resolve_composite_dependencies(
         current = to_check.pop()
         for spec in schemas[current].values():
             field_type = spec.get("type")
-            if isinstance(field_type, str) and field_type not in resolved:
-                if field_type in COMPOSITE_TYPES:
-                    schemas[field_type] = COMPOSITE_TYPES[field_type]
-                    meta[field_type] = COMPOSITE_META.get(field_type, {})
-                    resolved.add(field_type)
-                    to_check.add(field_type)
+            if not isinstance(field_type, str):
+                continue
+
+            # Direct object reference
+            type_name = field_type
+            # Or element type inside List[ObjectType]
+            element = extract_list_object_type(field_type)
+            if element:
+                type_name = element
+
+            if type_name not in resolved and type_name in COMPOSITE_TYPES:
+                schemas[type_name] = COMPOSITE_TYPES[type_name]
+                meta[type_name] = COMPOSITE_META.get(type_name, {})
+                resolved.add(type_name)
+                to_check.add(type_name)
