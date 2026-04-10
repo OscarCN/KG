@@ -1,0 +1,101 @@
+{
+    "PublicWorks": {
+        "meta": {
+            "description": "Public infrastructure issue or works project. Not necessarily an event but has a location and temporal data. Includes potholes, street lighting issues, paving, public transport problems, and general infrastructure. Extracted from news articles.",
+            "example": {
+                "event_type": "pothole",
+                "event_subtype": "road_damage",
+                "status": "reported",
+                "name": null,
+                "description": "Large pothole on Blvd. Adolfo Lopez Mateos causing traffic problems and vehicle damage.",
+                "tags": ["pothole", "road_damage", "blvd_lopez_mateos", "traffic"],
+                "context": "Neighbors have reported the issue multiple times. Municipal authorities say repairs are scheduled for next week.",
+                "relevance": 1,
+                "date_range": {
+                    "date_range": {"start": "2025-10-01T00:00:00", "end": null},
+                    "mention": "desde inicios de octubre"
+                },
+                "location": {
+                    "country": "Mexico",
+                    "state": "Guanajuato",
+                    "city": "Leon",
+                    "street": "Blvd. Adolfo Lopez Mateos"
+                },
+                "responsible_authority": "Direccion de Obras Publicas Municipal",
+                "affected_area": "tramo entre Blvd. Torres Landa y Blvd. Hidalgo",
+                "estimated_cost": {"mention": "500 mil pesos", "lower": 500000, "upper": 500000, "currency": "pesos"},
+                "completion_date": {
+                    "date": "2025-10-15T00:00:00",
+                    "mention": "la proxima semana",
+                    "precision_days": 7
+                }
+            }
+        },
+        "schema": {
+            "event_type": {
+                "type": "EnumStr",
+                "required": true,
+                "description": "Type of public works issue from the catalogue. Choose the single most specific category that matches.",
+                "enum": ["pothole", "street_lighting", "paving", "public_transport", "infrastructure", "trash_complaint", "water_issue", "sinkhole", "public_road"]
+            },
+            "event_subtype": {
+                "type": "str",
+                "description": "More specific subtype, e.g. 'road_damage', 'water_pipe_break', 'bus_route_change', 'bridge_repair', 'sewer_collapse', 'trash_odor', 'illegal_dumping', 'water_shortage', 'illegal_water_extraction', 'water_leak', 'sewage_overflow', 'road_sinkhole'."
+            },
+            "status": {
+                "type": "EnumStr",
+                "description": "Current status of the issue or works project.",
+                "enum": ["reported", "planned", "in_progress", "delayed", "completed", "cancelled"]
+            },
+            "name": {
+                "type": "str",
+                "description": "Name of the project if it has one, e.g. 'Rehabilitacion del Blvd. Torres Landa'."
+            },
+            "description": {
+                "type": "str",
+                "description": "Brief description of the issue or project."
+            },
+            "tags": {
+                "type": "List[str]",
+                "description": "Keywords describing the issue."
+            },
+            "context": {
+                "type": "str",
+                "description": "Contextual information: citizen complaints, political context, related projects."
+            },
+            "relevance": {
+                "type": "EnumStr",
+                "description": "Relevance within the article: 1 = main topic, 2 = secondary, 3 = implicit.",
+                "enum": ["1", "2", "3"]
+            },
+            "date_range": {
+                "type": "DateRangeFromUnstructured",
+                "description": "Date or date range when the issue was reported or the works started/are scheduled. Extract the start datetime and, if present, the end datetime."
+            },
+            "location": {
+                "type": "Location",
+                "description": "Location of the infrastructure issue or works project."
+            },
+            "responsible_authority": {
+                "type": "str",
+                "description": "Government agency or authority responsible for the issue or project."
+            },
+            "affected_area": {
+                "type": "str",
+                "description": "Description of the affected area or stretch, e.g. 'tramo entre Blvd. A y Blvd. B'."
+            },
+            "estimated_cost": {
+                "type": "PriceRange",
+                "description": "Estimated cost of works or repairs, with original mention, numeric bounds, and currency."
+            },
+            "completion_date": {
+                "type": "DateFromUnstructured",
+                "description": "Expected completion date for the works project, if mentioned."
+            },
+            "impact_description": {
+                "type": "str",
+                "description": "Description of the impact on traffic, services, or citizens."
+            }
+        }
+    }
+}

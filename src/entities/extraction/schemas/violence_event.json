@@ -1,0 +1,100 @@
+{
+    "ViolenceEvent": {
+        "meta": {
+            "description": "A violent incident such as a shooting, armed attack, homicide, or armed confrontation. Extracted from news articles.",
+            "example": {
+                "event_type": "shooting",
+                "event_subtype": "drive_by_shooting",
+                "status": "past",
+                "name": null,
+                "description": "Drive-by shooting in colonia Los Olivos left two people dead and one injured.",
+                "tags": ["shooting", "homicide", "colonia_los_olivos"],
+                "context": "The area has seen increased violence related to territorial disputes between criminal groups.",
+                "relevance": 1,
+                "date_range": {
+                    "date_range": {"start": "2025-09-20T03:15:00", "end": null},
+                    "mention": "la madrugada del sabado"
+                },
+                "location": {
+                    "country": "Mexico",
+                    "state": "Guanajuato",
+                    "city": "Leon",
+                    "neighborhood": "Los Olivos"
+                },
+                "casualties": {"mention": "dos muertos y un herido", "dead": 2, "injured": 1, "missing": 0},
+                "weapon": "firearm",
+                "perpetrator_description": "sujetos armados a bordo de un vehiculo"
+            }
+        },
+        "schema": {
+            "event_type": {
+                "type": "EnumStr",
+                "required": true,
+                "description": "Type of violent incident from the catalogue. Choose the single most specific category that matches.",
+                "enum": ["shooting", "attack", "homicide", "confrontation"]
+            },
+            "event_subtype": {
+                "type": "str",
+                "description": "More specific subtype, e.g. 'drive_by_shooting', 'stabbing', 'gang_confrontation', 'domestic_violence', 'femicide'."
+            },
+            "status": {
+                "type": "EnumStr",
+                "description": "Status of the incident as reported.",
+                "enum": ["past", "ongoing", "under_investigation"]
+            },
+            "name": {
+                "type": "str",
+                "description": "Name or identifier for the incident, if any. Usually null."
+            },
+            "description": {
+                "type": "str",
+                "description": "Brief description of the violent incident."
+            },
+            "tags": {
+                "type": "List[str]",
+                "description": "Keywords describing the incident."
+            },
+            "context": {
+                "type": "str",
+                "description": "Contextual information: security situation, related events, investigations."
+            },
+            "relevance": {
+                "type": "EnumStr",
+                "description": "Relevance within the article: 1 = main topic, 2 = secondary, 3 = implicit.",
+                "enum": ["1", "2", "3"]
+            },
+            "date_range": {
+                "type": "DateRangeFromUnstructured",
+                "description": "Date or date range when the violent incident occurred. Extract the start datetime and, if present, the end datetime."
+            },
+            "location": {
+                "type": "Location",
+                "description": "Location where the incident occurred."
+            },
+            "casualties": {
+                "type": "CasualtyCount",
+                "description": "Number of casualties (dead, injured, missing), if mentioned."
+            },
+            "weapon": {
+                "type": "str",
+                "description": "Weapon or means used, if mentioned. E.g. 'firearm', 'knife', 'explosive'."
+            },
+            "perpetrator_description": {
+                "type": "str",
+                "description": "Description of perpetrators, if mentioned."
+            },
+            "victim_description": {
+                "type": "str",
+                "description": "Description of victims (age, gender, occupation), if mentioned."
+            },
+            "responding_authority": {
+                "type": "str",
+                "description": "Law enforcement or authority that responded, if mentioned."
+            },
+            "motive": {
+                "type": "str",
+                "description": "Suspected motive if mentioned, e.g. 'territorial_dispute', 'personal_conflict', 'robbery'."
+            }
+        }
+    }
+}

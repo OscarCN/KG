@@ -1,0 +1,103 @@
+{
+    "PaidMassEvent": {
+        "meta": {
+            "description": "A mass event with public attendance such as a concert, festival, fair, sports event, religious event, congress, exposition, conference, convention, or inauguration. Extracted from news articles.",
+            "example": {
+                "event_type": "sports_event",
+                "event_subtype": "soccer_match",
+                "status": "planned",
+                "name": "Clasico America vs Chivas",
+                "description": "High-profile match between America and Chivas at Estadio Azteca, matchday 5 of Apertura 2025.",
+                "tags": ["soccer", "clasico", "america", "chivas", "estadio_azteca"],
+                "context": "Special security operation coordinated between the Secretaria de Seguridad Ciudadana and Liga MX. Partial road closures expected near the venue.",
+                "relevance": 1,
+                "date_range": {
+                    "date_range": {"start": "2025-08-10T18:00:00", "end": null},
+                    "mention": "el proximo domingo 10 de agosto a las 6 de la tarde"
+                },
+                "location": {
+                    "country": "Mexico",
+                    "state": "Ciudad de Mexico",
+                    "city": "Ciudad de Mexico",
+                    "neighborhood": "Santa Ursula Coapa",
+                    "zone": "zona sur",
+                    "street": "Calzada de Tlalpan",
+                    "place_name": "Estadio Azteca"
+                },
+                "attendance": {"mention": "mas de 60 mil aficionados", "estimate": 60000},
+                "venue_capacity": {"mention": "capacidad para 87 mil personas", "capacity": 87000},
+                "price": {"mention": "boletos entre 300 y 1500 pesos", "lower": 300, "upper": 1500, "currency": "pesos"}
+            }
+        },
+        "schema": {
+            "event_type": {
+                "type": "EnumStr",
+                "required": true,
+                "description": "Type of event from the catalogue. Choose the most specific category that matches.",
+                "enum": [
+                    "concert", "festival", "party", "fair",
+                    "religious_event", "sports_event", "congress", "exposition",
+                    "conference", "convention", "inauguration", "cultural_event"
+                ]
+            },
+            "event_subtype": {
+                "type": "str",
+                "description": "A more specific subtype given the context. For example, if event_type is 'sports_event', the subtype could be 'soccer_match', 'baseball_game', etc."
+            },
+            "status": {
+                "type": "EnumStr",
+                "description": "Current status of the event as reported in the article.",
+                "enum": ["planned", "past", "suspended", "ongoing", "cancelled", "postponed"]
+            },
+            "name": {
+                "type": "str",
+                "description": "Name of the event if it has one, or a descriptive name. For example: 'Clasico America vs Chivas', 'Cuarta Feria de la Fresa'. Null if no name can be determined."
+            },
+            "description": {
+                "type": "str",
+                "description": "Brief free-text description of the event."
+            },
+            "tags": {
+                "type": "List[str]",
+                "description": "Keywords that describe the event, including names of participants, places, organizations, and relevant topics."
+            },
+            "context": {
+                "type": "str",
+                "description": "Free-text summary of the general context surrounding the event: security measures, related announcements, historical context, etc."
+            },
+            "relevance": {
+                "type": "EnumStr",
+                "description": "How relevant the event is within the article: 1 = main topic, 2 = mentioned secondarily, 3 = only implicitly mentioned.",
+                "enum": ["1", "2", "3"]
+            },
+            "date_range": {
+                "type": "DateRangeFromUnstructured",
+                "description": "Date or date range of the event. Extract the start and optionally end datetime. If only an approximate period is mentioned (e.g. 'late this year'), estimate a reasonable start date and set precision_days to reflect the uncertainty."
+            },
+            "location": {
+                "type": "Location",
+                "description": "Location where the event takes place. Fill only fields explicitly mentioned in the text."
+            },
+            "attendance": {
+                "type": "Attendance",
+                "description": "Estimated attendance or number of participants, if mentioned in the article."
+            },
+            "venue_capacity": {
+                "type": "VenueCapacity",
+                "description": "Capacity of the venue, if mentioned in the article."
+            },
+            "price": {
+                "type": "PriceRange",
+                "description": "Ticket price or price range for attendees, if mentioned. Set lower=0 and upper=0 if the event is free."
+            },
+            "organizer": {
+                "type": "str",
+                "description": "Name of the organizing entity, promoter, or responsible party, if mentioned."
+            },
+            "performer": {
+                "type": "str",
+                "description": "Name of the main performer, speaker, team, or featured participant, if applicable and mentioned."
+            }
+        }
+    }
+}

@@ -1,0 +1,106 @@
+{
+    "Protest": {
+        "meta": {
+            "description": "A protest, march, demonstration, or civic mobilization. Includes organized marches, sit-ins, rallies, and any collective public action where citizens or groups demand attention to a cause. Distinct from blockades (which focus on road/service interruption) — protests are about the social/political demand itself. Extracted from news articles.",
+            "example": {
+                "event_type": "protest",
+                "event_subtype": "march",
+                "status": "past",
+                "name": null,
+                "description": "Hundreds of teachers marched from the central plaza to the government palace demanding salary increases.",
+                "tags": ["protest", "teachers", "salary", "march"],
+                "context": "The teachers' union has been in negotiations with the state government for three months without agreement.",
+                "relevance": 1,
+                "date_range": {
+                    "date_range": {"start": "2025-10-10T10:00:00", "end": "2025-10-10T14:00:00"},
+                    "mention": "la manana del viernes, de 10am a 2pm"
+                },
+                "location": {
+                    "country": "Mexico",
+                    "state": "Guanajuato",
+                    "city": "Leon",
+                    "place_name": "Plaza Principal"
+                },
+                "organizer": "Sindicato Nacional de Trabajadores de la Educacion (SNTE)",
+                "participant_count": {"mention": "cientos de maestros", "estimate": 300},
+                "demand": "aumento salarial del 20%",
+                "route": "de la Plaza Principal al Palacio de Gobierno",
+                "affected_services": "trafico reducido en el centro historico durante 4 horas"
+            }
+        },
+        "schema": {
+            "event_type": {
+                "type": "EnumStr",
+                "required": true,
+                "description": "Type of protest or civic mobilization. Choose the single most specific category that matches.",
+                "enum": ["protest"]
+            },
+            "event_subtype": {
+                "type": "str",
+                "description": "More specific subtype, e.g. 'march', 'sit_in', 'rally', 'picket', 'vigil', 'strike', 'demonstration'."
+            },
+            "status": {
+                "type": "EnumStr",
+                "description": "Current status of the protest.",
+                "enum": ["planned", "ongoing", "past", "dispersed"]
+            },
+            "name": {
+                "type": "str",
+                "description": "Name of the protest or movement, if it has one."
+            },
+            "description": {
+                "type": "str",
+                "description": "Brief description of the protest."
+            },
+            "tags": {
+                "type": "List[str]",
+                "description": "Keywords describing the protest."
+            },
+            "context": {
+                "type": "str",
+                "description": "Contextual information: political background, prior negotiations, related protests."
+            },
+            "relevance": {
+                "type": "EnumStr",
+                "description": "Relevance within the article: 1 = main topic, 2 = secondary, 3 = implicit.",
+                "enum": ["1", "2", "3"]
+            },
+            "date_range": {
+                "type": "DateRangeFromUnstructured",
+                "description": "Date or date range of the protest. Extract the start datetime and, if present, the end datetime."
+            },
+            "location": {
+                "type": "Location",
+                "description": "Location where the protest took place or is planned."
+            },
+            "organizer": {
+                "type": "str",
+                "description": "Group, union, organization, or movement that organized the protest."
+            },
+            "participant_count": {
+                "type": "Attendance",
+                "description": "Estimated number of participants, with original text mention and numeric estimate."
+            },
+            "demand": {
+                "type": "str",
+                "description": "What the protesters are demanding or the cause they are supporting."
+            },
+            "route": {
+                "type": "str",
+                "description": "March route, if mentioned (e.g. 'de la Plaza Principal al Palacio de Gobierno')."
+            },
+            "affected_services": {
+                "type": "str",
+                "description": "Description of traffic, transit, or services affected by the protest."
+            },
+            "authorities_response": {
+                "type": "str",
+                "description": "Response from authorities (police presence, negotiations, statements), if mentioned."
+            },
+            "incidents": {
+                "type": "str",
+                "description": "Any incidents during the protest (clashes, arrests, injuries), if mentioned."
+            }
+        }
+    }
+}

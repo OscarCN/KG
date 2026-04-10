@@ -1,0 +1,100 @@
+{
+    "Emergency": {
+        "meta": {
+            "description": "An emergency incident such as a fire, vehicle crash, explosion, flood, accident, or general emergency. Extracted from news articles.",
+            "example": {
+                "event_type": "fire",
+                "event_subtype": "structural_fire",
+                "status": "past",
+                "name": null,
+                "description": "Fire breaks out in a warehouse in the industrial zone, firefighters responded for 4 hours.",
+                "tags": ["fire", "warehouse", "industrial_zone", "firefighters"],
+                "context": "The warehouse stored chemical products. No injuries reported but nearby businesses were evacuated as a precaution.",
+                "relevance": 1,
+                "date_range": {
+                    "date_range": {"start": "2025-09-18T14:30:00", "end": "2025-09-18T18:30:00"},
+                    "mention": "el incendio inicio a las 2:30 de la tarde y fue controlado 4 horas despues"
+                },
+                "location": {
+                    "country": "Mexico",
+                    "state": "Guanajuato",
+                    "city": "Leon",
+                    "zone": "zona industrial"
+                },
+                "casualties": {"mention": "sin lesionados", "dead": 0, "injured": 0, "missing": 0},
+                "damage_description": "bodega con productos quimicos destruida, negocios cercanos evacuados",
+                "response_agencies": "Bomberos de Leon, Proteccion Civil"
+            }
+        },
+        "schema": {
+            "event_type": {
+                "type": "EnumStr",
+                "required": true,
+                "description": "Type of emergency from the catalogue. Choose the single most specific category that matches.",
+                "enum": ["fire", "crash", "explosion", "flood", "accident", "pedestrian_hit", "emergency_general"]
+            },
+            "event_subtype": {
+                "type": "str",
+                "description": "More specific subtype, e.g. 'structural_fire', 'wildfire', 'car_crash', 'bus_accident', 'gas_explosion', 'flash_flood', 'industrial_accident', 'hit_and_run', 'pedestrian_struck'."
+            },
+            "status": {
+                "type": "EnumStr",
+                "description": "Current status of the emergency.",
+                "enum": ["ongoing", "past", "under_control", "under_investigation"]
+            },
+            "name": {
+                "type": "str",
+                "description": "Name or identifier for the emergency, if any. Usually null."
+            },
+            "description": {
+                "type": "str",
+                "description": "Brief description of the emergency."
+            },
+            "tags": {
+                "type": "List[str]",
+                "description": "Keywords describing the emergency."
+            },
+            "context": {
+                "type": "str",
+                "description": "Contextual information: causes, related conditions, previous incidents."
+            },
+            "relevance": {
+                "type": "EnumStr",
+                "description": "Relevance within the article: 1 = main topic, 2 = secondary, 3 = implicit.",
+                "enum": ["1", "2", "3"]
+            },
+            "date_range": {
+                "type": "DateRangeFromUnstructured",
+                "description": "Date or date range of the emergency. Extract the start datetime and, if present, the end datetime."
+            },
+            "location": {
+                "type": "Location",
+                "description": "Location of the emergency."
+            },
+            "casualties": {
+                "type": "CasualtyCount",
+                "description": "Casualty count (dead, injured, missing), if mentioned."
+            },
+            "damage_description": {
+                "type": "str",
+                "description": "Description of material or property damage."
+            },
+            "response_agencies": {
+                "type": "str",
+                "description": "Agencies or services that responded (firefighters, civil protection, paramedics, etc.)."
+            },
+            "cause": {
+                "type": "str",
+                "description": "Cause of the emergency, if mentioned or suspected."
+            },
+            "vehicles_involved": {
+                "type": "CountMention",
+                "description": "Number of vehicles involved in traffic accidents/crashes, with original text mention and parsed count."
+            },
+            "evacuations": {
+                "type": "str",
+                "description": "Description of evacuations, if any occurred."
+            }
+        }
+    }
+}

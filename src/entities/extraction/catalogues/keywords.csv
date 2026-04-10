@@ -1,0 +1,77 @@
+keyword,event_type,match_type
+concierto,concert,exact
+festival,festival,exact
+fiesta,party,exact
+feria,fair,exact
+inauguracion,inauguration,exact
+inaugurar,inauguration,stem
+convencion,convention,exact
+teatro,cultural_event,exact
+expo,exposition,exact
+exposicion,exposition,exact
+congreso,congress,exact
+conferencia,conference,exact
+estadio,sports_event,exact
+partido,sports_event,exact
+torneo,sports_event,exact
+liga,sports_event,exact
+evento deportivo,sports_event,exact
+evento cultural,cultural_event,exact
+evento religioso,religious_event,exact
+peregrinacion,religious_event,exact
+procesion,religious_event,exact
+misa,religious_event,exact
+robo,robbery,exact
+robar,robbery,stem
+asalto,assault,exact
+asaltar,assault,stem
+atraco,assault,exact
+bache,pothole,exact
+alumbrado,street_lighting,exact
+pavimentacion,paving,exact
+pavimentar,paving,stem
+transporte publico,public_transport,exact
+infraestructura,infrastructure,exact
+obra publica,infrastructure,exact
+balacera,shooting,exact
+balazo,shooting,stem
+tiroteo,shooting,exact
+ataque,attack,exact
+atacar,attack,stem
+homicidio,homicide,exact
+asesinato,homicide,exact
+asesinar,homicide,stem
+enfrentamiento,confrontation,exact
+bloqueo,blockade,exact
+bloquear,blockade,stem
+marcha,blockade,exact
+manifestacion,blockade,exact
+cierre,closure,exact
+cerrar,closure,stem
+cierre de calle,closure,exact
+cierre de carretera,closure,exact
+suspension,suspension_of_operations,exact
+suspender,suspension_of_operations,stem
+incendio,fire,exact
+choque,crash,exact
+chocar,crash,stem
+accidente,accident,exact
+explosion,explosion,exact
+explotar,explosion,stem
+inundacion,flood,exact
+inundar,flood,stem
+emergencia,emergency_general,exact
+detencion,arrest,exact
+detener,arrest,stem
+arrestar,arrest,stem
+arresto,arrest,exact
+captura,arrest,exact
+capturar,arrest,stem
+Emergencias,emergency_general,category
+Seguridad,security_event,category
+Infraestructura>Cierres e interrupciones,closure,category
+Arte cultura y entretenimiento>Eventos culturales,cultural_event,category
+Arte cultura y entretenimiento>Eventos,cultural_event,category
+Arte cultura y entretenimiento>Musica,concert,category
+Cultura,cultural_event,category
+Deportes,sports_event,category

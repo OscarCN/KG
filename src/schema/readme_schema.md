@@ -127,10 +127,21 @@ Defined in `types/composite_types.json`:
 - **PeriodDates** — `{start: datetime, end: datetime}`
 - **DateRange** — `{date_range: PeriodDates, timezone: str}`
 - **DateRangeFromUnstructured** — `{date_range: PeriodDates, timezone: str, mention: str, precision_days: int}`
+- **Location** — `{country: str, state: str, city: str, neighborhood: str, zone: str, street: str, number: str, place_name: str}`
+- **PriceRange** — `{mention: str, lower: float, upper: float, currency: str}`
+- **Attendance** — `{mention: str, estimate: int}`
+- **VenueCapacity** — `{mention: str, capacity: int}`
+- **CasualtyCount** — `{mention: str, dead: int, injured: int, missing: int}`
+- **PersonReference** — `{name: str, role: str, organization: str}`
 
-Example value:
+Example value (DateRangeFromUnstructured):
 ```json
 {"date_range": {"start": "2026-01-07", "end": null}, "timezone": null, "mention": "se llevará a cabo en la segunda semana de enero", "precision_days": 7}
+```
+
+Example value (Location):
+```json
+{"country": "Mexico", "state": "Guanajuato", "city": "Leon", "neighborhood": null, "zone": "zona centro", "street": "Blvd. Lopez Mateos", "number": null, "place_name": "Teatro del Bicentenario"}
 ```
 
 To add a new composite type:

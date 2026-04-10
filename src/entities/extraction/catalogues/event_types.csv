@@ -1,0 +1,43 @@
+event_type,supertype,label_es,label_en
+concert,paid_mass_event,Concierto,Concert
+festival,paid_mass_event,Festival,Festival
+party,paid_mass_event,Fiesta,Party
+fair,paid_mass_event,Feria,Fair
+cultural_event,paid_mass_event,Evento cultural,Cultural event
+religious_event,paid_mass_event,Evento religioso,Religious event
+sports_event,paid_mass_event,Evento deportivo,Sports event
+congress,paid_mass_event,Congreso,Congress
+exposition,paid_mass_event,Exposicion,Exposition
+conference,paid_mass_event,Conferencia,Conference
+convention,paid_mass_event,Convencion,Convention
+inauguration,paid_mass_event,Inauguracion,Inauguration
+robbery,robbery_assault,Robo,Robbery
+assault,robbery_assault,Asalto,Assault
+kidnapping,robbery_assault,Secuestro,Kidnapping
+security_event,robbery_assault,Evento de seguridad,Security event
+pothole,public_works,Bache,Pothole
+street_lighting,public_works,Alumbrado publico,Street lighting
+paving,public_works,Pavimentacion,Paving
+public_transport,public_works,Transporte publico,Public transport
+infrastructure,public_works,Infraestructura,Infrastructure
+trash_complaint,public_works,Problema de basura,Trash complaint
+water_issue,public_works,Problema de agua,Water issue
+sinkhole,public_works,Socavon,Sinkhole
+public_road,public_works,Via publica,Public road
+shooting,violence_event,Balacera,Shooting
+attack,violence_event,Ataque,Attack
+homicide,violence_event,Homicidio,Homicide
+confrontation,violence_event,Enfrentamiento,Confrontation
+blockade,closures_interruptions,Bloqueo,Blockade
+closure,closures_interruptions,Cierre,Closure
+suspension_of_operations,closures_interruptions,Suspension de operaciones,Suspension of operations
+fire,emergency,Incendio,Fire
+crash,emergency,Choque,Crash
+explosion,emergency,Explosion,Explosion
+flood,emergency,Inundacion,Flood
+accident,emergency,Accidente,Accident
+pedestrian_hit,emergency,Atropellamiento,Pedestrian hit
+emergency_general,emergency,Emergencia,Emergency
+protest,protest,Protesta,Protest
+arrest,arrest,Detencion,Arrest
+detention,arrest,Detencion preventiva,Detention

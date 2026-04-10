@@ -37,4 +37,11 @@ COMPOSITE_TYPE_CATALOG = {
     "PeriodDates":                {"file": "types/composite_types.json", "description": "Date period with a start and end datetime"},
     "DateRange":                  {"file": "types/composite_types.json", "description": "Date range with timezone"},
     "DateRangeFromUnstructured":  {"file": "types/composite_types.json", "description": "Date period extracted from unstructured text, with original mention and precision in days"},
+    "Location":                   {"file": "types/composite_types.json", "description": "Structured location with hierarchical geographic fields and optional named place"},
+    "PriceRange":                 {"file": "types/composite_types.json", "description": "Price/cost range with original mention, numeric bounds, and currency"},
+    "Attendance":                 {"file": "types/composite_types.json", "description": "Estimated attendance with original mention and numeric estimate"},
+    "VenueCapacity":              {"file": "types/composite_types.json", "description": "Venue capacity with original mention and numeric value"},
+    "CasualtyCount":              {"file": "types/composite_types.json", "description": "Casualty count (dead, injured, missing) with original mention"},
+    "CountMention":               {"file": "types/composite_types.json", "description": "Numeric count with original text mention and confidence range"},
+    "PersonReference":            {"file": "types/composite_types.json", "description": "Reference to a person with name, role, and organization"},
 }

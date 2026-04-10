@@ -1,0 +1,102 @@
+{
+    "RobberyAssault": {
+        "meta": {
+            "description": "A robbery, assault, or property/person crime incident. Includes theft, mugging, carjacking, and general security events involving property or personal crime. Extracted from news articles.",
+            "example": {
+                "event_type": "robbery",
+                "event_subtype": "carjacking",
+                "status": "past",
+                "name": null,
+                "description": "Armed carjacking reported on Blvd. Lopez Mateos, where two suspects stole a vehicle at gunpoint.",
+                "tags": ["carjacking", "armed_robbery", "blvd_lopez_mateos"],
+                "context": "Authorities report an increase in carjackings in the area over the past month.",
+                "relevance": 1,
+                "date_range": {
+                    "date_range": {"start": "2025-09-15T22:30:00", "end": null},
+                    "mention": "la noche del lunes 15 de septiembre"
+                },
+                "location": {
+                    "country": "Mexico",
+                    "state": "Guanajuato",
+                    "city": "Leon",
+                    "street": "Blvd. Lopez Mateos"
+                },
+                "victim_count": {"mention": "una persona", "count": 1, "confidence_range": null},
+                "weapon": "firearm",
+                "stolen_items": "vehiculo sedan color blanco",
+                "suspect_description": "dos hombres encapuchados",
+                "arrests_made": false
+            }
+        },
+        "schema": {
+            "event_type": {
+                "type": "EnumStr",
+                "required": true,
+                "description": "Type of crime from the catalogue. Choose the single most specific category that matches.",
+                "enum": ["robbery", "assault", "kidnapping", "security_event"]
+            },
+            "event_subtype": {
+                "type": "str",
+                "description": "More specific subtype, e.g. 'carjacking', 'home_burglary', 'mugging', 'armed_robbery', 'pickpocketing', 'express_kidnapping', 'ransom_kidnapping'."
+            },
+            "status": {
+                "type": "EnumStr",
+                "description": "Status of the incident as reported.",
+                "enum": ["past", "ongoing", "under_investigation"]
+            },
+            "name": {
+                "type": "str",
+                "description": "Name or identifier for the incident, if any. Usually null for common crimes."
+            },
+            "description": {
+                "type": "str",
+                "description": "Brief free-text description of the incident."
+            },
+            "tags": {
+                "type": "List[str]",
+                "description": "Keywords describing the incident."
+            },
+            "context": {
+                "type": "str",
+                "description": "Contextual information mentioned in the article."
+            },
+            "relevance": {
+                "type": "EnumStr",
+                "description": "Relevance within the article: 1 = main topic, 2 = secondary, 3 = implicit.",
+                "enum": ["1", "2", "3"]
+            },
+            "date_range": {
+                "type": "DateRangeFromUnstructured",
+                "description": "Date or date range when the incident occurred. Extract the start datetime and, if present, the end datetime."
+            },
+            "location": {
+                "type": "Location",
+                "description": "Location where the incident occurred."
+            },
+            "victim_count": {
+                "type": "CountMention",
+                "description": "Number of victims, with original text mention and parsed count."
+            },
+            "weapon": {
+                "type": "str",
+                "description": "Weapon used, if mentioned. E.g. 'firearm', 'knife', 'blunt_object'."
+            },
+            "stolen_items": {
+                "type": "str",
+                "description": "Description of stolen items or property, if mentioned."
+            },
+            "suspect_description": {
+                "type": "str",
+                "description": "Description of suspects, if mentioned."
+            },
+            "arrests_made": {
+                "type": "bool",
+                "description": "Whether arrests were reported in connection with the incident."
+            },
+            "responding_authority": {
+                "type": "str",
+                "description": "Law enforcement or authority that responded, if mentioned."
+            }
+        }
+    }
+}

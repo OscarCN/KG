@@ -1,0 +1,173 @@
+SYSTEM:
+
+Eres un modelo para extraer información estructurada de incidentes delictivos en artículos de noticias. Se te van a presentar instrucciones para resolver la tarea, algunos ejemplos, y posteriormente una noticia para que extraigas la información. El tipo de fuente es {source_type}; si es una publicación de red social, la fecha de publicación ({date_now}) puede servir como referencia cuando no se menciona una fecha explícita en el texto.
+
+
+USER:
+
+Buscamos incidentes de robo, asalto o delitos contra la propiedad o las personas descritos en un artículo de noticias. Incluye robos a casa habitación, robos a transeúnte, asaltos a mano armada, robos de vehículos, carterismo, y eventos generales de seguridad pública relacionados con este tipo de delitos.
+
+Para cada incidente mencionado en la nota, extrae los siguientes campos. Si no se menciona un campo, deja su valor null. No inventes incidentes, solo extrae lo que esté explícitamente relacionado en la nota.
+
+
+
+1. Tipo de incidente (event_type): obtén el tipo de incidente del siguiente catálogo, usando la categoría que sea más específica:
+
+"robbery" — Robo: sustracción de bienes o propiedad (robo a casa, robo de vehículo, robo a negocio, etc.)
+"assault" — Asalto: agresión directa contra una persona con intención de robo o daño (asalto a mano armada, atraco, etc.)
+"security_event" — Evento de seguridad: evento general de seguridad pública relacionado con delitos contra la propiedad o personas, que no encaja claramente en robo o asalto
+
+
+
+2. Subtipo de incidente (event_subtype): propón un subtipo más específico dado el contexto. Por ejemplo:
+
+Si el tipo es "robbery": "carjacking", "home_burglary", "store_robbery", "highway_robbery", "pickpocketing"
+Si el tipo es "assault": "armed_mugging", "street_assault", "aggravated_assault"
+Si el tipo es "security_event": "attempted_robbery", "suspicious_activity"
+
+
+
+3. Estatus del incidente (status): el estatus actual según lo reportado en la noticia, del siguiente catálogo:
+
+"past" — El incidente ya ocurrió
+"ongoing" — El incidente está en curso
+"under_investigation" — El incidente está siendo investigado
+
+
+
+4. Nombre (name): Si el incidente tiene un nombre o identificador conocido, escríbelo. Para delitos comunes, generalmente no hay nombre, deja el valor null.
+
+
+
+5. Descripción (description): Redacta un texto libre con una descripción breve del incidente.
+
+
+
+6. Etiquetas (tags): palabras clave que describan el incidente.
+
+Por ejemplo:
+
+"tags": ["robo", "vehículo", "arma de fuego", "blvd lopez mateos"]
+
+
+
+7. Contexto (context): Si la información existe, escribe un texto libre resumiendo el contexto: tendencias delictivas en la zona, respuesta policial, incidentes relacionados, declaraciones de autoridades, etc.
+
+
+
+8. Relevancia en la noticia (relevance): La relevancia que tiene el incidente en la noticia, escoge entre:
+
+1 — Si el incidente es el tema principal de la nota
+2 — Si el incidente se menciona secundariamente
+3 — Si el incidente sólo se menciona implícitamente
+
+
+
+9. Fecha del incidente (date_range): Extrae la fecha o periodo en que ocurrió el incidente. Responde con el texto tal cual se menciona en la nota (mention), un periodo de fechas con inicio y fin (date_range), la zona horaria si se menciona (timezone), y la precisión en días si la fecha es aproximada (precision_days).
+
+Si solo se menciona un periodo aproximado (por ejemplo, "la semana pasada", "el fin de semana"), interpreta un periodo estimado razonable, y escribe la fecha inicial junto con un rango de precisión en días.
+
+Tres ejemplos:
+
+"date_range": { "mention": "la madrugada del lunes 15 de septiembre", "date_range": { "start": "2025-09-15T03:00:00", "end": null } }
+
+"date_range": { "mention": "durante el fin de semana", "date_range": { "start": "2025-09-13T00:00:00", "end": "2025-09-14T23:59:00" }, "precision_days": 2 }
+
+"date_range": { "mention": "la semana pasada", "date_range": { "start": "2025-09-08T00:00:00", "end": "2025-09-14T23:59:00" }, "precision_days": 7 }
+
+Usa el formato estandarizado de fechas "YYYY-MM-DDTHH:MM:SS"
+Como contexto, la fecha de hoy es {date_now}
+
+
+
+10. Ubicación (location): Si el incidente ocurrió en alguna ubicación, extrae los datos de ubicación de manera estructurada, en el siguiente formato:
+
+"location": {
+    "country": "México",
+    "state": "Guanajuato",
+    "city": "León",
+    "neighborhood": "Centro",
+    "zone": "zona centro",
+    "street": "Blvd. López Mateos",
+    "number": null,
+    "place_name": "Plaza Mayor"
+}
+
+Llena solo los campos mencionados explícitamente en la nota. En el campo de "place_name" escribe el nombre propio del lugar, sólo si es un lugar geográfico identificable en un mapa (tienda, plaza, banco, gasolinera con nombre propio, etc.). No agregues descripciones genéricas. Si no se menciona, deja el valor null.
+
+Si el incidente involucra varias ubicaciones, escribe una lista: "location": [ { "country": "México", ... }, { "country": "México", ... } ]
+
+
+
+11. Número de víctimas (victim_count): Si se menciona el número de víctimas, extrae la mención original del texto, el número interpretado, y un rango de confianza si la mención no es exacta. Formato: {"mention": "texto original", "count": número, "confidence_range": rango_o_null}. Si la cifra es exacta (e.g. "una persona"), confidence_range es null. Si es aproximada (e.g. "varias personas"), indica un rango +/- razonable. Si no se menciona, deja null.
+
+
+
+12. Arma utilizada (weapon): Si se menciona un arma o medio utilizado, extráelo. Ejemplos: "arma de fuego", "cuchillo", "objeto contundente". Si no se menciona, deja null.
+
+
+
+13. Objetos robados (stolen_items): Descripción de los bienes o artículos robados, si se mencionan. Por ejemplo: "vehículo sedán color blanco", "celulares y carteras de los pasajeros", "mercancía del negocio valuada en 50 mil pesos". Si no se menciona, deja null.
+
+
+
+14. Descripción de sospechosos (suspect_description): Descripción de los presuntos responsables, si se menciona. Por ejemplo: "dos hombres encapuchados", "sujeto de aproximadamente 30 años con tatuajes en el brazo". Si no se menciona, deja null.
+
+
+
+15. Detenciones realizadas (arrests_made): Si se reportan detenciones en relación con el incidente, responde true. Si explícitamente se dice que no hay detenidos, responde false. Si no se menciona, deja null.
+
+
+
+16. Autoridad que respondió (responding_authority): La autoridad o corporación que atendió el incidente, si se menciona. Por ejemplo: "Policía Municipal de León", "Guardia Nacional", "Fiscalía General del Estado". Si no se menciona, deja null.
+
+
+
+Formato de respuesta:
+
+Responde con una lista en formato JSON, donde cada elemento representa un incidente detectado en la nota. No añadas texto adicional fuera del JSON.
+
+Ejemplo de formato esperado:
+
+[
+  {
+    "event_type": "robbery",
+    "event_subtype": "carjacking",
+    "status": "past",
+    "name": null,
+    "description": "Robo de vehículo a mano armada sobre el Blvd. López Mateos, donde dos sujetos despojaron a una persona de su automóvil bajo amenaza con arma de fuego.",
+    "tags": ["robo", "vehículo", "arma_de_fuego", "blvd_lopez_mateos"],
+    "context": "Las autoridades reportan un incremento de robos de vehículos en la zona durante el último mes. La policía municipal ha implementado operativos de vigilancia en bulevares principales.",
+    "relevance": 1,
+    "date_range": {
+      "mention": "la noche del lunes 15 de septiembre",
+      "date_range": {
+        "start": "2025-09-15T22:30:00",
+        "end": null
+      }
+    },
+    "location": {
+      "country": "México",
+      "state": "Guanajuato",
+      "city": "León",
+      "neighborhood": null,
+      "zone": null,
+      "street": "Blvd. López Mateos",
+      "number": null,
+      "place_name": null
+    },
+    "victim_count": {"mention": "una persona", "count": 1, "confidence_range": null},
+    "weapon": "arma de fuego",
+    "stolen_items": "vehículo sedán color blanco",
+    "suspect_description": "dos hombres encapuchados",
+    "arrests_made": false,
+    "responding_authority": "Policía Municipal de León"
+  }
+]
+
+
+USER:
+
+La noticia es la siguiente:
+
+{body}

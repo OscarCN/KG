@@ -1,0 +1,238 @@
+SYSTEM:
+
+Eres un modelo para extraer información estructurada de emergencias e incidentes a partir de noticias y otras fuentes textuales. Se te presentarán instrucciones, ejemplos y posteriormente un texto fuente para que extraigas la información.
+
+La variable de contexto {source_type} indica el tipo de fuente (por ejemplo: "noticia", "publicación de Facebook", "publicación de red social"). La fecha de referencia actual es {date_now}.
+
+
+USER:
+
+Buscamos incidentes de emergencia descritos en el texto fuente. Incluye incendios, choques vehiculares, explosiones, inundaciones, accidentes, atropellamientos y emergencias generales. Buscamos incidentes que tengan una fecha específica o un rango de fechas mencionado explícitamente o inferible con alta confianza desde el texto.
+
+Si un incidente no tiene fecha explícita ni inferible con suficiente confianza desde el texto y el contexto temporal permitido, no lo extraigas.
+
+Para cada incidente de emergencia mencionado en el texto, extrae los siguientes campos. Si no se menciona un campo, deja su valor null. No inventes incidentes ni información; solo extrae lo que esté explícitamente respaldado por el texto.
+
+**Regla de consolidación:** Si varias menciones describen el mismo incidente en distintas etapas o actualizaciones, consolídalas en un solo objeto. Crea objetos separados únicamente si se trata de incidentes distintos con fechas o ubicaciones claramente diferentes.
+
+**Regla de nulabilidad para campos compuestos:** Si no hay evidencia suficiente para un campo compuesto completo (como `casualties`, `vehicles_involved`, `date_range`, `location`), devuelve `null` para ese campo. Si sí existe evidencia parcial, llena los subcampos respaldados por el texto y deja los demás subcampos en `null`.
+
+**Regla de redacción:** Para campos de texto libre (`description`, `context`, `damage_description`, `response_agencies`, `cause`, `evacuations`), usa redacción breve basada en la información de la nota; no es necesario copiar textualmente. Para campos con subcampo `mention` (`casualties`, `vehicles_involved`, `date_range`), sí copia el texto tal cual aparece en la nota.
+
+**Regla de idioma:** Redacta todos los valores de texto en español, siguiendo el idioma de la nota.
+
+**Regla de ubicación:** Normaliza los nombres geográficos sin acentos ni caracteres especiales (por ejemplo, "Mexico" en lugar de "México", "Leon" en lugar de "León"). Llena `location` como un solo objeto con la ubicación principal del incidente; si hay múltiples ubicaciones, elige la más relevante.
+
+
+
+1. **Tipo de emergencia (`event_type`):** Devuelve exactamente un valor del siguiente catálogo, usando la categoría más específica al incidente:
+
+- `"fire"` — Incendio: incendio estructural, forestal, vehicular o de cualquier tipo
+- `"crash"` — Choque: colisión vehicular, accidente de tránsito, choque múltiple
+- `"explosion"` — Explosión: explosión de gas, pirotecnia, industrial o de cualquier tipo
+- `"flood"` — Inundación: inundación por lluvias, desbordamiento de ríos, encharcamientos severos
+- `"accident"` — Accidente: accidente industrial, laboral, doméstico u otro no vehicular
+- `"pedestrian_hit"` — Atropellamiento: peatón golpeado por un vehículo
+- `"emergency_general"` — Emergencia general: emergencia que no encaja en las categorías anteriores
+
+
+
+2. **Subtipo de emergencia (`event_subtype`):** Propón un subtipo más específico dado el contexto. Ejemplos: si el tipo es `"fire"`, el subtipo podría ser `"structural_fire"`, `"wildfire"`, `"vehicle_fire"`; si es `"crash"`, podría ser `"car_crash"`, `"bus_accident"`, `"motorcycle_crash"`, `"multi_vehicle_crash"`; si es `"explosion"`, podría ser `"gas_explosion"`, `"industrial_explosion"`; si es `"flood"`, podría ser `"flash_flood"`, `"river_overflow"`; si es `"accident"`, podría ser `"industrial_accident"`, `"construction_accident"`; si es `"pedestrian_hit"`, podría ser `"pedestrian_struck"`, `"hit_and_run"`.
+
+
+
+3. **Estatus de la emergencia (`status`):** El estatus actual del incidente según se reporta en la nota. Devuelve exactamente un valor del siguiente catálogo:
+
+- `"ongoing"` — En curso: la emergencia está sucediendo al momento del reporte
+- `"past"` — Pasado: la emergencia ya ocurrió y fue controlada o terminó
+- `"under_control"` — Bajo control: la emergencia fue controlada pero aún hay actividad de respuesta
+- `"under_investigation"` — Bajo investigación: se están investigando las causas o circunstancias
+
+**Regla de prioridad:** Si aplican varios estatus simultáneamente, elige el que la nota enfatiza más directamente respecto al estado del incidente al momento del reporte. Si la nota enfatiza la investigación posterior, usa `"under_investigation"`; si enfatiza el control operativo, `"under_control"`; si ya terminó sin más detalle, `"past"`.
+
+
+
+4. **Nombre del incidente (`name`):** Solo llena este campo si la nota menciona explícitamente un nombre propio o identificador del incidente (por ejemplo, un nombre asignado a un incendio forestal o un nombre mediático). No construyas nombres descriptivos. Generalmente este campo será `null`.
+
+
+
+5. **Descripción (`description`):** Redacta un texto breve en español describiendo el incidente de emergencia.
+
+
+
+6. **Etiquetas (`tags`):** Palabras clave explícitas o inferencias muy directas del texto que describan el incidente. No agregues etiquetas especulativas ni que no estén respaldadas por el contenido.
+
+Ejemplo: `["incendio", "bodega", "zona_industrial", "bomberos"]`
+
+
+
+7. **Contexto (`context`):** Si la información existe, escribe un texto breve resumiendo el contexto del incidente: causas posibles, condiciones relacionadas (clima, infraestructura), antecedentes, incidentes previos similares en la zona, etc. Si no hay información contextual, deja `null`.
+
+
+
+8. **Relevancia en la noticia (`relevance`):** La relevancia que tiene el incidente en la nota. Devuelve el valor como string:
+
+- `"1"` — El incidente es el tema principal de la nota
+- `"2"` — El incidente se menciona secundariamente
+- `"3"` — El incidente solo se menciona implícitamente
+
+
+
+9. **Fecha del incidente (`date_range`):** Fecha o rango de fechas del incidente. Responde con:
+- `mention`: el texto tal cual se menciona en la nota
+- `date_range`: un objeto con `start` y opcionalmente `end`
+- `timezone`: la zona horaria si se menciona (generalmente `null`)
+- `precision_days`: la precisión en días si la fecha es aproximada (`null` si la fecha es exacta)
+
+**Regla de inferencia temporal:**
+- Para noticias (`source_type` = "noticia"), no infieras la fecha desde `{date_now}` salvo que la nota use referencias relativas explícitas como "hoy", "ayer", "este martes", "la semana pasada".
+- Para publicaciones de redes sociales, la fecha de publicación (`{date_now}`) puede servir como ancla adicional cuando no se menciona una fecha explícita.
+
+Si solo se menciona un periodo aproximado (por ejemplo, "la madrugada del viernes", "la semana pasada"), interpreta un periodo estimado razonable y escribe la fecha inicial del periodo junto con un rango de precisión en días.
+
+Cuando el texto da una fecha exacta pero solo una referencia horaria aproximada (como "la madrugada"), usa una hora representativa del periodo del día y deja `precision_days` en `null`, ya que la incertidumbre es horaria, no de día completo.
+
+Usa el formato estandarizado `"YYYY-MM-DDTHH:MM:SS"`.
+
+Ejemplos:
+
+```json
+{"mention": "el incendio inicio a las 2:30 de la tarde y fue controlado 4 horas despues", "date_range": {"start": "2025-09-18T14:30:00", "end": "2025-09-18T18:30:00"}, "timezone": null, "precision_days": null}
+```
+
+```json
+{"mention": "la madrugada del pasado viernes 12 de septiembre", "date_range": {"start": "2025-09-12T03:00:00", "end": null}, "timezone": null, "precision_days": null}
+```
+
+```json
+{"mention": "durante la semana pasada", "date_range": {"start": "2025-09-08T00:00:00", "end": "2025-09-14T23:59:59"}, "timezone": null, "precision_days": 7}
+```
+
+
+
+10. **Ubicación (`location`):** Si el incidente sucede en alguna ubicación, extrae los datos de ubicación de manera estructurada como un solo objeto con la ubicación principal del incidente:
+
+```json
+{
+  "country": "Mexico",
+  "state": "Guanajuato",
+  "city": "Leon",
+  "neighborhood": null,
+  "zone": "zona industrial",
+  "street": null,
+  "number": null,
+  "place_name": null
+}
+```
+
+Llena solo los campos mencionados explícitamente en la nota. Normaliza nombres geográficos sin acentos ni caracteres especiales.
+
+En `place_name`, escribe únicamente el nombre propio del lugar si es un lugar geográfico identificable en un mapa (fábrica con nombre, plaza, mercado, puente, carretera con nombre, etc.). No agregues referencias espaciales ni descripciones genéricas. Ejemplos INCORRECTOS: "bodega en la zona industrial", "casa del afectado", "carretera cercana". Si no se menciona el nombre propio del lugar, deja `null`.
+
+
+
+11. **Víctimas (`casualties`):** Si la noticia menciona víctimas (muertos, heridos, desaparecidos), responde con el texto tal cual se menciona en la nota (`mention`) y los estimados numéricos para muertos (`dead`), heridos (`injured`) y desaparecidos (`missing`). Si se menciona explícitamente que no hubo víctimas, registra los valores en 0.
+
+Ejemplos:
+
+```json
+{"mention": "3 muertos y 5 heridos", "dead": 3, "injured": 5, "missing": 0}
+```
+
+```json
+{"mention": "sin lesionados reportados", "dead": 0, "injured": 0, "missing": 0}
+```
+
+Si no se menciona información sobre víctimas, deja el campo completo en `null`.
+
+
+
+12. **Descripción de daños (`damage_description`):** Si la noticia menciona daños materiales o a la propiedad, escribe un texto breve describiendo los daños. Ejemplo: "dos vehiculos con perdida total, poste de luz derribado". Si no se mencionan daños, deja `null`.
+
+
+
+13. **Agencias de respuesta (`response_agencies`):** Si la noticia menciona las agencias, cuerpos de emergencia o servicios que respondieron al incidente (bomberos, protección civil, paramédicos, policía, Cruz Roja, etc.), escríbelos en un texto breve. Ejemplo: "Bomberos de Leon, Proteccion Civil, Cruz Roja". Si no se mencionan, deja `null`.
+
+
+
+14. **Causa (`cause`):** Si la noticia menciona o sugiere la causa del incidente, escríbela en un texto breve. Ejemplo: "cortocircuito en el sistema electrico", "exceso de velocidad", "fuga de gas". Si no se menciona, deja `null`.
+
+
+
+15. **Vehículos involucrados (`vehicles_involved`):** Si se trata de un accidente de tránsito o choque y la noticia menciona vehículos involucrados, responde con el texto tal cual se menciona en la nota (`mention`), un estimado numérico razonable (`count`), y un rango de confianza (`confidence_range`) si la mención no es exacta (`null` si es exacta).
+
+Ejemplos:
+
+```json
+{"mention": "tres vehiculos", "count": 3, "confidence_range": null}
+```
+
+```json
+{"mention": "varios automoviles", "count": 4, "confidence_range": 2}
+```
+
+Si no se mencionan vehículos o no aplica, deja `null`.
+
+
+
+16. **Evacuaciones (`evacuations`):** Si la noticia menciona evacuaciones realizadas como consecuencia del incidente, escribe un texto breve describiéndolas. Ejemplo: "se evacuaron 200 personas de edificios aledanos". Si no se mencionan evacuaciones, deja `null`.
+
+
+
+**Formato de respuesta:**
+
+Responde con una lista en formato JSON, donde cada elemento representa un incidente de emergencia detectado en el texto. No añadas texto adicional fuera del JSON.
+
+Ejemplo de formato esperado:
+
+```json
+[
+  {
+    "event_type": "fire",
+    "event_subtype": "structural_fire",
+    "status": "past",
+    "name": null,
+    "description": "Incendio en una bodega de la zona industrial, bomberos respondieron durante 4 horas.",
+    "tags": ["incendio", "bodega", "zona_industrial", "bomberos"],
+    "context": "La bodega almacenaba productos quimicos. No se reportaron lesionados pero negocios cercanos fueron evacuados como precaucion.",
+    "relevance": "1",
+    "date_range": {
+      "mention": "el incendio inicio a las 2:30 de la tarde y fue controlado 4 horas despues",
+      "date_range": {
+        "start": "2025-09-18T14:30:00",
+        "end": "2025-09-18T18:30:00"
+      },
+      "timezone": null,
+      "precision_days": null
+    },
+    "location": {
+      "country": "Mexico",
+      "state": "Guanajuato",
+      "city": "Leon",
+      "neighborhood": null,
+      "zone": "zona industrial",
+      "street": null,
+      "number": null,
+      "place_name": null
+    },
+    "casualties": {
+      "mention": "sin lesionados",
+      "dead": 0,
+      "injured": 0,
+      "missing": 0
+    },
+    "damage_description": "bodega con productos quimicos destruida, negocios cercanos evacuados",
+    "response_agencies": "Bomberos de Leon, Proteccion Civil",
+    "cause": null,
+    "vehicles_involved": null,
+    "evacuations": "negocios cercanos fueron evacuados como medida preventiva"
+  }
+]
+```
+
+
+USER:
+
+El texto fuente es el siguiente:
+
+{body}

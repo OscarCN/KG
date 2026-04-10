@@ -1,0 +1,209 @@
+SYSTEM:
+
+Eres un modelo para extraer información estructurada de eventos masivos en artículos de noticias, se te van a presentar instrucciones para resolver la tarea, algunos ejemplos, y posteriormente una noticia para que extraigas la información.
+
+
+USER:
+
+Buscamos eventos masivos con asistencia pública descritos en un artículo de noticias. Incluye conciertos, festivales, ferias, eventos deportivos, eventos religiosos, eventos culturales, congresos, exposiciones, conferencias, convenciones e inauguraciones. Buscamos eventos que tengan una fecha específica o un rango de fechas, y que esta se mencione en la noticia.
+
+Para cada evento mencionado en la nota que tenga una fecha (exacta o estimada), extrae los siguientes campos. Si no se menciona un campo, deja su valor null. No inventes eventos, solo extrae lo que está relacionado explícitamente.
+
+
+
+1. Tipo de evento (event_type): obtén el tipo de evento del siguiente catálogo, usando la categoría que sea más específica al evento (e.g. Concierto es más específico que Evento cultural):
+
+"concert" — Concierto: presentación musical en vivo
+"festival" — Festival: evento de varios días o con múltiples actividades/artistas
+"party" — Fiesta: celebración social o evento festivo
+"fair" — Feria: feria comercial, artesanal, gastronómica, etc.
+"religious_event" — Evento religioso: procesión, misa especial, festividad religiosa
+"sports_event" — Evento deportivo: partido, torneo, competencia deportiva
+"congress" — Congreso: reunión formal de profesionales o académicos
+"exposition" — Exposición: muestra de arte, ciencia, tecnología, etc.
+"conference" — Conferencia: presentación o charla ante un público
+"convention" — Convención: reunión de miembros de un grupo, sector o comunidad
+"inauguration" — Inauguración: apertura formal de un espacio, obra, o evento
+"cultural_event" — Evento cultural: evento artístico o cultural que no encaja en las categorías anteriores
+
+
+
+2. Subtipo de evento (event_subtype): propón un subtipo de evento dado el contexto. Por ejemplo, si el tipo es "sports_event", el subtipo podría ser "soccer_match", "baseball_game", etc.
+
+
+
+3. Estatus del evento (status): el estatus actual que se anuncia en la noticia, del siguiente catálogo:
+
+"planned" — Planeado: el evento está programado para el futuro
+"past" — Pasado: el evento ya ocurrió
+"suspended" — Suspendido: el evento fue suspendido temporalmente
+"ongoing" — En transcurso: el evento está sucediendo
+"cancelled" — Cancelado: el evento fue cancelado
+"postponed" — Pospuesto: el evento fue pospuesto a una fecha posterior
+
+
+
+4. Nombre del evento (name): Si el evento tiene un nombre, o se puede llamar de alguna forma, escríbelo, de otra manera deja el valor en null. Por ejemplo: "Clásico América vs Chivas", "Cuarta Feria de la Fresa", "Festival Internacional Cervantino"
+
+
+
+5. Descripción (description): Redacta un texto libre con una descripción breve del evento.
+
+
+
+6. Etiquetas (tags): palabras clave que encuentres o intuyas que pueden describir el evento.
+
+Por ejemplo:
+
+"tags": ["fútbol", "clásico", "américa", "chivas", "estadio_azteca"]
+
+
+
+7. Contexto (context): Si la información existe, escribe un texto libre resumiendo el contexto general del evento: medidas de seguridad, antecedentes, contexto histórico, anuncios relacionados, etc.
+
+
+
+8. Relevancia en la noticia (relevance): La relevancia que tiene el evento en la noticia, escoge entre:
+
+1 — Si el evento es el tema principal de la nota
+2 — Si el evento se menciona secundariamente
+3 — Si el evento sólo se menciona implícitamente
+
+
+
+9. Fecha del evento (date_range): Es la fecha del evento. Responde con el texto tal cual se menciona en la nota (mention), un periodo de fechas con inicio y opcionalmente fin (date_range), la zona horaria si se menciona (timezone), y la precisión en días si la fecha es aproximada (precision_days).
+
+Si solo se menciona un periodo aproximado (por ejemplo, "finales del año", o "el próximo año", etc.), interpreta un periodo estimado razonable, y escribe la fecha inicial del periodo junto con un rango de precisión en días, en el que muy probablemente se encuentre la fecha real. Por ejemplo: {"mention": "inicio de 2022", "date_range": {"start": "2022-01-01T00:00:00", "end": null}, "precision_days": 90 }, aquí son 90 días o 3 meses de precisión, un trimestre.
+
+Cuatro ejemplos:
+
+"date_range": { "mention": "durante el mes de agosto de este año", "date_range": {"start": "2025-08-01T00:00:00", "end": "2025-08-30T00:00:00"}, "precision_days": 30 }
+
+"date_range": { "mention": "a las 4 de la tarde del próximo martes 4 de julio", "date_range": { "start": "2025-07-04T16:00:00", "end": null } }
+
+"date_range": { "mention": "mañana 4 de julio a las 4 de la tarde, hora del este", "date_range": { "start": "2025-07-04T16:00:00", "end": null }, "timezone": "hora del este" }
+
+"date_range": { "mention": "julio del 2026", "date_range": { "start": "2026-07-01T00:00:00", "end": null }, "precision_days": 30 }
+
+Usa el formato estandarizado de fechas "YYYY-MM-DDTHH:MM:SS"
+Como contexto, la fecha de hoy es {date_now}. El tipo de fuente es {source_type}; si es una publicación de red social, la fecha de publicación puede servir como referencia cuando no se menciona una fecha explícita.
+
+
+
+10. Ubicación (location): Si el evento sucede en alguna ubicación, extrae los datos de ubicación de manera estructurada, en el siguiente formato:
+
+"location": {
+    "country": "México",
+    "state": "Michoacán",
+    "city": "Morelia",
+    "neighborhood": null,
+    "zone": "zona centro",
+    "street": "Mariano Escobedo",
+    "number": null,
+    "place_name": "Teatro de la Ciudad"
+}
+
+Llena solo los campos mencionados explícitamente en la nota. En el campo de "place_name" escribe el nombre propio del lugar, sólo si es un lugar geográfico identificable en un mapa (teatro, estadio, plaza, parque, centro de convenciones, etc.). Sólo escribe nombres propios de lugares, no agregues referencias espaciales ni descripciones genéricas. Ejemplos de valores INCORRECTOS son: "distintos recintos de Guanajuato", "casa de Ozzy Osbourne", "bibliotecas públicas". Si no se menciona el nombre propio del lugar, deja el valor null.
+
+Si el evento sucede en varias ubicaciones, escribe una lista: "location": [ { "country": "México", ... }, { "country": "México", ... } ]
+
+
+
+11. Afluencia estimada (attendance): Si la noticia menciona un estimado de personas que asistirán o asistieron. Responde con el texto tal cual se menciona en la nota (mention), y un estimado numérico razonable (estimate).
+
+Por ejemplo:
+
+{"attendance": { "mention": "más de 5 mil personas", "estimate": 5000 }}
+
+Si no se menciona, deja el valor null.
+
+
+
+12. Capacidad del lugar (venue_capacity): Si la noticia menciona la capacidad del lugar del evento. Responde con el texto tal cual se menciona en la nota (mention), y un estimado numérico (capacity).
+
+Por ejemplo:
+
+{"venue_capacity": { "mention": "capacidad para 87 mil personas", "capacity": 87000 }}
+
+Si no se menciona, deja el valor null.
+
+
+
+13. Precio (price): Si el evento tiene costo para los asistentes, y este se menciona, o si se menciona un rango de precios. Responde con el texto tal cual se menciona en la nota (mention), un rango con el precio inferior y superior (lower, upper), y la moneda si se menciona (currency).
+
+Tres ejemplos:
+
+{"price": { "mention": "precios que van desde 500 hasta 2500 pesos", "lower": 500, "upper": 2500, "currency": "pesos" }}
+
+{"price": { "mention": "el evento no tiene costo", "lower": 0, "upper": 0, "currency": null }}
+
+{"price": { "mention": "los boletos cuestan 450 dólares", "lower": 450, "upper": 450, "currency": "dolares" }}
+
+
+
+14. Organizador (organizer): Nombre de la entidad organizadora, promotor o responsable del evento, si se menciona. Si no se menciona, deja el valor null.
+
+
+
+15. Artista o participante principal (performer): Nombre del artista, equipo, ponente o participante principal del evento, si aplica y se menciona. Si no se menciona, deja el valor null.
+
+
+
+Formato de respuesta:
+
+Responde con una lista en formato JSON, donde cada elemento representa un evento detectado en la nota. No añadas texto adicional fuera del JSON.
+
+Ejemplo de formato esperado:
+
+[
+  {
+    "event_type": "sports_event",
+    "event_subtype": "soccer_match",
+    "status": "planned",
+    "name": "Clásico América vs Chivas",
+    "description": "Partido de alto perfil entre los equipos América y Chivas en el Estadio Azteca, correspondiente a la jornada 5 del torneo Apertura 2025.",
+    "tags": ["fútbol", "clásico", "américa", "chivas", "estadio_azteca"],
+    "context": "El evento ha generado gran expectación y se espera que haya un operativo de seguridad especial coordinado entre la Secretaría de Seguridad Ciudadana y la Liga MX. Se recomienda llegar con anticipación debido a cierres parciales en las avenidas cercanas.",
+    "relevance": 1,
+    "date_range": {
+      "mention": "el próximo domingo 10 de agosto a las 6 de la tarde",
+      "date_range": {
+        "start": "2025-08-10T18:00:00",
+        "end": null
+      }
+    },
+    "location": {
+      "country": "México",
+      "state": "Ciudad de México",
+      "city": "Ciudad de México",
+      "neighborhood": "Santa Úrsula Coapa",
+      "zone": "zona sur",
+      "street": "Calzada de Tlalpan",
+      "number": null,
+      "place_name": "Estadio Azteca"
+    },
+    "attendance": {
+      "mention": "se espera la asistencia de más de 60 mil aficionados",
+      "estimate": 60000
+    },
+    "venue_capacity": {
+      "mention": "el Estadio Azteca tiene capacidad para 87 mil personas",
+      "capacity": 87000
+    },
+    "price": {
+      "mention": "los boletos cuestan entre 300 y 1500 pesos",
+      "lower": 300,
+      "upper": 1500,
+      "currency": "pesos"
+    },
+    "organizer": "Liga MX",
+    "performer": "América vs Chivas"
+  }
+]
+
+
+USER:
+
+La noticia es la siguiente:
+
+{body}

@@ -28,13 +28,98 @@
     },
     "DateRangeFromUnstructured": {
         "meta": {
-            "description": "Represents a date period extracted from unstructured text, with a date start and end, optional timezone, the original unstructured mention e.g. 'durante la segunda semana de enero', and the precision confidence period in days (the amount of uncertainty we have given the unstructured mention)"
+            "description": "Represents a date period extracted from unstructured text, with a date start and end, optional timezone, the original unstructured mention e.g. 'durante la segunda semana de enero', and the precision confidence period in days (the amount of uncertainty we have given the unstructured mention). If only an approximate period is mentioned (e.g. 'next week', or 'in March'), estimate a period in days in which, from the start date, the actual event date is likely to fall (e.g. 'la semana pasada' -> precision_days=7)."
         },
         "schema": {
             "date_range":     {"type": "PeriodDates"},
             "timezone":       {"type": "str"},
-            "mention":        {"type": "str"},
-            "precision_days": {"type": "int"}
+            "mention":        {"type": "str", "description": "El texto tal cual se menciona en la nota. The original text mention of the date range, exactly as it appears in the source."},
+            "precision_days": {"type": "int", "description": "When the mention is not an exact date, a reasonable range in days within which the real date should fall. If only an approximate period is mentioned (e.g. 'next week', or 'in March'), estimate a period in days in which, from the start date, the actual date is likely to fall (e.g. 'la proxima semana' -> precision_days=7). Null when the date is exact."}
+        }
+    },
+    "DateFromUnstructured": {
+        "meta": {
+            "description": "Represents a single date extracted from unstructured text, with the parsed datetime, the original unstructured mention, and the precision confidence period in days"
+        },
+        "schema": {
+            "date":           {"type": "datetime", "description": "The parsed date in YYYY-MM-DDTHH:MM:SS format"},
+            "mention":        {"type": "str", "description": "El texto tal cual se menciona en la nota. The original text mention of the date, exactly as it appears in the source."},
+            "precision_days": {"type": "int", "description": "When the mention is not an exact date, a reasonable range in days within which the real date should fall. If only an approximate period is mentioned (e.g. 'next week', or 'in March'), estimate a period in days in which, from the start date, the actual date is likely to fall (e.g. 'la proxima semana' -> precision_days=7). Null when the date is exact."}
+        }
+    },
+    "Location": {
+        "meta": {
+            "description": "Structured location extracted from text, with hierarchical geographic fields and an optional named place. Each field should only be filled if explicitly mentioned in the source text."
+        },
+        "schema": {
+            "country":       {"type": "str", "description": "Country name, e.g. 'Mexico'"},
+            "state":         {"type": "str", "description": "State or province, e.g. 'Guanajuato'"},
+            "city":          {"type": "str", "description": "City or municipality, e.g. 'Leon'"},
+            "neighborhood":  {"type": "str", "description": "Neighborhood or colonia, e.g. 'Centro'"},
+            "zone":          {"type": "str", "description": "Zone or area of the city, e.g. 'zona norte'"},
+            "street":        {"type": "str", "description": "Street or avenue name"},
+            "number":        {"type": "str", "description": "Street number or exterior number"},
+            "place_name":    {"type": "str", "description": "Proper name of a specific identifiable place (theater, stadium, park, etc.). Only named places that can be located on a map. Do not include generic descriptions."}
+        }
+    },
+    "PriceRange": {
+        "meta": {
+            "description": "A price or cost range extracted from text, with the original mention, numeric lower and upper bounds, and currency"
+        },
+        "schema": {
+            "mention":  {"type": "str", "description": "El texto tal cual se menciona en la nota. Original text mention of the price, e.g. 'precios desde 500 hasta 2500 pesos'"},
+            "lower":    {"type": "float", "description": "Lower bound of the price range (0 if free)"},
+            "upper":    {"type": "float", "description": "Upper bound of the price range (same as lower if single price)"},
+            "currency": {"type": "str", "description": "Currency as mentioned, e.g. 'pesos', 'dolares'"}
+        }
+    },
+    "Attendance": {
+        "meta": {
+            "description": "Estimated attendance or number of participants extracted from text, with the original mention and a numeric estimate"
+        },
+        "schema": {
+            "mention":  {"type": "str", "description": "El texto tal cual se menciona en la nota. Original text mention, e.g. 'mas de 5 mil personas'"},
+            "estimate": {"type": "int", "description": "Numeric estimate of attendance"}
+        }
+    },
+    "VenueCapacity": {
+        "meta": {
+            "description": "Capacity of a venue or place extracted from text, with the original mention and a numeric value"
+        },
+        "schema": {
+            "mention":  {"type": "str", "description": "El texto tal cual se menciona en la nota. Original text mention, e.g. 'capacidad para 87 mil personas'"},
+            "capacity": {"type": "int", "description": "Numeric capacity estimate"}
+        }
+    },
+    "CasualtyCount": {
+        "meta": {
+            "description": "Count of casualties or affected people in an incident, with the original mention and numeric estimates for dead, injured, and missing"
+        },
+        "schema": {
+            "mention":  {"type": "str", "description": "El texto tal cual se menciona en la nota. Original text mention, e.g. '3 muertos y 5 heridos'"},
+            "dead":     {"type": "int", "description": "Number of deaths, 0 if none mentioned"},
+            "injured":  {"type": "int", "description": "Number of injured, 0 if none mentioned"},
+            "missing":  {"type": "int", "description": "Number of missing, 0 if none mentioned"}
+        }
+    },
+    "CountMention": {
+        "meta": {
+            "description": "A numeric count extracted from text, with the original mention, a best-estimate parsed value, and a confidence range for inexact mentions"
+        },
+        "schema": {
+            "mention":          {"type": "str", "description": "El texto tal cual se menciona en la nota. Original text mention, e.g. 'tres personas', 'al menos 5 vehiculos', 'decenas de automoviles'"},
+            "count":            {"type": "int", "description": "Best numeric estimate. When the mention is not exact (e.g. 'varios', 'decenas'), provide a reasonable estimate within the confidence range"},
+            "confidence_range": {"type": "int", "description": "When the mention is not an exact number, a reasonable +/- range within which the real count should fall. E.g. mention='decenas de vehiculos', count=30, confidence_range=20 means the real number is likely between 10 and 50. Null when the count is exact."}
+        }
+    },
+    "PersonReference": {
+        "meta": {
+            "description": "Reference to a person mentioned in the text, with name and role/description"
+        },
+        "schema": {
+            "name":        {"type": "str", "description": "Full name of the person if mentioned"},
+            "role":        {"type": "str", "description": "Role or description, e.g. 'alcalde', 'victima', 'sospechoso'"},
+            "organization": {"type": "str", "description": "Organization the person belongs to, if mentioned"}
         }
     }
 }

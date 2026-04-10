@@ -1,0 +1,102 @@
+{
+    "Arrest": {
+        "meta": {
+            "description": "An arrest or detention by law enforcement. When police, military, or other authorities capture or detain one or more individuals.",
+            "example": {
+                "event_type": "arrest",
+                "event_subtype": "drug_trafficking_arrest",
+                "status": "past",
+                "name": null,
+                "description": "Federal police arrested three suspects linked to a drug trafficking network in a residential area.",
+                "tags": ["arrest", "drug_trafficking", "federal_police"],
+                "context": "The operation was part of a larger investigation that has been ongoing for several months.",
+                "relevance": 1,
+                "date_range": {
+                    "date_range": {"start": "2025-09-22T05:00:00", "end": null},
+                    "mention": "la madrugada del lunes"
+                },
+                "location": {
+                    "country": "Mexico",
+                    "state": "Guanajuato",
+                    "city": "Leon",
+                    "neighborhood": "Jardines de Jerez"
+                },
+                "detainee_count": {"mention": "tres sospechosos", "count": 3, "confidence_range": null},
+                "detainee_description": "tres hombres de entre 25 y 35 anos",
+                "charges": "trafico de drogas, portacion de arma de fuego",
+                "arresting_authority": "Policia Federal",
+                "seized_items": "armas de fuego, vehiculos, sustancias ilicitas"
+            }
+        },
+        "schema": {
+            "event_type": {
+                "type": "EnumStr",
+                "required": true,
+                "description": "Type of law enforcement action. Choose the single most specific category that matches.",
+                "enum": ["arrest", "detention"]
+            },
+            "event_subtype": {
+                "type": "str",
+                "description": "More specific subtype, e.g. 'drug_trafficking_arrest', 'warrant_execution', 'in_flagrante_delicto', 'immigration_detention'."
+            },
+            "status": {
+                "type": "EnumStr",
+                "description": "Status of the arrest/detention as reported.",
+                "enum": ["past", "ongoing_operation", "under_investigation"]
+            },
+            "name": {
+                "type": "str",
+                "description": "Name of the operation if it has one, e.g. 'Operacion Enjambre'. Usually null."
+            },
+            "description": {
+                "type": "str",
+                "description": "Brief description of the arrest or detention."
+            },
+            "tags": {
+                "type": "List[str]",
+                "description": "Keywords describing the event."
+            },
+            "context": {
+                "type": "str",
+                "description": "Contextual information: related investigations, crime context, political implications."
+            },
+            "relevance": {
+                "type": "EnumStr",
+                "description": "Relevance within the article: 1 = main topic, 2 = secondary, 3 = implicit.",
+                "enum": ["1", "2", "3"]
+            },
+            "date_range": {
+                "type": "DateRangeFromUnstructured",
+                "description": "Date or date range of the arrest or detention. Extract the start datetime and, if present, the end datetime."
+            },
+            "location": {
+                "type": "Location",
+                "description": "Location where the arrest or detention took place."
+            },
+            "detainee_count": {
+                "type": "CountMention",
+                "description": "Number of people detained or arrested, with original text mention and parsed count."
+            },
+            "detainee_description": {
+                "type": "str",
+                "description": "Description of detained persons (age, gender, affiliation), if mentioned."
+            },
+            "charges": {
+                "type": "str",
+                "description": "Charges or alleged crimes, if mentioned."
+            },
+            "arresting_authority": {
+                "type": "str",
+                "description": "Law enforcement body that made the arrest (e.g. 'Policia Federal', 'Guardia Nacional', 'Ejercito')."
+            },
+            "seized_items": {
+                "type": "str",
+                "description": "Items seized during the operation (weapons, drugs, vehicles, cash), if mentioned."
+            },
+            "related_crime": {
+                "type": "str",
+                "description": "The crime that led to the arrest, if mentioned (e.g. 'homicidio del 15 de agosto')."
+            }
+        }
+    }
+}
