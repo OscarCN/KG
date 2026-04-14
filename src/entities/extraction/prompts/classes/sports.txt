@@ -1,0 +1,222 @@
+SYSTEM:
+
+Eres un modelo para extraer información estructurada de temas deportivos en artículos de noticias. Se te presentarán instrucciones para resolver la tarea, un ejemplo de extracción y posteriormente una noticia para que extraigas la información.
+
+La variable de contexto {source_type} indica el tipo de fuente (por ejemplo: "noticia", "publicación de Facebook", "publicación de red social"). En el caso de publicaciones de redes sociales, las fechas a menudo pueden inferirse a partir de la fecha de publicación ({date_now}) si no se mencionan explícitamente en el texto.
+
+
+USER:
+
+Buscamos cualquier referencia explícita a deportes, actividad física o eventos competitivos descrita en un artículo de noticias. Esto incluye deportes profesionales y amateur, equipos, atletas, ligas, torneos, infraestructura deportiva y cultura deportiva. Un artículo se considera relacionado con deportes cuando menciona, describe o analiza cualquier asunto deportivo, ya sea al reportar un partido, hablar de un equipo, discutir infraestructura deportiva o mencionar atletas. Un artículo puede coincidir tanto con este tema como con un esquema de evento específico (por ejemplo, un evento masivo de pago); ambos se extraen por separado.
+
+**Criterio de segmentación:** Agrupa la información en un solo tema deportivo cuando se refiera a la misma categoría temática (theme_type) y al mismo contexto o evento. Por ejemplo, dos equipos que se enfrentan en un mismo partido corresponden a un solo tema de tipo "competition_coverage", no a dos temas separados. Crea temas separados solo cuando el artículo aborde categorías temáticas claramente distintas (por ejemplo, cobertura de un partido Y discusión sobre infraestructura de un estadio).
+
+Para cada tema deportivo mencionado en la nota, extrae los siguientes campos. Si no se menciona un campo de texto, deja su valor como `null`. Para campos de tipo lista, usa `[]` (lista vacía) cuando no haya elementos que extraer. No inventes temas deportivos; solo extrae lo que esté explícitamente relacionado en la nota.
+
+**Política de ortografía:** Escribe todos los valores de texto sin acentos ni diacríticos (ASCII), por ejemplo: "Mexico", "Queretaro", "futbol", "Saul 'Canelo' Alvarez". Esto aplica a todos los campos incluyendo ubicaciones, nombres de equipos, atletas, descripciones y etiquetas.
+
+Usa exactamente los nombres de campo indicados a continuación y no agregues campos extra.
+
+Si no hay ningún tema deportivo en la nota, responde con `[]`.
+
+
+
+1. **Tipo de tema deportivo** (`theme_type`): obtén el tipo de tema deportivo del siguiente catálogo, escogiendo la categoría más específica que corresponda:
+
+- `"sports_landscape"` — Panorama deportivo: visión general o estado actual del deporte en una región o contexto
+- `"competition_coverage"` — Cobertura de competencia: reporte o análisis de una competencia, partido o torneo específico
+- `"sports_infrastructure"` — Infraestructura deportiva: discusión sobre instalaciones, estadios, centros deportivos, construcción o remodelación
+- `"athlete_profile"` — Perfil de atleta: cobertura centrada en un deportista, su carrera, logros o situación personal
+- `"league_overview"` — Panorama de liga: visión general de una liga, su temporada, clasificación o dinámica general
+
+
+
+2. **Subtipo de tema deportivo** (`theme_subtype`): propón un subtipo más específico dado el contexto del artículo. Por ejemplo: `"local_soccer_scene"`, `"olympic_preparation"`, `"stadium_construction"`, `"boxing_overview"`, `"marathon_culture"`, `"transfer_market"`, `"relegation_battle"`, etc. Si no aplica, usa `null`.
+
+
+
+3. **Descripción** (`description`): redacta un resumen de cómo el artículo aborda o discute el tema deportivo, ya sea al reportar un partido, hablar de un equipo, discutir infraestructura deportiva o mencionar atletas.
+
+
+
+4. **Etiquetas** (`tags`): palabras clave relevantes para este tema deportivo, en minúsculas y sin acentos. Si no hay etiquetas relevantes, usa `[]`.
+
+Por ejemplo:
+
+```json
+"tags": ["futbol", "liga mx", "transferencias", "clausura 2025"]
+```
+
+
+
+5. **Contexto** (`context`): si la información existe, escribe un texto libre resumiendo el contexto más amplio: historial de la liga, trayectoria del equipo, cultura deportiva, antecedentes relevantes, etc. Si no hay contexto relevante, usa `null`.
+
+
+
+6. **Relevancia en la noticia** (`relevance`): la relevancia que tiene el tema deportivo en la noticia. **El valor debe ser una cadena de texto (string), no un número.** Escoge entre:
+
+- `"1"` — Si el tema deportivo es el tema principal de la nota
+- `"2"` — Si el tema deportivo se menciona secundariamente
+- `"3"` — Si el tema deportivo solo se menciona implícitamente
+
+
+
+7. **Sentimiento** (`sentiment`): el sentimiento general o tono del discurso sobre el tema deportivo, escoge entre:
+
+- `"positive"` — Positivo: tono optimista, celebratorio o favorable
+- `"negative"` — Negativo: tono crítico, pesimista o desfavorable
+- `"neutral"` — Neutral: tono informativo sin carga emocional evidente
+- `"mixed"` — Mixto: combina elementos positivos y negativos
+- `"alarming"` — Alarmante: tono de preocupación o alerta
+- `"hopeful"` — Esperanzador: tono de expectativa positiva hacia el futuro
+
+
+
+8. **Ubicación** (`location`): el área geográfica a la que se refiere el tema deportivo. Llena solo si la discusión es explícitamente sobre un área específica. Si el tema deportivo se refiere a varias ubicaciones, elige la más relevante para el tema. Extrae los datos de ubicación de manera estructurada en el siguiente formato:
+
+```json
+"location": {
+    "country": "Mexico",
+    "state": "Queretaro",
+    "city": "Queretaro",
+    "neighborhood": null,
+    "zone": null,
+    "street": null,
+    "number": null,
+    "place_name": null
+}
+```
+
+Llena solo los campos mencionados explícitamente en la nota; los demás déjalos como `null`. En el campo `"place_name"` escribe el nombre propio del lugar, solo si es un lugar geográfico identificable en un mapa (estadio, arena, centro deportivo, parque, etc.). Solo escribe nombres propios de lugares; no agregues referencias espaciales ni descripciones genéricas. Ejemplos de valores INCORRECTOS: "distintas canchas de la ciudad", "gimnasio del barrio", "instalaciones deportivas locales". Si no se menciona el nombre propio del lugar, deja el valor `null`.
+
+
+
+9. **Subtemas relacionados** (`related_subtopics`): subtemas específicos discutidos en el artículo en relación con el deporte. Escríbelos en inglés como identificadores descriptivos. Si no hay subtemas, usa `[]`.
+
+Por ejemplo:
+
+```json
+"related_subtopics": ["relegation_battle", "youth_academy", "transfer_market", "coaching_change"]
+```
+
+
+
+10. **Alcance temporal** (`time_scope`): el periodo de tiempo que cubre la discusión deportiva del artículo (por ejemplo, "temporada 2025", "este torneo", "la jornada 15"). Captura el alcance temporal del discurso solo cuando exista una mención temporal en el texto; no inventes periodos completamente ausentes. Si no hay mención temporal, usa `null`.
+
+Si incluyes `time_scope`, incluye siempre los cuatro subcampos: `mention`, `date_range`, `timezone` y `precision_days`, usando `null` cuando corresponda. Dentro de `date_range`, incluye siempre `start` y `end`; usa `null` para `end` si no se puede determinar.
+
+Si solo se menciona un periodo aproximado (por ejemplo, "esta temporada", "el proximo torneo", etc.), interpreta un periodo estimado razonable y escribe la fecha inicial del periodo junto con un rango de precisión en días en el que muy probablemente se encuentre el periodo real.
+
+Tres ejemplos:
+
+```json
+"time_scope": { "mention": "temporada 2025", "date_range": {"start": "2025-01-01T00:00:00", "end": "2025-12-31T23:59:59"}, "timezone": null, "precision_days": 365 }
+```
+
+```json
+"time_scope": { "mention": "la jornada 10 del torneo Clausura 2025", "date_range": {"start": "2025-03-15T00:00:00", "end": "2025-03-16T23:59:59"}, "timezone": null, "precision_days": 3 }
+```
+
+```json
+"time_scope": { "mention": "el proximo fin de semana", "date_range": {"start": "2025-07-05T00:00:00", "end": "2025-07-06T23:59:59"}, "timezone": null, "precision_days": 7 }
+```
+
+Usa el formato estandarizado de fechas `"YYYY-MM-DDTHH:MM:SS"`.
+Como contexto, la fecha de hoy es {date_now}. El tipo de fuente es {source_type}; si es una publicación de red social, la fecha de publicación puede servir como referencia cuando no se menciona una fecha explícita.
+
+
+
+11. **Deportes discutidos** (`sports_discussed`): lista de los deportes que se discuten en el artículo. Escríbelos en español, en minúsculas y sin acentos. Si no se mencionan deportes, usa `[]`.
+
+Por ejemplo:
+
+```json
+"sports_discussed": ["futbol", "beisbol", "basquetbol", "boxeo", "atletismo"]
+```
+
+
+
+12. **Equipos o atletas** (`teams_or_athletes`): equipos, atletas o figuras deportivas mencionados en el artículo. Cada equipo o atleta por separado. Solo incluye nombres de equipos, deportistas o figuras deportivas concretas; no incluyas categorías genéricas como "fuerzas basicas" o "juveniles". Preserva los nombres propios tal como se conocen, sin acentos. Si no hay equipos ni atletas, usa `[]`.
+
+Por ejemplo:
+
+```json
+"teams_or_athletes": ["Gallos Blancos de Queretaro", "Club America", "Saul 'Canelo' Alvarez"]
+```
+
+
+
+13. **Competencias referenciadas** (`competitions_referenced`): ligas, torneos o competencias mencionadas en el artículo. Cada competencia por separado. Preserva los nombres propios tal como se conocen, sin acentos. Si no se mencionan competencias, usa `[]`.
+
+Por ejemplo:
+
+```json
+"competitions_referenced": ["Liga MX", "Serie del Caribe", "Juegos Olimpicos", "Copa del Mundo"]
+```
+
+
+
+14. **Sedes o instalaciones** (`venue_or_facilities`): sedes deportivas o instalaciones discutidas en el artículo. Cada sede por separado. Incluye nombres propios de lugares identificables y también nombres descriptivos de instalaciones cuando se mencionen explícitamente (por ejemplo, "centro deportivo municipal"). Si no se mencionan sedes, usa `[]`.
+
+Por ejemplo:
+
+```json
+"venue_or_facilities": ["Estadio Corregidora", "Arena Mexico", "Centro Acuatico Olimpico"]
+```
+
+
+
+---
+
+**Formato de respuesta:**
+
+Responde con una lista en formato JSON, donde cada elemento representa un tema deportivo detectado en la nota. No añadas texto adicional fuera del JSON.
+
+**Ejemplo de extracción:**
+
+Supongamos un artículo que describe el panorama del futbol local en Queretaro, donde el equipo de primera division busca mantenerse en la liga mientras la cantera destaca a nivel nacional. La extracción sería:
+
+```json
+[
+  {
+    "theme_type": "sports_landscape",
+    "theme_subtype": "local_soccer_scene",
+    "description": "Panorama del futbol local en Queretaro: el equipo de primera division busca mantenerse en la liga mientras la cantera destaca a nivel nacional.",
+    "tags": ["futbol", "queretaro", "liga mx", "cantera"],
+    "context": "Gallos Blancos enfrenta una temporada dificil pero la cantera sigue produciendo talento.",
+    "relevance": "1",
+    "sentiment": "mixed",
+    "location": {
+      "country": "Mexico",
+      "state": "Queretaro",
+      "city": "Queretaro",
+      "neighborhood": null,
+      "zone": null,
+      "street": null,
+      "number": null,
+      "place_name": null
+    },
+    "related_subtopics": ["first_division", "youth_development", "local_talent"],
+    "time_scope": {
+      "mention": "temporada 2025",
+      "date_range": {
+        "start": "2025-01-01T00:00:00",
+        "end": "2025-12-31T23:59:59"
+      },
+      "timezone": null,
+      "precision_days": 365
+    },
+    "sports_discussed": ["futbol"],
+    "teams_or_athletes": ["Gallos Blancos de Queretaro"],
+    "competitions_referenced": ["Liga MX"],
+    "venue_or_facilities": ["Estadio Corregidora"]
+  }
+]
+```
+
+
+USER:
+
+La noticia es la siguiente:
+
+{body}

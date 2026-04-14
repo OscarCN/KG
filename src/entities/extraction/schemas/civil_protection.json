@@ -1,0 +1,103 @@
+{
+    "CivilProtection": {
+        "meta": {
+            "description": "Civil protection includes any theme, event, mention, or discussion related to emergencies, disasters, accidents, risk prevention, and emergency response. It considers fires, floods, earthquakes, crashes, hazardous conditions, emergency preparedness, and civil protection policy. An article talks about civil protection whenever it addresses or touches any related subject — whether reporting a specific accident, discussing flood risk, covering prevention measures, or mentioning emergency services in passing. An article may match both this theme and a specific event schema (e.g. emergency_event) — both are extracted separately.",
+            "example": {
+                "theme_type": "disaster_trends",
+                "theme_subtype": "flood_risk_analysis",
+                "description": "Proteccion Civil advierte sobre el aumento de riesgo de inundaciones en zonas bajas de la ciudad durante la temporada de lluvias.",
+                "tags": ["proteccion civil", "inundaciones", "temporada de lluvias", "prevencion"],
+                "context": "El municipio destino recursos adicionales para limpieza de cauces y sistemas de drenaje pluvial.",
+                "relevance": 1,
+                "sentiment": "alarming",
+                "location": {
+                    "country": "Mexico",
+                    "state": "Queretaro",
+                    "city": "Queretaro",
+                    "neighborhood": null,
+                    "zone": null,
+                    "street": null,
+                    "number": null,
+                    "place_name": null
+                },
+                "related_subtopics": ["flood_risk", "drainage_systems", "prevention_measures"],
+                "time_scope": {
+                    "date_range": {
+                        "start": "2025-06-01T00:00:00",
+                        "end": "2025-10-31T23:59:59"
+                    },
+                    "timezone": null,
+                    "mention": "temporada de lluvias 2025",
+                    "precision_days": 150
+                },
+                "hazard_types_discussed": ["inundacion", "deslizamiento de tierra"],
+                "preparedness_measures": ["Limpieza de cauces", "revision de sistemas de drenaje pluvial", "alerta temprana"],
+                "agencies_mentioned": ["Proteccion Civil Municipal", "Bomberos"],
+                "statistics_mentioned": ["30% mas lluvias esperadas que el ano anterior"]
+            }
+        },
+        "schema": {
+            "theme_type": {
+                "type": "EnumStr",
+                "required": true,
+                "description": "Type of civil protection theme. Choose the single most specific category that matches.",
+                "enum": ["emergency_preparedness", "disaster_trends", "accident_statistics", "risk_assessment", "civil_protection_policy"]
+            },
+            "theme_subtype": {
+                "type": "str",
+                "description": "More specific subtype, e.g. 'flood_risk_analysis', 'earthquake_preparedness', 'traffic_accident_trends', 'fire_prevention', 'emergency_response_capacity'."
+            },
+            "description": {
+                "type": "str",
+                "required": true,
+                "description": "Summary of how the article touches or discusses civil protection — whether reporting a specific emergency, covering risk assessments, discussing preparedness measures, or mentioning hazards."
+            },
+            "tags": {
+                "type": "List[str]",
+                "description": "Keywords and topics relevant to this civil protection theme."
+            },
+            "context": {
+                "type": "str",
+                "description": "Broader context: historical patterns, policy background, seasonal factors."
+            },
+            "relevance": {
+                "type": "EnumStr",
+                "description": "Relevance of this theme within the article: 1 = main topic, 2 = secondary, 3 = implicit.",
+                "enum": ["1", "2", "3"]
+            },
+            "sentiment": {
+                "type": "EnumStr",
+                "description": "General sentiment or tone of the discourse about civil protection.",
+                "enum": ["positive", "negative", "neutral", "mixed", "alarming", "hopeful"]
+            },
+            "location": {
+                "type": "Location",
+                "description": "Geographic area the civil protection theme pertains to. Fill only if the discussion is explicitly about a specific area."
+            },
+            "related_subtopics": {
+                "type": "List[str]",
+                "description": "Specific subtopics discussed, e.g. ['flood_prevention', 'emergency_shelters', 'first_responder_training']."
+            },
+            "time_scope": {
+                "type": "DateRangeFromUnstructured",
+                "description": "The time period the article's civil protection discussion covers (e.g. 'temporada de lluvias 2025', 'primer trimestre 2025'). Captures the temporal scope of the discourse."
+            },
+            "hazard_types_discussed": {
+                "type": "List[str]",
+                "description": "Types of hazards or emergencies discussed (e.g. 'inundacion', 'incendio forestal', 'sismo', 'accidente vial')."
+            },
+            "preparedness_measures": {
+                "type": "List[str]",
+                "description": "Prevention or preparedness measures mentioned (e.g. 'simulacros', 'limpieza de cauces', 'alerta temprana'). Each measure as a separate item."
+            },
+            "agencies_mentioned": {
+                "type": "List[str]",
+                "description": "Civil protection agencies or emergency services mentioned (e.g. 'Proteccion Civil', 'Bomberos', 'Cruz Roja')."
+            },
+            "statistics_mentioned": {
+                "type": "List[str]",
+                "description": "Statistics or data points about emergencies, accidents, or risks. Each statistic as a separate item (e.g. '200 incendios en el ano', '15% mas accidentes')."
+            }
+        }
+    }
+}

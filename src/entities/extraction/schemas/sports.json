@@ -1,0 +1,103 @@
+{
+    "Sports": {
+        "meta": {
+            "description": "Sports includes any theme, event, mention, or discussion related to athletics, competitive events, and physical activity. It considers professional and amateur sports, teams, athletes, leagues, tournaments, sports infrastructure, and sports culture. An article talks about sports whenever it addresses or touches any related subject — whether reporting a specific match, discussing a league season, covering sports infrastructure, or mentioning athletes in passing. An article may match both this theme and a specific event schema (e.g. paid_mass_event) — both are extracted separately.",
+            "example": {
+                "theme_type": "sports_landscape",
+                "theme_subtype": "local_soccer_scene",
+                "description": "Panorama del futbol local en Queretaro: el equipo de primera division busca mantenerse en la liga mientras las fuerzas basicas destacan a nivel nacional.",
+                "tags": ["futbol", "queretaro", "liga mx", "fuerzas basicas"],
+                "context": "Gallos Blancos enfrenta una temporada dificil pero la cantera sigue produciendo talento.",
+                "relevance": 1,
+                "sentiment": "mixed",
+                "location": {
+                    "country": "Mexico",
+                    "state": "Queretaro",
+                    "city": "Queretaro",
+                    "neighborhood": null,
+                    "zone": null,
+                    "street": null,
+                    "number": null,
+                    "place_name": null
+                },
+                "related_subtopics": ["first_division", "youth_development", "local_talent"],
+                "time_scope": {
+                    "date_range": {
+                        "start": "2025-01-01T00:00:00",
+                        "end": "2025-12-31T23:59:59"
+                    },
+                    "timezone": null,
+                    "mention": "temporada 2025",
+                    "precision_days": 365
+                },
+                "sports_discussed": ["futbol"],
+                "teams_or_athletes": ["Gallos Blancos de Queretaro", "fuerzas basicas"],
+                "competitions_referenced": ["Liga MX", "torneos nacionales de fuerzas basicas"],
+                "venue_or_facilities": ["Estadio Corregidora"]
+            }
+        },
+        "schema": {
+            "theme_type": {
+                "type": "EnumStr",
+                "required": true,
+                "description": "Type of sports theme. Choose the single most specific category that matches.",
+                "enum": ["sports_landscape", "competition_coverage", "sports_infrastructure", "athlete_profile", "league_overview"]
+            },
+            "theme_subtype": {
+                "type": "str",
+                "description": "More specific subtype, e.g. 'local_soccer_scene', 'olympic_preparation', 'stadium_construction', 'boxing_overview', 'marathon_culture'."
+            },
+            "description": {
+                "type": "str",
+                "required": true,
+                "description": "Summary of how the article touches or discusses sports — whether reporting a match, covering a team, discussing sports infrastructure, or mentioning athletes."
+            },
+            "tags": {
+                "type": "List[str]",
+                "description": "Keywords and topics relevant to this sports theme."
+            },
+            "context": {
+                "type": "str",
+                "description": "Broader context: league history, team trajectory, sports culture."
+            },
+            "relevance": {
+                "type": "EnumStr",
+                "description": "Relevance of this theme within the article: 1 = main topic, 2 = secondary, 3 = implicit.",
+                "enum": ["1", "2", "3"]
+            },
+            "sentiment": {
+                "type": "EnumStr",
+                "description": "General sentiment or tone of the discourse about sports.",
+                "enum": ["positive", "negative", "neutral", "mixed", "alarming", "hopeful"]
+            },
+            "location": {
+                "type": "Location",
+                "description": "Geographic area the sports theme pertains to. Fill only if the discussion is explicitly about a specific area."
+            },
+            "related_subtopics": {
+                "type": "List[str]",
+                "description": "Specific subtopics discussed, e.g. ['relegation_battle', 'youth_academy', 'transfer_market']."
+            },
+            "time_scope": {
+                "type": "DateRangeFromUnstructured",
+                "description": "The time period the article's sports discussion covers (e.g. 'temporada 2025', 'este torneo'). Captures the temporal scope of the discourse."
+            },
+            "sports_discussed": {
+                "type": "List[str]",
+                "description": "Sports discussed (e.g. 'futbol', 'beisbol', 'basquetbol', 'boxeo', 'atletismo')."
+            },
+            "teams_or_athletes": {
+                "type": "List[str]",
+                "description": "Teams, athletes, or sports figures mentioned. Each team or athlete separately."
+            },
+            "competitions_referenced": {
+                "type": "List[str]",
+                "description": "Leagues, tournaments, or competitions mentioned (e.g. 'Liga MX', 'Serie del Caribe', 'Olimpiadas'). Each competition separately."
+            },
+            "venue_or_facilities": {
+                "type": "List[str]",
+                "description": "Sports venues or facilities discussed (e.g. 'Estadio Corregidora', 'centro deportivo municipal'). Each venue separately."
+            }
+        }
+    }
+}

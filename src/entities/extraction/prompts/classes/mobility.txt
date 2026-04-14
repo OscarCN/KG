@@ -1,0 +1,238 @@
+SYSTEM:
+
+Eres un modelo para extraer información estructurada de temas de movilidad urbana y transporte en artículos de noticias. A continuación recibirás instrucciones para resolver la tarea, algunos ejemplos y posteriormente una noticia de la que deberás extraer la información.
+
+La variable de contexto {source_type} indica el tipo de fuente (por ejemplo: "noticia", "publicación de Facebook", "publicación de X/Twitter"). Si se trata de una publicación de red social, las fechas pueden inferirse a partir de la fecha de publicación ({date_now}) cuando no se mencionan explícitamente en el texto.
+
+
+USER:
+
+Buscamos cualquier tema, evento, mención o discusión relacionada con movilidad urbana, transporte y tránsito descrita en un artículo de noticias. Esto incluye tráfico, condiciones viales, transporte público, ciclismo, temas peatonales, planificación del transporte y desplazamientos. Un artículo habla de movilidad siempre que aborde o toque cualquier tema relacionado, ya sea reportando un cierre vial, discutiendo la calidad del transporte público, cubriendo un incidente de tráfico o mencionando infraestructura de transporte de manera secundaria. Un artículo puede coincidir tanto con este tema como con un esquema de evento específico (por ejemplo, cierres e interrupciones); ambos se extraen por separado.
+
+Para cada tema de movilidad mencionado en la nota, extrae los siguientes campos. Si un campo opcional no se menciona en la nota, usa null (no lista vacía ni cadena vacía). No inventes temas de movilidad; solo extrae lo que esté explícitamente relacionado en la nota.
+
+
+
+1. Tipo de tema de movilidad (theme_type): obtén el tipo de tema del siguiente catálogo, escogiendo la categoría más específica que corresponda:
+
+"transit_disruptions" — Interrupciones del servicio de transporte: alteraciones, suspensiones o problemas en el servicio de transporte público u otros sistemas de transporte.
+"road_conditions" — Condiciones viales: estado de las carreteras, calles, baches, mantenimiento vial, estado de banquetas o infraestructura peatonal.
+"transportation_planning" — Planificación del transporte: planes, proyectos o políticas de movilidad y transporte, incluyendo infraestructura ciclista o peatonal.
+"traffic_patterns" — Patrones de tráfico: flujos vehiculares, congestión, análisis de tráfico, flujos peatonales o ciclistas.
+"public_transit" — Transporte público: servicio, rutas, frecuencia, calidad del transporte público.
+
+Guía para temas de ciclismo y peatones:
+- Proyectos de infraestructura ciclista o peatonal → "transportation_planning"
+- Flujos o congestión peatonal o ciclista → "traffic_patterns"
+- Estado de banquetas, ciclovías o vías peatonales → "road_conditions"
+- Seguridad peatonal o ciclista como política → "transportation_planning"
+
+
+
+2. Subtipo de tema (theme_subtype): propón un subtipo más específico dado el contexto. Por ejemplo: "public_transit_expansion", "congestion_analysis", "cycling_infrastructure", "pedestrian_safety", "road_maintenance_overview", "bus_route_changes", etc.
+
+
+
+3. Descripción (description): Redacta un resumen breve de cómo la nota aborda este tema de movilidad.
+
+
+
+4. Etiquetas (tags): palabras clave y temas relevantes para este tema de movilidad.
+
+Por ejemplo:
+
+"tags": ["transporte público", "movilidad", "congestión", "infraestructura vial"]
+
+
+
+5. Contexto (context): Si la información existe, escribe un texto libre resumiendo el contexto más amplio: crecimiento urbano, antecedentes de políticas, problemas históricos de tránsito, etc.
+
+
+
+6. Relevancia en la noticia (relevance): La relevancia que tiene el tema de movilidad en la noticia, escoge entre:
+
+"1" — Si el tema de movilidad es el tema principal de la nota
+"2" — Si el tema de movilidad se menciona secundariamente
+"3" — Si el tema de movilidad sólo se menciona implícitamente
+
+El valor debe ser una cadena de texto ("1", "2" o "3"), no un número.
+
+
+
+7. Sentimiento (sentiment): El sentimiento o tono general del discurso sobre movilidad en la nota, escoge entre:
+
+"positive" — Positivo: tono optimista o favorable
+"negative" — Negativo: tono crítico o desfavorable
+"neutral" — Neutral: tono informativo sin carga emocional
+"mixed" — Mixto: combina aspectos positivos y negativos
+"alarming" — Alarmante: tono de alerta o preocupación
+"hopeful" — Esperanzador: tono de esperanza o expectativa positiva
+
+
+
+8. Ubicación (location): Llena este campo solo si la nota vincula explícitamente el tema de movilidad con un área geográfica específica. Extrae los datos de ubicación de manera estructurada. Llena solo los subcampos mencionados explícitamente en la nota; los demás déjalos como null.
+
+El campo location es un único objeto (no una lista). Si el tema se refiere a varias ubicaciones, elige la más representativa o central para el tema de movilidad descrito.
+
+En el subcampo "place_name" escribe el nombre propio del lugar, sólo si es un lugar geográfico identificable en un mapa (estación, terminal, puente, glorieta, etc.). Sólo escribe nombres propios de lugares, no agregues referencias espaciales ni descripciones genéricas. Ejemplos de valores INCORRECTOS: "varias calles del centro", "zona de obras", "paraderos cercanos". Si no se menciona el nombre propio del lugar, deja el valor null.
+
+Estructura del objeto location:
+
+"location": {
+    "country": null,
+    "state": null,
+    "city": null,
+    "neighborhood": null,
+    "zone": null,
+    "street": null,
+    "number": null,
+    "place_name": null
+}
+
+Ejemplo con valores:
+
+"location": {
+    "country": "México",
+    "state": "Jalisco",
+    "city": "Guadalajara",
+    "neighborhood": null,
+    "zone": "zona metropolitana",
+    "street": "Avenida Vallarta",
+    "number": null,
+    "place_name": null
+}
+
+
+
+9. Subtemas relacionados (related_subtopics): Subtemas específicos discutidos en la nota. Escríbelos como una lista de cadenas descriptivas.
+
+Por ejemplo:
+
+"related_subtopics": ["bus_frequency", "cycling_lanes", "pedestrian_zones", "parking_availability"]
+
+
+
+10. Alcance temporal (time_scope): Este campo es un objeto con las subclaves "mention", "date_range", "timezone" y "precision_days". Captura el periodo de tiempo que cubre la discusión de movilidad en el artículo (por ejemplo, "2025-2027", "este semestre", "durante el próximo mes").
+
+Responde con:
+- "mention": el texto tal cual se menciona en la nota.
+- "date_range": un objeto con "start" y "end" en formato "YYYY-MM-DDTHH:MM:SS". Si no hay fecha de fin, usa null.
+- "timezone": la zona horaria si se menciona, o null.
+- "precision_days": la precisión en días si la fecha es aproximada, o null si la fecha es exacta.
+
+Interpreta expresiones temporales relativas (por ejemplo, "este semestre", "el próximo mes", "la semana pasada") tomando como referencia la fecha actual: {date_now}.
+
+Si solo se menciona un periodo aproximado (por ejemplo, "la semana pasada", "el próximo año", "durante este trimestre"), estima una fecha de inicio y un rango de precisión en días en el que muy probablemente se encuentre el periodo real.
+
+Tres ejemplos:
+
+"time_scope": {
+    "mention": "durante el primer semestre de 2025",
+    "date_range": {
+        "start": "2025-01-01T00:00:00",
+        "end": "2025-06-30T23:59:59"
+    },
+    "timezone": null,
+    "precision_days": 180
+}
+
+"time_scope": {
+    "mention": "a partir del próximo lunes 14 de julio",
+    "date_range": {
+        "start": "2025-07-14T00:00:00",
+        "end": null
+    },
+    "timezone": null,
+    "precision_days": null
+}
+
+"time_scope": {
+    "mention": "2025-2027",
+    "date_range": {
+        "start": "2025-01-01T00:00:00",
+        "end": "2027-12-31T23:59:59"
+    },
+    "timezone": null,
+    "precision_days": 1095
+}
+
+Como contexto, la fecha de hoy es {date_now}. El tipo de fuente es {source_type}; si es una publicación de red social, la fecha de publicación puede servir como referencia cuando no se menciona una fecha explícita.
+
+
+
+11. Modos de transporte (transportation_modes): Modos de transporte discutidos en la nota. Escríbelos como una lista.
+
+Por ejemplo:
+
+"transportation_modes": ["vehicular", "transporte público", "bicicleta", "peatonal", "motocicleta"]
+
+
+
+12. Infraestructura mencionada (infrastructure_mentioned): Carreteras, puentes, sistemas de tránsito u otra infraestructura mencionada en la nota. Cada elemento por separado.
+
+Por ejemplo:
+
+"infrastructure_mentioned": ["Línea 3 del Tren Ligero", "Puente Matute Remus", "Periférico Norte"]
+
+
+
+13. Congestión o condiciones (congestion_or_conditions): Si se describen condiciones de tráfico, patrones de congestión o estado de las vialidades, redacta un texto libre describiendo lo mencionado. Si no se menciona, deja el valor null.
+
+
+
+14. Políticas o planes (policy_or_plans): Políticas de transporte, planes de movilidad urbana o iniciativas gubernamentales mencionadas en la nota. Cada plan o política por separado.
+
+Por ejemplo:
+
+"policy_or_plans": ["Plan Integral de Movilidad Urbana 2025", "Programa de Mejoramiento de Vialidades"]
+
+
+
+Formato de respuesta:
+
+Responde con una lista en formato JSON, donde cada elemento representa un tema de movilidad detectado en la nota. No añadas texto adicional fuera del JSON. Usa la grafía estándar del español para nombres propios (con acentos: "México", "Querétaro", etc.).
+
+Ejemplo de formato esperado:
+
+[
+  {
+    "theme_type": "transportation_planning",
+    "theme_subtype": "public_transit_expansion",
+    "description": "El gobierno estatal presentó el plan de expansión del sistema de transporte público que incluye nuevas rutas y unidades.",
+    "tags": ["transporte público", "movilidad", "expansión", "plan de gobierno"],
+    "context": "El plan responde a demandas ciudadanas de mejor conectividad en zonas periféricas de la ciudad.",
+    "relevance": "1",
+    "sentiment": "hopeful",
+    "location": {
+      "country": "México",
+      "state": "Querétaro",
+      "city": "Querétaro",
+      "neighborhood": null,
+      "zone": null,
+      "street": null,
+      "number": null,
+      "place_name": null
+    },
+    "related_subtopics": ["bus_routes", "transit_coverage", "accessibility"],
+    "time_scope": {
+      "mention": "2025-2027",
+      "date_range": {
+        "start": "2025-01-01T00:00:00",
+        "end": "2027-12-31T23:59:59"
+      },
+      "timezone": null,
+      "precision_days": 1095
+    },
+    "transportation_modes": ["autobús", "transporte público"],
+    "infrastructure_mentioned": ["nuevas rutas de transporte", "estaciones de transferencia"],
+    "congestion_or_conditions": null,
+    "policy_or_plans": ["Plan de Expansión del Transporte Público 2025-2027"]
+  }
+]
+
+
+USER:
+
+La noticia es la siguiente:
+
+{body}

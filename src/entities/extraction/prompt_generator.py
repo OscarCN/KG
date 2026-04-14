@@ -34,29 +34,15 @@ _COMPOSITE_TYPES_PATH = Path(__file__).resolve().parent.parent.parent / "schema"
 # Reference prompt used as style exemplar for generation
 _REFERENCE_PROMPT_PATH = _PROMPTS_CLASSES_DIR / "paid_mass_event.txt"
 
-# Supertype -> schema JSON filename (without extension)
-_SUPERTYPE_SCHEMA_FILE = {
-    "paid_mass_event": "paid_mass_event",
-    "robbery_assault": "robbery_assault",
-    "public_works": "public_works",
-    "violence_event": "violence_event",
-    "closures_interruptions": "closures_interruptions",
-    "emergency": "emergency",
-    "protest": "protest",
-    "arrest": "arrest",
-}
 
-# Supertype -> top-level schema key inside the JSON file
-_SUPERTYPE_SCHEMA_KEY = {
-    "paid_mass_event": "PaidMassEvent",
-    "robbery_assault": "RobberyAssault",
-    "public_works": "PublicWorks",
-    "violence_event": "ViolenceEvent",
-    "closures_interruptions": "ClosuresInterruptions",
-    "emergency": "Emergency",
-    "protest": "Protest",
-    "arrest": "Arrest",
-}
+def _snake_to_pascal(name: str) -> str:
+    """Convert snake_case supertype name to PascalCase schema key."""
+    return "".join(word.capitalize() for word in name.split("_"))
+
+
+def _get_available_supertypes() -> List[str]:
+    """Discover available supertypes from schema JSON files in the schemas directory."""
+    return sorted(p.stem for p in _SCHEMAS_DIR.glob("*.json"))
 
 
 # ---------------------------------------------------------------------------
@@ -85,21 +71,22 @@ class PromptGenerationContextManager:
     """
 
     def __init__(self, supertype: str):
-        if supertype not in _SUPERTYPE_SCHEMA_FILE:
+        schema_path = _SCHEMAS_DIR / f"{supertype}.json"
+        if not schema_path.exists():
+            available = _get_available_supertypes()
             raise ValueError(
-                f"Unknown supertype '{supertype}'. "
-                f"Valid supertypes: {list(_SUPERTYPE_SCHEMA_FILE.keys())}"
+                f"No schema file for supertype '{supertype}' at {schema_path}. "
+                f"Available supertypes: {available}"
             )
         self.supertype = supertype
-        self.schema_key = _SUPERTYPE_SCHEMA_KEY[supertype]
+        self.schema_key = _snake_to_pascal(supertype)
         self._raw_schema = self._load_raw_schema()
         self._raw_composites = _load_raw_composite_types()
         self._context = self._build_context()
 
     def _load_raw_schema(self) -> dict:
         """Load the raw JSON schema file (type names stay as strings)."""
-        filename = _SUPERTYPE_SCHEMA_FILE[self.supertype]
-        path = _SCHEMAS_DIR / f"{filename}.json"
+        path = _SCHEMAS_DIR / f"{self.supertype}.json"
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
 
@@ -238,8 +225,10 @@ The field instruction should say to choose the single most specific category tha
   - For bool fields: explain true/false/null semantics
   - For List[str] fields: show an example array
   - For composite types (DateRangeFromUnstructured, DateFromUnstructured, Location, PriceRange, \
-Attendance, VenueCapacity, CasualtyCount, CountMention, etc.):
-    * Expand the type's structure with a JSON example
+Attendance, VenueCapacity, CasualtyCount, CountMention, PersonReference, etc.):
+    * Expand the type's structure with a JSON example that includes EVERY field defined in \
+the composite type schema. No field may be omitted — show null for fields not applicable \
+in the example. The JSON example must be an exact structural match to the composite type definition.
     * For fields with a "mention" subfield: instruct "Responde con el texto tal cual se menciona en la nota (mention)"
     * For DateRangeFromUnstructured / DateFromUnstructured: include detailed instructions about \
 approximate dates and precision_days (e.g. "si solo se menciona un periodo aproximado como \
@@ -247,8 +236,14 @@ approximate dates and precision_days (e.g. "si solo se menciona un periodo aprox
 include 2-3 date examples with different precision levels, \
 specify the date format "YYYY-MM-DDTHH:MM:SS", \
 and inject the context: "Como contexto, la fecha de hoy es {{date_now}}"
-    * For Location: instruct "Llena solo los campos mencionados explícitamente en la nota", \
-and add guidance for place_name: only proper names of identifiable places, not generic descriptions
+    * For Location: the JSON example MUST include all 8 fields (country, state, city, \
+neighborhood, zone, street, number, place_name) — use null for fields not present in the example. \
+Instruct "Llena solo los campos mencionados explícitamente en la nota", \
+and add guidance for place_name: only proper names of identifiable places, not generic descriptions.
+  - CRITICAL: every JSON example for a composite type must include ALL fields from that type's \
+schema definition (in the composite_types section of the schema context). Fields not applicable \
+in the example must be shown as null. Never abbreviate or truncate composite type examples — \
+omitting fields causes the LLM to ignore those fields during extraction.
   - Use the field's description AND the composite type's meta_description to craft richer, \
 more specific instructions. The three context layers (class description, field description, \
 composite type description) should all inform the generated instruction.
@@ -296,8 +291,22 @@ Review the following generated extraction prompt. Check it against the schema an
 4. **Format**: Does it follow the SYSTEM:/USER:/USER: pattern correctly?
 5. **Template variables**: Are {{date_now}}, {{source_type}}, and {{body}} present with single curly braces?
 6. **Example JSON**: Does the example match the schema's meta_example structure?
-7. **Composite types**: Are composite types properly expanded with examples and mention patterns?
+7. **Composite type field completeness (CRITICAL)**: For EACH composite type used in the prompt \
+(Location, DateRangeFromUnstructured, DateFromUnstructured, PriceRange, Attendance, VenueCapacity, \
+CasualtyCount, CountMention, PersonReference, etc.), verify that the JSON example in the prompt \
+includes EVERY field defined in that type's schema (listed in the composite_types section of the \
+schema context). No field may be omitted — absent values must be shown as null. Specifically check:
+   - Location MUST have all 8 fields: country, state, city, neighborhood, zone, street, number, place_name
+   - DateRangeFromUnstructured MUST have all 4 fields: date_range (with start/end), timezone, mention, precision_days
+   - DateFromUnstructured MUST have all 3 fields: date, mention, precision_days
+   - CasualtyCount MUST have all 4 fields: mention, dead, injured, missing
+   - CountMention MUST have all 3 fields: mention, count, confidence_range
+   - PersonReference MUST have all 3 fields: name, role, organization
+   List EVERY missing field as a separate issue.
 8. **Date handling**: Are approximate date instructions and precision_days examples included?
+9. **Field name accuracy**: Do the field names in the JSON examples match the composite type \
+schema exactly? E.g. CountMention uses "count" (not "estimate"), Attendance uses "estimate" \
+(not "count"). Report any field name mismatches.
 
 Respond with a numbered list of specific issues to fix. If no issues found, respond with "NO ISSUES FOUND"."""
 
@@ -352,7 +361,7 @@ class PromptGeneration:
 
     @staticmethod
     def _load_reference_prompt() -> str:
-        """Load the reference prompt (robbery_assault.txt) as style exemplar."""
+        """Load the reference prompt (paid_mass_event.txt) as style exemplar."""
         if not _REFERENCE_PROMPT_PATH.exists():
             raise FileNotFoundError(
                 f"Reference prompt not found at {_REFERENCE_PROMPT_PATH}. "
@@ -519,6 +528,6 @@ class PromptGeneration:
             Dict mapping supertype name to generated prompt text.
         """
         results = {}
-        for supertype in _SUPERTYPE_SCHEMA_FILE:
+        for supertype in _get_available_supertypes():
             results[supertype] = self.generate(supertype)
         return results

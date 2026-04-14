@@ -1,0 +1,205 @@
+SYSTEM:
+
+Eres un modelo para extraer información estructurada de temas culturales en notas periodísticas. Se te presentarán instrucciones para resolver la tarea, un ejemplo de salida, y posteriormente una nota para que extraigas la información.
+
+La variable de contexto {source_type} indica el tipo de fuente (por ejemplo: "noticia", "publicación de Facebook", "publicación de red social"). En el caso de publicaciones de redes sociales, las fechas a menudo pueden inferirse a partir de la fecha de publicación ({date_now}) si no se mencionan explícitamente en el texto.
+
+
+USER:
+
+Buscamos temas, eventos, menciones o discusiones relacionadas con la vida cultural, las artes, el entretenimiento y el patrimonio descritos en una nota. Esto incluye música, teatro, cine, artes visuales, gastronomía, festivales, recintos culturales, industrias creativas y política cultural. Una nota se considera de cultura si aborda, menciona o roza cualquier tema relacionado, ya sea reportando un evento cultural específico, cubriendo programación artística, discutiendo la preservación del patrimonio, o mencionando actividad cultural de manera incidental. Extrae menciones incidentales solo si aportan contenido cultural identificable; no extraigas referencias superficiales sin información sustantiva. Una nota puede coincidir tanto con este tema como con un esquema de evento específico (por ejemplo, un evento masivo con pago); ambos se extraen por separado.
+
+Separa temas solo cuando sean discusiones claramente distinguibles dentro de la nota; no dupliques variantes del mismo tema.
+
+Para cada tema cultural mencionado en la nota, extrae los siguientes campos. Si no se menciona un campo, deja su valor como `null`. No uses listas vacías; usa `null` cuando no haya valores. No inventes temas culturales, solo extrae lo que esté explícitamente relacionado en la nota. No agregues llaves no definidas en el esquema.
+
+
+
+1. Tipo de tema cultural (theme_type): obtén el tipo de tema cultural del siguiente catálogo, escogiendo la categoría más específica que corresponda:
+
+"cultural_life" — Vida cultural: actividad cultural general, carteleras, oferta cultural de una ciudad o región
+"arts_scene" — Escena artística: panorama de las artes, movimientos artísticos, escena musical, teatral, cinematográfica, etc.
+"festival_landscape" — Panorama de festivales: discusión sobre festivales, temporadas de festivales, comparaciones entre festivales
+"heritage" — Patrimonio: patrimonio cultural, preservación, restauración, tradiciones, sitios históricos
+"cultural_policy" — Política cultural: políticas públicas, presupuestos, legislación, instituciones y programas gubernamentales relacionados con la cultura
+
+
+
+2. Subtipo de tema (theme_subtype): propón un subtipo más específico dado el contexto de la nota. Por ejemplo: "arts_programming", "music_scene", "theater_season", "heritage_restoration", "museum_exhibitions", "gastronomy_overview", "film_industry", "literary_scene", "dance_programming", etc.
+
+
+
+3. Descripción (description): redacta un resumen de cómo la nota aborda o discute la cultura, ya sea reportando un evento cultural, cubriendo programación artística, discutiendo patrimonio, o mencionando actividad cultural.
+
+
+
+4. Etiquetas (tags): palabras clave y temas relevantes para este tema cultural.
+
+Por ejemplo:
+
+"tags": ["cultura", "teatro", "temporada", "programación", "artes escénicas"]
+
+
+
+5. Contexto (context): si la información existe, escribe un texto libre resumiendo el contexto más amplio: tendencias culturales, antecedentes de política cultural, significado histórico, o cualquier información de fondo relevante.
+
+
+
+6. Relevancia en la nota (relevance): la relevancia del tema cultural en la nota. Responde siempre como número entero, escoge entre:
+
+1 — El tema cultural es el tema principal de la nota
+2 — El tema cultural se menciona de manera secundaria
+3 — El tema cultural solo se menciona implícitamente
+
+
+
+7. Sentimiento (sentiment): el sentimiento general o tono del discurso sobre cultura en la nota, escoge del siguiente catálogo:
+
+"positive" — Positivo: tono optimista, celebratorio o favorable
+"negative" — Negativo: tono crítico, pesimista o desfavorable
+"neutral" — Neutral: tono informativo sin carga emocional evidente
+"mixed" — Mixto: la nota presenta tanto aspectos positivos como negativos
+"alarming" — Alarmante: tono de preocupación o alerta sobre la situación cultural
+"hopeful" — Esperanzador: tono que expresa esperanza o expectativas positivas
+
+
+
+8. Ubicación (location): el área geográfica a la que se refiere el tema cultural. Llena solo si la discusión es explícitamente sobre un área específica. Extrae los datos de ubicación de manera estructurada como un único objeto, en el siguiente formato:
+
+"location": {
+    "country": "Mexico",
+    "state": "Queretaro",
+    "city": "Queretaro",
+    "neighborhood": null,
+    "zone": null,
+    "street": null,
+    "number": null,
+    "place_name": null
+}
+
+Llena solo los campos mencionados explícitamente en la nota. Escribe los nombres geográficos sin acentos (por ejemplo, "Mexico", "Queretaro", "Guanajuato", "Leon"). En el campo de "place_name" escribe el nombre propio del lugar, sólo si es un lugar geográfico identificable en un mapa (teatro, museo, plaza, centro cultural, galería, etc.). Sólo escribe nombres propios de lugares, no agregues referencias espaciales ni descripciones genéricas. Ejemplos de valores INCORRECTOS son: "distintos recintos de la ciudad", "espacios públicos del centro", "bibliotecas municipales". Si no se menciona el nombre propio del lugar, deja el valor null.
+
+Si el tema cultural se refiere a varias ubicaciones, selecciona la ubicación principal más relevante para el tema. Devuelve siempre un único objeto de ubicación, no una lista.
+
+
+
+9. Subtemas relacionados (related_subtopics): subtemas específicos discutidos en la nota en relación con la cultura.
+
+Por ejemplo:
+
+"related_subtopics": ["street_art", "traditional_music", "film_festivals", "community_access", "public_spaces"]
+
+
+
+10. Alcance temporal (time_scope): el periodo de tiempo que cubre la discusión cultural de la nota (por ejemplo, "temporada de verano 2025", "este año", "la próxima semana"). Captura el alcance temporal del discurso. Solo estima cuando exista una referencia temporal explícita en el texto; si no hay mención temporal, usa null.
+
+Responde con el texto tal cual se menciona en la nota, sin normalizar, traducir ni parafrasear (mention), un periodo de fechas con inicio y opcionalmente fin (date_range), la zona horaria si se menciona (timezone), y la precisión en días si la fecha es aproximada (precision_days).
+
+Si solo se menciona un periodo aproximado (por ejemplo, "este año", "la próxima temporada", etc.), interpreta un periodo estimado razonable, y escribe la fecha inicial del periodo junto con un rango de precisión en días, en el que muy probablemente se encuentre el periodo real.
+
+Si `time_scope` se devuelve, incluye siempre los cuatro subcampos (`mention`, `date_range`, `timezone`, `precision_days`), usando `null` donde no haya información.
+
+Tres ejemplos:
+
+"time_scope": { "mention": "temporada de verano 2025", "date_range": {"start": "2025-06-01T00:00:00", "end": "2025-08-31T23:59:59"}, "timezone": null, "precision_days": 90 }
+
+"time_scope": { "mention": "durante el mes de octubre", "date_range": {"start": "2025-10-01T00:00:00", "end": "2025-10-31T23:59:59"}, "timezone": null, "precision_days": 30 }
+
+"time_scope": { "mention": "este fin de semana", "date_range": {"start": "2025-07-05T00:00:00", "end": "2025-07-06T23:59:59"}, "timezone": null, "precision_days": 2 }
+
+Usa el formato estandarizado de fechas "YYYY-MM-DDTHH:MM:SS"
+Como contexto, la fecha de hoy es {date_now}. El tipo de fuente es {source_type}; si es una publicación de red social, la fecha de publicación puede servir como referencia cuando no se menciona una fecha explícita.
+
+
+
+11. Dominios culturales (cultural_domains): los dominios o disciplinas culturales que se discuten en la nota.
+
+Por ejemplo:
+
+"cultural_domains": ["musica", "artes visuales", "teatro", "cine", "literatura", "gastronomia", "danza", "artesanias"]
+
+
+
+12. Recintos o espacios (venues_or_spaces): recintos culturales, espacios o instituciones mencionados en la nota. Lista cada recinto por separado. Este campo acepta tanto nombres propios de recintos (por ejemplo, "Teatro de la Republica") como menciones genéricas de tipos de espacio (por ejemplo, "plazas publicas", "centros culturales"). Esto es diferente del campo `location.place_name`, que solo acepta nombres propios identificables en un mapa.
+
+Por ejemplo:
+
+"venues_or_spaces": ["Teatro de la Republica", "Museo de Arte Contemporaneo", "Centro Cultural Universitario"]
+
+
+
+13. Artistas o figuras (artists_or_figures): artistas, figuras culturales o personas relevantes mencionadas en la nota. Para cada persona, incluye su nombre, rol (por ejemplo: "musico", "director", "curador", "escritor", "actor", "funcionario cultural") y la organización a la que pertenece si se menciona. Responde en el siguiente formato:
+
+"artists_or_figures": [
+    {
+        "name": "Juan Villoro",
+        "role": "escritor",
+        "organization": null
+    },
+    {
+        "name": "Maria Lopez",
+        "role": "directora",
+        "organization": "Secretaria de Cultura"
+    }
+]
+
+Si no se mencionan artistas o figuras, deja el valor null.
+
+
+
+14. Eventos referenciados (events_referenced): eventos específicos referenciados dentro del discurso cultural de la nota. Lista cada evento por separado.
+
+Por ejemplo:
+
+"events_referenced": ["Festival Internacional Cervantino", "Bienal de Arte Contemporaneo", "Feria Internacional del Libro"]
+
+
+
+Formato de respuesta:
+
+Devuelve únicamente un arreglo JSON válido. Cada objeto debe usar exactamente estas llaves: `theme_type`, `theme_subtype`, `description`, `tags`, `context`, `relevance`, `sentiment`, `location`, `related_subtopics`, `time_scope`, `cultural_domains`, `venues_or_spaces`, `artists_or_figures`, `events_referenced`. Usa `null` para campos ausentes y no agregues campos extra. No añadas texto adicional fuera del JSON.
+
+Ejemplo de salida:
+
+[
+  {
+    "theme_type": "cultural_life",
+    "theme_subtype": "arts_programming",
+    "description": "La Secretaria de Cultura presento la cartelera cultural del verano con mas de 50 actividades gratuitas en espacios publicos.",
+    "tags": ["cultura", "cartelera", "verano", "actividades gratuitas"],
+    "context": "El programa busca acercar las artes a comunidades con menor acceso a espacios culturales.",
+    "relevance": 1,
+    "sentiment": "positive",
+    "location": {
+      "country": "Mexico",
+      "state": "Queretaro",
+      "city": "Queretaro",
+      "neighborhood": null,
+      "zone": null,
+      "street": null,
+      "number": null,
+      "place_name": null
+    },
+    "related_subtopics": ["free_programming", "public_spaces", "community_access"],
+    "time_scope": {
+      "mention": "verano 2025",
+      "date_range": {
+        "start": "2025-06-01T00:00:00",
+        "end": "2025-08-31T23:59:59"
+      },
+      "timezone": null,
+      "precision_days": 90
+    },
+    "cultural_domains": ["musica", "teatro", "danza", "artes visuales"],
+    "venues_or_spaces": ["plazas publicas", "centros culturales", "parques"],
+    "artists_or_figures": null,
+    "events_referenced": ["Cartelera cultural del verano"]
+  }
+]
+
+
+USER:
+
+La nota es la siguiente:
+
+{body}

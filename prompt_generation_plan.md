@@ -2,11 +2,11 @@
 
 ## Background & Motivation
 
-The entity extraction pipeline (`src/entities/extraction/extract.py`) extracts structured events from news articles and social media using LLMs. It has **8 supertypes** (paid_mass_event, robbery_assault, public_works, violence_event, closures_interruptions, emergency, protest, arrest), each with a JSON schema defining fields, types, enums, and descriptions.
+The entity extraction pipeline (`src/entities/extraction/extract.py`) extracts structured events and themes from news articles and social media using LLMs. It has **15 supertypes** — 8 events (paid_mass_event, robbery_assault_event, public_works_event, violence_event, closures_interruptions_event, emergency_event, protest_event, arrest_event) and 7 themes (security, public_infrastructure, civil_protection, mobility, culture, sports, civic_participation) — each with a JSON schema defining fields, types, enums, and descriptions.
 
 The pipeline loads Spanish-language prompt `.txt` files from `prompts/classes/{supertype}.txt`, substitutes runtime context variables (`{date_now}`, `{body}`), and sends them to an LLM via OpenRouter for extraction. Currently **only `robbery_assault` has a hand-written prompt** — the other 7 supertypes have no prompts, which means extraction fails with `FileNotFoundError` for them.
 
-We need a system that **auto-generates Spanish extraction prompts from the JSON schemas** using LLMs, following the style of the existing `robbery_assault.txt` and the original PoC prompt in `src/PoC/events.py`.
+We need a system that **auto-generates Spanish extraction prompts from the JSON schemas** using LLMs, following the style of the existing `paid_mass_event.txt` and the original PoC prompt in `src/PoC/events.py`.
 
 ## Key Architecture
 
@@ -29,7 +29,7 @@ We need a system that **auto-generates Spanish extraction prompts from the JSON 
 | File | Purpose |
 |---|---|
 | `src/entities/extraction/extract.py` | Extraction pipeline — loads prompts, calls LLM, parses results. `_load_prompt()` at line 305, `extract_supertype()` at line 538. **Must be updated**: prompt path (line 313) and context dict (line 561) |
-| `src/entities/extraction/prompts/classes/robbery_assault.txt` | **Reference prompt** — 174 lines, Spanish, `SYSTEM:/USER:/USER:` format. This is the style exemplar for generated prompts |
+| `src/entities/extraction/prompts/classes/paid_mass_event.txt` | **Reference prompt** — 174 lines, Spanish, `SYSTEM:/USER:/USER:` format. This is the style exemplar for generated prompts |
 | `src/PoC/events.py` | Original PoC extraction prompt (lines 231-445) — detailed Spanish instructions, the style we want to replicate |
 | `src/entities/extraction/schemas/*.json` | 8 schema JSONs. Each has `meta.description`, `meta.example`, and `schema` with field definitions |
 | `src/schema/types/composite_types.json` | Composite type definitions (Location, DateRangeFromUnstructured, PriceRange, etc.) with meta descriptions and per-field descriptions |
@@ -40,14 +40,23 @@ We need a system that **auto-generates Spanish extraction prompts from the JSON 
 ### Supertype → schema key mapping (from extract.py)
 
 ```
-paid_mass_event      → PaidMassEvent
-robbery_assault      → RobberyAssault
-public_works         → PublicWorks
-violence_event       → ViolenceEvent
-closures_interruptions → ClosuresInterruptions
-emergency            → Emergency
-protest              → Protest
-arrest               → Arrest
+## Events
+paid_mass_event              → PaidMassEvent
+robbery_assault_event        → RobberyAssaultEvent
+public_works_event           → PublicWorksEvent
+violence_event               → ViolenceEvent
+closures_interruptions_event → ClosuresInterruptionsEvent
+emergency_event              → EmergencyEvent
+protest_event                → ProtestEvent
+arrest_event                 → ArrestEvent
+## Themes
+security                     → Security
+public_infrastructure        → PublicInfrastructure
+civil_protection             → CivilProtection
+mobility                     → Mobility
+culture                      → Culture
+sports                       → Sports
+civic_participation          → CivicParticipation
 ```
 
 ---
@@ -83,20 +92,20 @@ For single-date fields (like `public_works.completion_date`) that don't need a r
 ### 1c. Fix `event_type.description` in all 8 schemas under `src/entities/extraction/schemas/`
 
 Add "Choose the single most specific category that matches." Currently only `paid_mass_event` has this. Apply to the other 7:
-- `robbery_assault.json`: "Type of crime from the catalogue." → "Type of crime from the catalogue. Choose the single most specific category that matches."
-- Same pattern for: `public_works`, `violence_event`, `closures_interruptions`, `emergency`, `protest`, `arrest`
+- `robbery_assault_event.json`: "Type of crime from the catalogue." → "Type of crime from the catalogue. Choose the single most specific category that matches."
+- Same pattern for: `public_works_event`, `violence_event`, `closures_interruptions_event`, `emergency_event`, `protest_event`, `arrest_event`
 
 ### 1d. Fix `date_range.description` in 7 schemas (paid_mass_event already good)
 
 Make each domain-specific. Pattern: "Date or date range when [specific thing]. Extract the start datetime and, if present, the end datetime."
 
-- `robbery_assault`: "Date or date range when the incident occurred. Extract the start datetime and, if present, the end datetime."
-- `public_works`: "Date or date range when the issue was reported or the works started/are scheduled. Extract the start datetime and, if present, the end datetime."
+- `robbery_assault_event`: "Date or date range when the incident occurred. Extract the start datetime and, if present, the end datetime."
+- `public_works_event`: "Date or date range when the issue was reported or the works started/are scheduled. Extract the start datetime and, if present, the end datetime."
 - `violence_event`: "Date or date range when the violent incident occurred. Extract the start datetime and, if present, the end datetime."
-- `closures_interruptions`: "Date or date range of the closure or interruption. Extract the start datetime and, if present, the end datetime."
-- `emergency`: "Date or date range of the emergency. Extract the start datetime and, if present, the end datetime."
-- `protest`: "Date or date range of the protest. Extract the start datetime and, if present, the end datetime."
-- `arrest`: "Date or date range of the arrest or detention. Extract the start datetime and, if present, the end datetime."
+- `closures_interruptions_event`: "Date or date range of the closure or interruption. Extract the start datetime and, if present, the end datetime."
+- `emergency_event`: "Date or date range of the emergency. Extract the start datetime and, if present, the end datetime."
+- `protest_event`: "Date or date range of the protest. Extract the start datetime and, if present, the end datetime."
+- `arrest_event`: "Date or date range of the arrest or detention. Extract the start datetime and, if present, the end datetime."
 
 ### 1e. Fix `public_works.json`
 
@@ -164,7 +173,7 @@ class PromptGenerationContextManager:
 - Read raw JSON directly (not through `load_schema()`) so type names stay as readable strings like `"DateRangeFromUnstructured"`, not resolved Python types
 - Composite type resolution: recursively gather referenced types (e.g. `DateRangeFromUnstructured` references `PeriodDates`)
 - Detect `List[X]` type patterns to resolve the inner type (e.g. `List[DateRangeFromUnstructured]`)
-- Reuse the `_SUPERTYPE_SCHEMA_FILE` / `_SUPERTYPE_SCHEMA_KEY` mappings (duplicate from extract.py or import)
+- Supertypes are discovered dynamically from schema files in the schemas directory; the PascalCase schema key is derived from the snake_case supertype name via `_snake_to_pascal()`
 
 ### 2b. `PromptGeneration`
 
@@ -189,7 +198,7 @@ class PromptGeneration:
 
 **LLM calls** via `call_openrouter(messages, model=..., max_tokens=8192, temperature=0.3)`. **No JSON mode** — output is free-form text (the prompt), not JSON.
 
-**Reference prompt** loaded at runtime from `src/entities/extraction/prompts/classes/robbery_assault.txt`.
+**Reference prompt** loaded at runtime from `src/entities/extraction/prompts/classes/paid_mass_event.txt`.
 
 #### Generation template (constant string in the file)
 
@@ -198,7 +207,7 @@ System message to generation LLM:
 
 User message contains:
 1. **Schema context JSON** from `PromptGenerationContextManager.to_json()`
-2. **Reference prompt** — full text of `robbery_assault.txt`
+2. **Reference prompt** — full text of `paid_mass_event.txt`
 3. **Detailed instructions** (this is critical):
    - Output must use `SYSTEM:\n...\nUSER:\n...\nUSER:` format
    - **Translate everything to Spanish** — descriptions, class names, field labels
@@ -276,7 +285,7 @@ context = {"date_now": date_now, "body": body, "source_type": source_type}
 - In "Entity Extraction" section add brief note:
   - Schema-driven prompt generation: prompts auto-generated from JSON schemas via LLM, using a generate+feedback loop
   - Context injection: each prompt is built from three layers — class `meta.description`, field `description`, and composite type descriptions (e.g. `DateRangeFromUnstructured` contributes approximate-date and `precision_days` instructions)
-  - Reference: `robbery_assault.txt` serves as the style exemplar for all generated prompts
+  - Reference: `paid_mass_event.txt` serves as the style exemplar for all generated prompts
 - Document `DateFromUnstructured` composite type
 - Document env vars: `OPENROUTER_GENERATION_MODEL`, `OPENROUTER_FEEDBACK_MODEL`
 
@@ -291,7 +300,7 @@ context = {"date_now": date_now, "body": body, "source_type": source_type}
     1. **Class-level**: `meta.description` (what this entity type represents) and `meta.example` (complete JSON output example)
     2. **Field-level**: each field's `description`, `type`, `required`, `enum` values — these become per-field extraction instructions
     3. **Composite type-level**: for fields referencing composite types (e.g. `DateRangeFromUnstructured`, `Location`, `PriceRange`), the type's `meta.description` and per-field descriptions are included — these contribute structural instructions (e.g. approximate date handling, `mention` pattern, `precision_days` semantics)
-  - **Generation template**: prompt sent to a generation LLM that receives schema context + `robbery_assault.txt` as reference style. Translates English descriptions to instructional Spanish, renders EnumStr as catalogues, expands composite types with JSON examples, injects global rules (null for missing fields, don't invent events, JSON list format), injects type-specific rules (date approximation, Location guidance, mention pattern). Includes `{date_now}`, `{source_type}`, `{body}` as template variables.
+  - **Generation template**: prompt sent to a generation LLM that receives schema context + `paid_mass_event.txt` as reference style. Translates English descriptions to instructional Spanish, renders EnumStr as catalogues, expands composite types with JSON examples, injects global rules (null for missing fields, don't invent events, JSON list format), injects type-specific rules (date approximation, Location guidance, mention pattern). Includes `{date_now}`, `{source_type}`, `{body}` as template variables.
   - **Feedback loop**: draft is sent to a separate feedback LLM for review (completeness, schema consistency, Spanish quality, format), then feedback is applied to produce the final prompt
   - **Output**: saved to `prompts/classes/{supertype}.txt` in `SYSTEM:/USER:/USER:` format
 
@@ -319,8 +328,8 @@ context = {"date_now": date_now, "body": body, "source_type": source_type}
 | File | Change |
 |---|---|
 | `src/schema/types/composite_types.json` | Add `DateFromUnstructured`, improve descriptions |
-| `src/entities/extraction/schemas/*.json` (all 8) | Fix `event_type`, `date_range` descriptions |
-| `src/entities/extraction/schemas/public_works.json` | `completion_date` type → `DateFromUnstructured` |
+| `src/entities/extraction/schemas/*.json` (all 15) | Fix `event_type`/`theme_type`, `date_range` descriptions |
+| `src/entities/extraction/schemas/public_works_event.json` | `completion_date` type → `DateFromUnstructured` |
 | `src/entities/extraction/prompt_generator.py` | **New file** — PromptGenerationContextManager + PromptGeneration |
 | `src/entities/extraction/extract.py` | Prompt path fix (line 313) + source_type context (line 561) |
 | `src/entities/readme_entities.md` | Documentation update |
@@ -329,6 +338,6 @@ context = {"date_now": date_now, "body": body, "source_type": source_type}
 ## Verification
 
 1. Load each schema via `load_schema()` — verify `DateFromUnstructured` resolves correctly
-2. Run `PromptGenerationContextManager("robbery_assault").to_dict()` — verify all fields and composite types gathered
-3. Run `PromptGeneration().generate("emergency")` — verify output has correct format, all fields, template vars
-4. Verify `_load_prompt("robbery_assault", {"date_now": "09/04/2026", "body": "test", "source_type": "news"})` works with new path
+2. Run `PromptGenerationContextManager("robbery_assault_event").to_dict()` — verify all fields and composite types gathered
+3. Run `PromptGeneration().generate("emergency_event")` — verify output has correct format, all fields, template vars
+4. Verify `_load_prompt("robbery_assault_event", {"date_now": "09/04/2026", "body": "test", "source_type": "news"})` works with new path

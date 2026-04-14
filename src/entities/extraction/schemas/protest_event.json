@@ -1,7 +1,7 @@
 {
-    "Protest": {
+    "ProtestEvent": {
         "meta": {
-            "description": "A protest, march, demonstration, or civic mobilization. Includes organized marches, sit-ins, rallies, and any collective public action where citizens or groups demand attention to a cause. Distinct from blockades (which focus on road/service interruption) — protests are about the social/political demand itself. Extracted from news articles.",
+            "description": "An identifiable single protest, march, demonstration, or civic mobilization. Includes organized marches, sit-ins, rallies, and any collective public action where citizens or groups demand attention to a cause. Distinct from blockades (which focus on road/service interruption) — protests are about the social/political demand itself. Each protest is a specific occurrence distinguishable by its location and date — not a trend or overview of social movements. Extracted from news articles and social media.",
             "example": {
                 "event_type": "protest",
                 "event_subtype": "march",
@@ -13,12 +13,18 @@
                 "relevance": 1,
                 "date_range": {
                     "date_range": {"start": "2025-10-10T10:00:00", "end": "2025-10-10T14:00:00"},
-                    "mention": "la manana del viernes, de 10am a 2pm"
+                    "timezone": null,
+                    "mention": "la manana del viernes, de 10am a 2pm",
+                    "precision_days": null
                 },
                 "location": {
                     "country": "Mexico",
                     "state": "Guanajuato",
                     "city": "Leon",
+                    "neighborhood": null,
+                    "zone": null,
+                    "street": null,
+                    "number": null,
                     "place_name": "Plaza Principal"
                 },
                 "organizer": "Sindicato Nacional de Trabajadores de la Educacion (SNTE)",

@@ -1,7 +1,7 @@
 {
-    "RobberyAssault": {
+    "RobberyAssaultEvent": {
         "meta": {
-            "description": "A robbery, assault, or property/person crime incident. Includes theft, mugging, carjacking, and general security events involving property or personal crime. Extracted from news articles.",
+            "description": "An identifiable single robbery, assault, or property/person crime incident. Includes theft, mugging, carjacking, and general security events involving property or personal crime. Each incident is a specific occurrence distinguishable by its location and date — not a crime trend, security overview, or statistics report. Extracted from news articles and social media.",
             "example": {
                 "event_type": "robbery",
                 "event_subtype": "carjacking",
@@ -13,13 +13,19 @@
                 "relevance": 1,
                 "date_range": {
                     "date_range": {"start": "2025-09-15T22:30:00", "end": null},
-                    "mention": "la noche del lunes 15 de septiembre"
+                    "timezone": null,
+                    "mention": "la noche del lunes 15 de septiembre",
+                    "precision_days": null
                 },
                 "location": {
                     "country": "Mexico",
                     "state": "Guanajuato",
                     "city": "Leon",
-                    "street": "Blvd. Lopez Mateos"
+                    "neighborhood": null,
+                    "zone": null,
+                    "street": "Blvd. Lopez Mateos",
+                    "number": null,
+                    "place_name": null
                 },
                 "victim_count": {"mention": "una persona", "count": 1, "confidence_range": null},
                 "weapon": "firearm",

@@ -1,7 +1,7 @@
 {
     "PaidMassEvent": {
         "meta": {
-            "description": "A mass event with public attendance such as a concert, festival, fair, sports event, religious event, congress, exposition, conference, convention, or inauguration. Extracted from news articles.",
+            "description": "An identifiable single event with public attendance such as a concert, festival, fair, sports event, religious event, congress, exposition, conference, convention, or inauguration. Each event is a specific occurrence distinguishable by its location and date — not a trend, overview, or general topic. Extracted from news articles and social media.",
             "example": {
                 "event_type": "sports_event",
                 "event_subtype": "soccer_match",
@@ -13,7 +13,9 @@
                 "relevance": 1,
                 "date_range": {
                     "date_range": {"start": "2025-08-10T18:00:00", "end": null},
-                    "mention": "el proximo domingo 10 de agosto a las 6 de la tarde"
+                    "timezone": null,
+                    "mention": "el proximo domingo 10 de agosto a las 6 de la tarde",
+                    "precision_days": null
                 },
                 "location": {
                     "country": "Mexico",
@@ -22,6 +24,7 @@
                     "neighborhood": "Santa Ursula Coapa",
                     "zone": "zona sur",
                     "street": "Calzada de Tlalpan",
+                    "number": null,
                     "place_name": "Estadio Azteca"
                 },
                 "attendance": {"mention": "mas de 60 mil aficionados", "estimate": 60000},

@@ -1,0 +1,253 @@
+SYSTEM:
+
+Eres un modelo para extraer información estructurada de infraestructura pública y servicios urbanos a partir de textos. Se te presentarán instrucciones para resolver la tarea, algunos ejemplos, y posteriormente un texto del cual extraerás la información.
+
+Como contexto, la variable {source_type} indica el tipo de fuente (por ejemplo: "noticia", "publicación de Facebook", "publicación de red social"). La fecha de referencia actual es {date_now}. Si se trata de una publicación de red social, la fecha de publicación puede servir como referencia cuando no se menciona una fecha explícita en el texto.
+
+
+USER:
+
+Identifica cualquier tema, mención, queja, discusión o evento relacionado con la condición, calidad o gestión de la infraestructura pública y los servicios urbanos descritos en el texto. Esto incluye: vialidades, suministro de agua, alcantarillado, drenaje, alumbrado público, recolección de basura, planeación urbana y construcción. Considera que una nota trata sobre infraestructura pública si aborda, menciona o discute cualquier tema relacionado, ya sea reportando un bache específico, discutiendo políticas de gestión del agua, cubriendo una queja ciudadana, o mencionando condiciones de infraestructura de manera incidental. Un artículo puede coincidir tanto con este tema como con un esquema de evento específico (por ejemplo, un evento de obra pública); ambos se extraen por separado.
+
+Para cada tema de infraestructura pública distinguible en la nota, extrae los campos que se describen a continuación. Crea un elemento por cada tema claramente diferenciable; no dupliques temas equivalentes ni crees elementos separados por cada mención redundante del mismo asunto. Si la mención es incidental pero explícita (relevance "3"), extrae un objeto con los campos disponibles y deja el resto en null.
+
+**Reglas generales importantes:**
+- Si un campo no se menciona o no hay evidencia en el texto, deja su valor como `null`. No uses listas vacías; usa `null` cuando no haya información.
+- No inventes temas, problemas ni datos. Solo extrae lo que esté explícitamente presente o sea una inferencia muy cercana y evidente del texto.
+- Devuelve JSON válido, usando comillas dobles en claves y valores de texto, y el literal `null` (sin comillas) para valores ausentes.
+- Para los campos `mention` (en `time_scope` y `budget_or_investment`), copia el texto tal cual aparece en la nota; no lo normalices, reformules ni traduzcas.
+- Usa la grafía estándar con acentos para nombres propios (por ejemplo, "México", "Querétaro", "Jalisco"), salvo que la nota use una grafía particular que debas respetar.
+
+
+
+1. **Tipo de tema** (`theme_type`): selecciona el tipo de tema de infraestructura pública del siguiente catálogo, usando la categoría más específica al contenido:
+
+- `"infrastructure_conditions"` — Condiciones de infraestructura: estado físico de calles, puentes, edificios públicos, banquetas, etc.
+- `"urban_services"` — Servicios urbanos: alumbrado público, suministro de agua, drenaje, alcantarillado y otros servicios municipales
+- `"water_management"` — Gestión del agua: políticas, proyectos y problemáticas relacionadas con el suministro, distribución y tratamiento de agua
+- `"waste_management"` — Gestión de residuos: recolección de basura, reciclaje, manejo de residuos sólidos, rellenos sanitarios
+- `"transportation_infrastructure"` — Infraestructura de transporte: carreteras, transporte público, ciclovías, semáforos, señalización vial
+- `"urban_planning"` — Planeación urbana: desarrollo urbano, ordenamiento territorial, zonificación, proyectos de construcción y regulación urbana
+
+
+
+2. **Subtipo de tema** (`theme_subtype`): propón un subtipo breve y conservador en inglés, basado únicamente en lo explícito del texto. Ejemplos: `"water_service_quality"`, `"road_network_conditions"`, `"trash_collection_issues"`, `"sewage_infrastructure"`, `"urban_development_plan"`, `"pothole_complaints"`, `"street_lighting_failures"`, `"public_transit_expansion"`. Si no es posible determinarlo, deja `null`.
+
+
+
+3. **Descripción** (`description`): redacta un resumen breve de cómo el artículo aborda o discute la infraestructura pública, ya sea reportando un problema específico, cubriendo quejas ciudadanas, discutiendo políticas o mencionando condiciones de infraestructura.
+
+
+
+4. **Etiquetas** (`tags`): palabras clave y temas relevantes para este tema de infraestructura. Incluye solo etiquetas que se desprendan directamente del texto o sean inferencias muy cercanas y evidentes. Si no hay etiquetas claras, deja `null`.
+
+Ejemplo: `["baches", "vialidades", "quejas_ciudadanas", "obras_publicas", "centro_historico"]`
+
+
+
+5. **Contexto** (`context`): si la información existe en el texto, escribe un texto libre resumiendo el contexto más amplio: antecedentes históricos del problema, políticas relacionadas, proyectos o inversiones previas, contexto político, etc. Si no hay contexto disponible, deja `null`.
+
+
+
+6. **Relevancia en la noticia** (`relevance`): la relevancia que tiene el tema de infraestructura en la noticia. **Escribe el valor siempre como cadena de texto (string), no como número.** Escoge entre:
+
+- `"1"` — El tema de infraestructura es el tema principal de la nota
+- `"2"` — El tema de infraestructura se menciona secundariamente
+- `"3"` — El tema de infraestructura sólo se menciona implícitamente o de forma incidental
+
+
+
+7. **Sentimiento** (`sentiment`): el sentimiento o tono general del discurso sobre la infraestructura en la nota, escoge entre:
+
+- `"positive"` — Positivo: se reportan mejoras, avances o logros
+- `"negative"` — Negativo: se reportan problemas, deterioro, quejas o fallas
+- `"neutral"` — Neutral: se menciona de manera informativa sin carga emocional
+- `"mixed"` — Mixto: se presentan tanto aspectos positivos como negativos
+- `"alarming"` — Alarmante: se reporta una situación crítica o de emergencia
+- `"hopeful"` — Esperanzador: se expresan expectativas de mejora o solución
+
+
+
+8. **Ubicación** (`location`): si el tema de infraestructura se refiere a un área geográfica específica mencionada en el texto, extrae los datos de ubicación de manera estructurada. Llena solo los campos mencionados explícitamente en la nota. En el campo `place_name` escribe el nombre propio del lugar, sólo si es un lugar geográfico identificable en un mapa (plaza, parque, puente, estación, etc.). Sólo escribe nombres propios de lugares, no agregues referencias espaciales ni descripciones genéricas. Si no se menciona el nombre propio del lugar, deja el valor `null`.
+
+Convención para `location`:
+- Si hay **una sola ubicación**, usa un objeto `Location`.
+- Si hay **varias ubicaciones**, usa una lista de objetos `Location`.
+- Si **no se menciona ubicación explícita**, deja `null`.
+
+Ejemplo de objeto único:
+```json
+"location": {
+    "country": "México",
+    "state": "Jalisco",
+    "city": "Guadalajara",
+    "neighborhood": "Americana",
+    "zone": "zona centro",
+    "street": "Avenida Chapultepec",
+    "number": null,
+    "place_name": null
+}
+```
+
+Ejemplo de lista:
+```json
+"location": [
+    { "country": "México", "state": "Jalisco", "city": "Guadalajara", "neighborhood": null, "zone": null, "street": null, "number": null, "place_name": null },
+    { "country": "México", "state": "Jalisco", "city": "Zapopan", "neighborhood": null, "zone": null, "street": null, "number": null, "place_name": null }
+]
+```
+
+
+
+9. **Subtemas relacionados** (`related_subtopics`): subtemas específicos discutidos bajo este tema de infraestructura. Escríbelos como una lista de cadenas descriptivas **en inglés**. Si no hay subtemas identificables, deja `null`.
+
+Ejemplo: `["water_shortage", "sewage_overflow", "budget_allocation", "road_rehabilitation"]`
+
+
+
+10. **Alcance temporal** (`time_scope`): el periodo de tiempo que cubre la discusión de infraestructura en el artículo (por ejemplo, "temporada de calor 2025", "último año", "este sexenio"). Captura el alcance temporal del discurso. Responde con:
+- `mention`: el texto tal cual se menciona en la nota (no lo reformules ni traduzcas).
+- `date_range`: un objeto con `start` y opcionalmente `end` en formato `"YYYY-MM-DDTHH:MM:SS"`.
+- `timezone`: la zona horaria si se menciona, o `null`.
+- `precision_days`: la precisión en días si la fecha es aproximada, o `null` si la fecha es exacta.
+
+Si solo se menciona un periodo aproximado (por ejemplo, "en los últimos meses", "durante este año"), interpreta un periodo estimado razonable **calculado respecto a la fecha de referencia {date_now}**, y escribe la fecha inicial del periodo junto con un rango de precisión en días en el que muy probablemente se encuentre el periodo real.
+
+Si no se menciona ningún alcance temporal, deja `time_scope` como `null`.
+
+Tres ejemplos (asumiendo fecha de referencia 2025-06-15):
+
+```json
+"time_scope": { "mention": "durante la temporada de lluvias 2025", "date_range": {"start": "2025-06-01T00:00:00", "end": "2025-10-31T23:59:59"}, "timezone": null, "precision_days": 150 }
+```
+
+```json
+"time_scope": { "mention": "desde hace tres años", "date_range": {"start": "2022-06-15T00:00:00", "end": null}, "timezone": null, "precision_days": 365 }
+```
+
+```json
+"time_scope": { "mention": "el pasado 15 de marzo", "date_range": {"start": "2025-03-15T00:00:00", "end": null}, "timezone": null, "precision_days": null }
+```
+
+
+
+11. **Tipos de infraestructura discutidos** (`infrastructure_types_discussed`): lista de los tipos concretos de infraestructura que se mencionan o discuten en la nota. Usa nombres descriptivos específicos (por ejemplo, "calles", "red de agua", "alumbrado público", "drenaje", "transporte público", "puentes peatonales"), no las categorías del catálogo de `theme_type`. Si no se identifican tipos concretos, deja `null`.
+
+Ejemplo: `["calles", "red de agua", "alumbrado público", "drenaje", "transporte público"]`
+
+
+
+12. **Autoridades responsables** (`responsible_authorities`): organismos gubernamentales o dependencias mencionadas explícitamente como responsables de la infraestructura discutida. Si no se mencionan, deja `null`.
+
+Ejemplo: `["Dirección de Obras Públicas", "CONAGUA", "Municipio de León"]`
+
+
+
+13. **Quejas ciudadanas** (`citizen_complaints`): quejas o demandas de los ciudadanos respecto a la infraestructura, si se mencionan explícitamente. Cada queja como un elemento separado de la lista. Si no se mencionan quejas, deja `null`.
+
+Ejemplo: `["Baches en la avenida principal sin reparar desde hace meses", "Falta de alumbrado en la colonia Reforma"]`
+
+
+
+14. **Presupuesto o inversión** (`budget_or_investment`): si la noticia menciona cifras de presupuesto, inversión o costo para proyectos de infraestructura. Responde con:
+- `mention`: el texto tal cual se menciona en la nota (no lo reformules ni traduzcas).
+- `lower`: monto inferior numérico.
+- `upper`: monto superior numérico (igual a `lower` si es una cifra única).
+- `currency`: la moneda tal como se menciona.
+
+Si no se menciona, deja `null`.
+
+Dos ejemplos:
+
+```json
+"budget_or_investment": { "mention": "una inversión de 200 millones de pesos para rehabilitación vial", "lower": 200000000, "upper": 200000000, "currency": "pesos" }
+```
+
+```json
+"budget_or_investment": { "mention": "entre 50 y 80 millones de pesos", "lower": 50000000, "upper": 80000000, "currency": "pesos" }
+```
+
+
+
+**Formato de respuesta:**
+
+Responde con una lista en formato JSON, donde cada elemento representa un tema de infraestructura pública detectado en la nota. No añadas texto adicional fuera del JSON. Devuelve JSON válido con comillas dobles y `null` literal para valores ausentes.
+
+**Ejemplo 1** — Tema principal con campos completos:
+
+```json
+[
+  {
+    "theme_type": "urban_services",
+    "theme_subtype": "water_service_quality",
+    "description": "Vecinos de varias colonias de Querétaro denuncian falta de agua recurrente y exigen mejoras en la red de distribución.",
+    "tags": ["agua", "servicios_publicos", "queretaro", "infraestructura"],
+    "context": "La problemática se agrava en temporada de calor. La Comisión Estatal de Aguas reconoció el problema.",
+    "relevance": "1",
+    "sentiment": "negative",
+    "location": {
+      "country": "México",
+      "state": "Querétaro",
+      "city": "Querétaro",
+      "neighborhood": null,
+      "zone": null,
+      "street": null,
+      "number": null,
+      "place_name": null
+    },
+    "related_subtopics": ["water_shortage", "distribution_network", "citizen_complaints"],
+    "time_scope": {
+      "mention": "temporada de calor 2025",
+      "date_range": {
+        "start": "2025-03-01T00:00:00",
+        "end": "2025-06-30T23:59:59"
+      },
+      "timezone": null,
+      "precision_days": 120
+    },
+    "infrastructure_types_discussed": ["red de agua", "distribución hídrica"],
+    "responsible_authorities": ["Comisión Estatal de Aguas", "Municipio de Querétaro"],
+    "citizen_complaints": ["Falta de agua recurrente en colonias del norte de la ciudad"],
+    "budget_or_investment": null
+  }
+]
+```
+
+**Ejemplo 2** — Mención incidental con la mayoría de campos en null:
+
+```json
+[
+  {
+    "theme_type": "infrastructure_conditions",
+    "theme_subtype": "road_surface_damage",
+    "description": "La nota sobre el accidente menciona brevemente que el pavimento de la avenida presentaba baches.",
+    "tags": ["baches", "pavimento"],
+    "context": null,
+    "relevance": "3",
+    "sentiment": "negative",
+    "location": {
+      "country": "México",
+      "state": "Jalisco",
+      "city": "Guadalajara",
+      "neighborhood": null,
+      "zone": null,
+      "street": "Avenida López Mateos",
+      "number": null,
+      "place_name": null
+    },
+    "related_subtopics": null,
+    "time_scope": null,
+    "infrastructure_types_discussed": ["calles"],
+    "responsible_authorities": null,
+    "citizen_complaints": null,
+    "budget_or_investment": null
+  }
+]
+```
+
+
+USER:
+
+La noticia es la siguiente:
+
+{body}

@@ -1,0 +1,103 @@
+{
+    "PublicInfrastructure": {
+        "meta": {
+            "description": "Public infrastructure includes any theme, event, mention, complaint, or discussion related to the condition, quality, or management of public infrastructure and urban services. It considers roads, water supply, sewage, drainage, street lighting, waste management, urban planning, and construction. An article talks about public infrastructure whenever it addresses or touches any related subject — whether reporting a specific pothole, discussing water management policy, covering a citizen complaint, or mentioning infrastructure conditions in passing. An article may match both this theme and a specific event schema (e.g. public_works_event) — both are extracted separately.",
+            "example": {
+                "theme_type": "urban_services",
+                "theme_subtype": "water_service_quality",
+                "description": "Vecinos de varias colonias de Queretaro denuncian falta de agua recurrente y exigen mejoras en la red de distribucion.",
+                "tags": ["agua", "servicios publicos", "queretaro", "infraestructura"],
+                "context": "La problematica se agrava en temporada de calor. La Comision Estatal de Aguas reconocio el problema.",
+                "relevance": 1,
+                "sentiment": "negative",
+                "location": {
+                    "country": "Mexico",
+                    "state": "Queretaro",
+                    "city": "Queretaro",
+                    "neighborhood": null,
+                    "zone": null,
+                    "street": null,
+                    "number": null,
+                    "place_name": null
+                },
+                "related_subtopics": ["water_shortage", "distribution_network", "citizen_complaints"],
+                "time_scope": {
+                    "date_range": {
+                        "start": "2025-03-01T00:00:00",
+                        "end": "2025-06-30T23:59:59"
+                    },
+                    "timezone": null,
+                    "mention": "temporada de calor 2025",
+                    "precision_days": 120
+                },
+                "infrastructure_types_discussed": ["red de agua", "distribucion hidrica"],
+                "responsible_authorities": ["Comision Estatal de Aguas", "Municipio de Queretaro"],
+                "citizen_complaints": ["Falta de agua recurrente en colonias del norte de la ciudad"],
+                "budget_or_investment": null
+            }
+        },
+        "schema": {
+            "theme_type": {
+                "type": "EnumStr",
+                "required": true,
+                "description": "Type of public infrastructure theme. Choose the single most specific category that matches.",
+                "enum": ["infrastructure_conditions", "urban_services", "water_management", "waste_management", "transportation_infrastructure", "urban_planning"]
+            },
+            "theme_subtype": {
+                "type": "str",
+                "description": "More specific subtype, e.g. 'water_service_quality', 'road_network_conditions', 'trash_collection_issues', 'sewage_infrastructure', 'urban_development_plan'."
+            },
+            "description": {
+                "type": "str",
+                "required": true,
+                "description": "Summary of how the article touches or discusses public infrastructure — whether reporting a specific issue, covering citizen complaints, discussing policy, or mentioning infrastructure conditions."
+            },
+            "tags": {
+                "type": "List[str]",
+                "description": "Keywords and topics relevant to this infrastructure theme."
+            },
+            "context": {
+                "type": "str",
+                "description": "Broader context: historical issues, policy background, related projects or investments."
+            },
+            "relevance": {
+                "type": "EnumStr",
+                "description": "Relevance of this theme within the article: 1 = main topic, 2 = secondary, 3 = implicit.",
+                "enum": ["1", "2", "3"]
+            },
+            "sentiment": {
+                "type": "EnumStr",
+                "description": "General sentiment or tone of the discourse about infrastructure.",
+                "enum": ["positive", "negative", "neutral", "mixed", "alarming", "hopeful"]
+            },
+            "location": {
+                "type": "Location",
+                "description": "Geographic area the infrastructure theme pertains to. Fill only if the discussion is explicitly about a specific geographic area."
+            },
+            "related_subtopics": {
+                "type": "List[str]",
+                "description": "Specific subtopics discussed under this theme, e.g. ['water_shortage', 'sewage_overflow', 'budget_allocation']."
+            },
+            "time_scope": {
+                "type": "DateRangeFromUnstructured",
+                "description": "The time period the article's infrastructure discussion covers (e.g. 'temporada de calor 2025', 'ultimo ano', 'este sexenio'). Captures the temporal scope of the discourse."
+            },
+            "infrastructure_types_discussed": {
+                "type": "List[str]",
+                "description": "Types of infrastructure discussed (e.g. 'calles', 'red de agua', 'alumbrado', 'drenaje', 'transporte publico')."
+            },
+            "responsible_authorities": {
+                "type": "List[str]",
+                "description": "Government bodies or agencies mentioned as responsible (e.g. 'Direccion de Obras Publicas', 'CONAGUA')."
+            },
+            "citizen_complaints": {
+                "type": "List[str]",
+                "description": "Citizen complaints or demands regarding infrastructure, if mentioned. Each complaint as a separate item."
+            },
+            "budget_or_investment": {
+                "type": "PriceRange",
+                "description": "Budget, investment, or cost figures mentioned for infrastructure projects (e.g. '200 millones de pesos para rehabilitacion vial')."
+            }
+        }
+    }
+}

@@ -13,7 +13,9 @@ Usage:
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
+import logging
 import re
 import unicodedata
 from datetime import datetime
@@ -27,35 +29,19 @@ from src.schema.schemas.read_schema import load_schema
 from src.schema.parse_object import Parser
 from src.llm.openrouter import call_openrouter
 
+logger = logging.getLogger(__name__)
+
 
 _BASE_DIR = Path(__file__).parent
 _CATALOGUES_DIR = _BASE_DIR / "catalogues"
 _SCHEMAS_DIR = _BASE_DIR / "schemas"
 _PROMPTS_DIR = _BASE_DIR / "prompts"
+_CACHE_DIR = Path(__file__).resolve().parents[3] / "cache"
 
-# Supertype → schema JSON filename (without extension)
-_SUPERTYPE_SCHEMA_FILE = {
-    "paid_mass_event": "paid_mass_event",
-    "robbery_assault": "robbery_assault",
-    "public_works": "public_works",
-    "violence_event": "violence_event",
-    "closures_interruptions": "closures_interruptions",
-    "emergency": "emergency",
-    "protest": "protest",
-    "arrest": "arrest",
-}
 
-# Supertype → top-level schema key inside the JSON file
-_SUPERTYPE_SCHEMA_KEY = {
-    "paid_mass_event": "PaidMassEvent",
-    "robbery_assault": "RobberyAssault",
-    "public_works": "PublicWorks",
-    "violence_event": "ViolenceEvent",
-    "closures_interruptions": "ClosuresInterruptions",
-    "emergency": "Emergency",
-    "protest": "Protest",
-    "arrest": "Arrest",
-}
+def _snake_to_pascal(name: str) -> str:
+    """Convert snake_case supertype name to PascalCase schema key."""
+    return "".join(word.capitalize() for word in name.split("_"))
 
 
 # ---------------------------------------------------------------------------
@@ -248,7 +234,7 @@ class Ontology:
             labels = self.type_labels.get(et, {})
             # Read description from the schema's meta.description
             loaded = _get_schema(supertype)
-            schema_key = _SUPERTYPE_SCHEMA_KEY[supertype]
+            schema_key = _snake_to_pascal(supertype)
             meta_desc = loaded.get("meta", {}).get(schema_key, {}).get("description", "")
             descriptions.append({
                 "class": et,
@@ -347,10 +333,73 @@ _schema_cache: Dict[str, Dict[str, Any]] = {}
 def _get_schema(supertype: str) -> Dict[str, Any]:
     """Load and cache a supertype's schema."""
     if supertype not in _schema_cache:
-        filename = _SUPERTYPE_SCHEMA_FILE[supertype]
-        path = _SCHEMAS_DIR / f"{filename}.json"
+        path = _SCHEMAS_DIR / f"{supertype}.json"
         _schema_cache[supertype] = load_schema(path)
     return _schema_cache[supertype]
+
+
+# ---------------------------------------------------------------------------
+# Extraction cache — stores per-(article, class) results in cache/
+# ---------------------------------------------------------------------------
+
+
+def _cache_key(article_url: str, class_name: str) -> str:
+    """Build a hex cache key from hash((article_url, class_name))."""
+    h = hashlib.sha256(f"{article_url}|{class_name}".encode()).hexdigest()
+    return h
+
+
+def _cache_read(article_url: str, class_name: str) -> Optional[List[Dict[str, Any]]]:
+    """Return cached extraction results, or None on miss."""
+    path = _CACHE_DIR / f"{_cache_key(article_url, class_name)}.json"
+    if not path.exists():
+        return None
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def _cache_write(
+    article_url: str, class_name: str, entities: List[Dict[str, Any]]
+) -> None:
+    """Write extraction results to cache."""
+    _CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    path = _CACHE_DIR / f"{_cache_key(article_url, class_name)}.json"
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(entities, f, ensure_ascii=False, default=str)
+
+
+def _classify_cache_key(article_url: str, matched_classes: Set[str]) -> str:
+    """Build a hex cache key for classification from the article URL and candidate classes."""
+    classes_str = ",".join(sorted(matched_classes))
+    h = hashlib.sha256(f"classify|{article_url}|{classes_str}".encode()).hexdigest()
+    return h
+
+
+def _classify_cache_read(
+    article_url: str, matched_classes: Set[str]
+) -> Optional[List[str]]:
+    """Return cached classification results, or None on miss."""
+    path = _CACHE_DIR / f"{_classify_cache_key(article_url, matched_classes)}.json"
+    if not path.exists():
+        return None
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def _classify_cache_write(
+    article_url: str, matched_classes: Set[str], confirmed: List[str]
+) -> None:
+    """Write classification results to cache."""
+    _CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    path = _CACHE_DIR / f"{_classify_cache_key(article_url, matched_classes)}.json"
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(confirmed, f, ensure_ascii=False)
 
 
 # ---------------------------------------------------------------------------
@@ -416,7 +465,7 @@ def _validate_entity(
     Returns the normalized entity. Raises on validation failure.
     """
     loaded = _get_schema(supertype)
-    schema_key = _SUPERTYPE_SCHEMA_KEY[supertype]
+    schema_key = _snake_to_pascal(supertype)
     parser = Parser(loaded["schemas"])
     return parser.normalize_record(entity, schema_key)
 
@@ -473,7 +522,8 @@ class EntityExtractor:
         """Ask the LLM which of the matched ontology classes the article actually refers to.
 
         Presents the LLM with the article text and the subset of ontology
-        classes (with descriptions) that matched keyword rules. The LLM
+        classes (with descriptions) that matched keyword rules. Classes may
+        refer to identifiable events, entities, concepts, or themes. The LLM
         determines which classes the article genuinely discusses.
 
         Args:
@@ -487,13 +537,44 @@ class EntityExtractor:
         if not class_descriptions:
             return []
 
-        # Build the catalogue block for the prompt
-        catalogue_lines = []
+        # Check classification cache
+        article_url = article.get("url") or article.get("id") or ""
+        if article_url:
+            cached = _classify_cache_read(article_url, matched_classes)
+            if cached is not None:
+                logger.debug(
+                    "Classify cache hit for (%s) — %d classes",
+                    article_url, len(cached),
+                )
+                return cached
+
+        # Separate classes by ontology category for the prompt. Each category
+        # has different selection criteria. When entity/concept classes are
+        # added, add a third group here with its own selection instructions.
+        event_lines = []
+        theme_lines = []
         for desc in class_descriptions:
-            catalogue_lines.append(
-                f'- "{desc["class"]}" — {desc["label_es"]}: {desc["description"]}'
+            line = f'- "{desc["class"]}" — {desc["label_es"]}: {desc["description"]}'
+            if desc["supertype"].endswith("_event"):
+                event_lines.append(line)
+            else:
+                theme_lines.append(line)
+
+        catalogue_parts = []
+        if event_lines:
+            catalogue_parts.append(
+                "Eventos (ocurrencias específicas con ubicación y fecha — "
+                "selecciona solo si el artículo reporta o describe un evento "
+                "identificable de este tipo):\n\n" + "\n".join(event_lines)
             )
-        catalogue_block = "\n".join(catalogue_lines)
+        if theme_lines:
+            catalogue_parts.append(
+                "Temas (clasificadores temáticos amplios — selecciona siempre "
+                "que el artículo toque, mencione o discuta cualquier asunto "
+                "relacionado con el tema, aunque sea de paso o como contexto):\n\n"
+                + "\n".join(theme_lines)
+            )
+        catalogue_block = "\n\n".join(catalogue_parts)
 
         body = article.get("text", "")
         title = article.get("title", "")
@@ -503,37 +584,68 @@ class EntityExtractor:
             {
                 "role": "system",
                 "content": (
-                    "Eres un modelo de clasificación de noticias. "
-                    "Se te presenta un artículo y un catálogo de tipos de eventos. "
-                    "Tu tarea es determinar cuáles de los tipos de eventos listados "
-                    "realmente se mencionan o describen en el artículo. "
-                    "Solo selecciona tipos que el artículo genuinamente discute, "
-                    "no tipos que apenas se mencionan de paso."
+                    "Eres un modelo de clasificación de artículos y publicaciones. "
+                    "Se te presenta un artículo y un catálogo de categorías dividido "
+                    "en dos grupos: eventos y temas.\n\n"
+                    "EVENTOS: son ocurrencias específicas e identificables (con lugar "
+                    "y fecha). Selecciona un evento solo si el artículo reporta o "
+                    "describe un evento concreto de ese tipo.\n\n"
+                    "TEMAS: son clasificadores temáticos amplios. Selecciona un tema "
+                    "siempre que el artículo toque, mencione o discuta cualquier asunto "
+                    "relacionado — ya sea como tema principal, secundario, o incluso "
+                    "como contexto o mención de paso. Un artículo que reporta un robo "
+                    "también toca el tema de seguridad.\n\n"
+                    "Un artículo puede clasificarse en múltiples categorías de ambos "
+                    "grupos simultáneamente."
                 ),
             },
             {
                 "role": "user",
                 "content": (
-                    f"Dado el siguiente artículo, indica cuáles de los tipos de eventos "
-                    f"listados abajo realmente se describen o mencionan en la nota.\n\n"
-                    f"Catálogo de tipos de eventos candidatos:\n\n"
+                    f"Dado el siguiente artículo, indica cuáles de las categorías "
+                    f"listadas abajo aplican.\n\n"
+                    f"Catálogo de categorías candidatas:\n\n"
                     f"{catalogue_block}\n\n"
                     f"Artículo:\n\n{article_text}\n\n"
                     f"Responde con un JSON de la forma:\n"
                     f'{{"classes": ["class1", "class2"]}}\n\n'
-                    f"Si ninguno de los tipos aplica, responde con una lista vacía: "
+                    f"Si ninguna categoría aplica, responde con una lista vacía: "
                     f'{{"classes": []}}'
                 ),
             },
         ]
 
         raw = call_llm(messages)
-        parsed = json.loads(raw.strip())
+        text = raw.strip()
+        # Strip markdown code fences the LLM sometimes wraps around JSON
+        if text.startswith("```"):
+            text = re.sub(r"^```(?:json)?\s*", "", text)
+            text = re.sub(r"\s*```$", "", text)
+        parsed = json.loads(text)
         confirmed = parsed.get("classes", [])
 
         # Filter to only classes that were in the original matched set
         valid_classes = {d["class"] for d in class_descriptions}
-        return [c for c in confirmed if c in valid_classes]
+        confirmed = [c for c in confirmed if c in valid_classes]
+
+        # Write to classification cache
+        if article_url:
+            _classify_cache_write(article_url, matched_classes, confirmed)
+
+        # Debug logging
+        text_snippet = article_text[:200].replace("\n", " ")
+        candidate_summary = [
+            f'{d["class"]} ({d["supertype"]})'
+            for d in class_descriptions
+        ]
+        logger.debug(
+            "Classification — text: '%.200s...' | candidates: %s | confirmed: %s",
+            text_snippet,
+            candidate_summary,
+            confirmed,
+        )
+
+        return confirmed
 
     def extract_supertype(
         self,
@@ -569,9 +681,9 @@ class EntityExtractor:
             focus_msg = {
                 "role": "user",
                 "content": (
-                    f"IMPORTANTE: Para este artículo, extrae únicamente eventos "
+                    f"IMPORTANTE: Para este artículo, extrae únicamente entradas "
                     f'de tipo "{event_type}" ({label_es}). '
-                    f"Ignora cualquier otro tipo de evento que pueda aparecer en la nota."
+                    f"Ignora cualquier otro tipo que pueda aparecer en la nota."
                 ),
             }
             # Insert focus instruction before the last USER message (the article)
@@ -632,15 +744,50 @@ class EntityExtractor:
         if not confirmed_classes:
             return []
 
-        # Step 3: Extract per confirmed class
+        # Group confirmed classes by supertype. Multiple confirmed classes may
+        # share a supertype (e.g. pedestrian_hit + emergency_general both map to
+        # emergency_event). When that happens, extract once per supertype without
+        # a class focus so the LLM extracts all relevant entries under that schema.
+        supertype_to_classes: Dict[str, List[str]] = {}
+        for et in confirmed_classes:
+            st = self.ontology.type_to_supertype.get(et)
+            if st:
+                supertype_to_classes.setdefault(st, []).append(et)
+
+        if len(supertype_to_classes) < len(confirmed_classes):
+            logger.debug(
+                "Grouped classes by supertype: %s → %s",
+                confirmed_classes,
+                {st: cls for st, cls in supertype_to_classes.items()},
+            )
+
+        # Step 3: Extract per supertype (with cache)
+        article_url = article.get("url") or article.get("id") or ""
         all_entities: List[Dict[str, Any]] = []
-        for event_type in confirmed_classes:
-            supertype = self.ontology.type_to_supertype.get(event_type)
-            if not supertype:
-                continue
+        for supertype, classes in supertype_to_classes.items():
+            # Single class → focused extraction; multiple → unfocused (all types)
+            event_type = classes[0] if len(classes) == 1 else None
+            cache_key_class = event_type or supertype
+
+            # Check cache
+            if article_url:
+                cached = _cache_read(article_url, cache_key_class)
+                if cached is not None:
+                    logger.debug(
+                        "Cache hit for (%s, %s) — %d entities",
+                        article_url, cache_key_class, len(cached),
+                    )
+                    all_entities.extend(cached)
+                    continue
+
             entities = self.extract_supertype(
                 article, supertype, event_type=event_type, validate=validate,
             )
+
+            # Write to cache
+            if article_url:
+                _cache_write(article_url, cache_key_class, entities)
+
             all_entities.extend(entities)
 
         return all_entities

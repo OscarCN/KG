@@ -383,11 +383,11 @@ Ejemplos de valores INCORRECTOS son: "distintos recintos de Guanajuato y municip
 Si el evento sucede en varias ubicaciones, escribe una lista con los datos de cada ubicación:   "ubicacion": [ { "pais": "México", "estado": null... }, { "pais": "México", "estado": null... }, ... }
 
 
-13. Relevancia en la noticia (relevancia): La relevancia que tiene el evento en la noticia, si se menciona secundariamente o tiene un papel importante en la nota { "relevancia": 1 }, escoge entre:
+13. Relevancia en la noticia (relevancia): La relevancia que tiene el evento en la noticia, si se menciona secundariamente o tiene un papel importante en la nota { "relevancia": "1" }, escoge entre:
 
-1 Si el evento es relevante en la nota
-2 Si el evento se menciona secundariamente
-3 Si el evento sólo se menciona implícitamente
+"1" Si el evento es relevante en la nota
+"2" Si el evento se menciona secundariamente
+"3" Si el evento sólo se menciona implícitamente
 
 
 

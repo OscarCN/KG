@@ -1,7 +1,7 @@
 {
-    "ClosuresInterruptions": {
+    "ClosuresInterruptionsEvent": {
         "meta": {
-            "description": "A closure, blockade, or interruption of traffic, services, or operations. Includes road closures, blockades (protests), and suspension of services or operations. Extracted from news articles.",
+            "description": "An identifiable closure, blockade, or interruption of traffic, services, or operations. Includes road closures, blockades (protests), and suspension of services or operations. Each closure/interruption is a specific occurrence distinguishable by its location and date — not a general overview or trend, it can be an e.g. nation wide closure/blockage in many places. Extracted from news articles and social media.",
             "example": {
                 "event_type": "blockade",
                 "event_subtype": "protest_blockade",
@@ -13,12 +13,19 @@
                 "relevance": 1,
                 "date_range": {
                     "date_range": {"start": "2025-10-05T06:00:00", "end": null},
-                    "mention": "desde las 6 de la manana de hoy"
+                    "timezone": null,
+                    "mention": "desde las 6 de la manana de hoy",
+                    "precision_days": null
                 },
                 "location": {
                     "country": "Mexico",
                     "state": "Queretaro",
-                    "street": "Autopista Mexico-Queretaro km 120"
+                    "city": null,
+                    "neighborhood": null,
+                    "zone": null,
+                    "street": "Autopista Mexico-Queretaro km 120",
+                    "number": null,
+                    "place_name": null
                 },
                 "affected_routes": "Autopista Mexico-Queretaro, ambos sentidos",
                 "cause": "Demanda de subsidios de agua para agricultores",

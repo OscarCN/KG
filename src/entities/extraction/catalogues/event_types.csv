@@ -11,33 +11,68 @@ exposition,paid_mass_event,Exposicion,Exposition
 conference,paid_mass_event,Conferencia,Conference
 convention,paid_mass_event,Convencion,Convention
 inauguration,paid_mass_event,Inauguracion,Inauguration
-robbery,robbery_assault,Robo,Robbery
-assault,robbery_assault,Asalto,Assault
-kidnapping,robbery_assault,Secuestro,Kidnapping
-security_event,robbery_assault,Evento de seguridad,Security event
-pothole,public_works,Bache,Pothole
-street_lighting,public_works,Alumbrado publico,Street lighting
-paving,public_works,Pavimentacion,Paving
-public_transport,public_works,Transporte publico,Public transport
-infrastructure,public_works,Infraestructura,Infrastructure
-trash_complaint,public_works,Problema de basura,Trash complaint
-water_issue,public_works,Problema de agua,Water issue
-sinkhole,public_works,Socavon,Sinkhole
-public_road,public_works,Via publica,Public road
+robbery,robbery_assault_event,Robo,Robbery
+assault,robbery_assault_event,Asalto,Assault
+kidnapping,robbery_assault_event,Secuestro,Kidnapping
+security_event,robbery_assault_event,Evento de seguridad,Security event
+pothole,public_works_event,Bache,Pothole
+street_lighting,public_works_event,Alumbrado publico,Street lighting
+paving,public_works_event,Pavimentacion,Paving
+public_transport,public_works_event,Transporte publico,Public transport
+infrastructure,public_works_event,Infraestructura,Infrastructure
+trash_complaint,public_works_event,Problema de basura,Trash complaint
+water_issue,public_works_event,Problema de agua,Water issue
+sinkhole,public_works_event,Socavon,Sinkhole
+public_road,public_works_event,Via publica,Public road
 shooting,violence_event,Balacera,Shooting
 attack,violence_event,Ataque,Attack
 homicide,violence_event,Homicidio,Homicide
 confrontation,violence_event,Enfrentamiento,Confrontation
-blockade,closures_interruptions,Bloqueo,Blockade
-closure,closures_interruptions,Cierre,Closure
-suspension_of_operations,closures_interruptions,Suspension de operaciones,Suspension of operations
-fire,emergency,Incendio,Fire
-crash,emergency,Choque,Crash
-explosion,emergency,Explosion,Explosion
-flood,emergency,Inundacion,Flood
-accident,emergency,Accidente,Accident
-pedestrian_hit,emergency,Atropellamiento,Pedestrian hit
-emergency_general,emergency,Emergencia,Emergency
-protest,protest,Protesta,Protest
-arrest,arrest,Detencion,Arrest
-detention,arrest,Detencion preventiva,Detention
+blockade,closures_interruptions_event,Bloqueo,Blockade
+closure,closures_interruptions_event,Cierre,Closure
+suspension_of_operations,closures_interruptions_event,Suspension de operaciones,Suspension of operations
+fire,emergency_event,Incendio,Fire
+crash,emergency_event,Choque,Crash
+explosion,emergency_event,Explosion,Explosion
+flood,emergency_event,Inundacion,Flood
+accident,emergency_event,Accidente,Accident
+pedestrian_hit,emergency_event,Atropellamiento,Pedestrian hit
+emergency_general,emergency_event,Emergencia,Emergency
+protest,protest_event,Protesta,Protest
+arrest,arrest_event,Detencion,Arrest
+detention,arrest_event,Detencion preventiva,Detention
+crime_trends,security,Tendencias de criminalidad,Crime trends
+law_enforcement,security,Fuerzas del orden,Law enforcement
+public_safety,security,Seguridad publica,Public safety
+security_policy,security,Politica de seguridad,Security policy
+infrastructure_conditions,public_infrastructure,Condiciones de infraestructura,Infrastructure conditions
+urban_services,public_infrastructure,Servicios urbanos,Urban services
+water_management,public_infrastructure,Gestion del agua,Water management
+waste_management,public_infrastructure,Gestion de residuos,Waste management
+transportation_infrastructure,public_infrastructure,Infraestructura de transporte,Transportation infrastructure
+urban_planning,public_infrastructure,Planificacion urbana,Urban planning
+emergency_preparedness,civil_protection,Preparacion ante emergencias,Emergency preparedness
+disaster_trends,civil_protection,Tendencias de desastres,Disaster trends
+accident_statistics,civil_protection,Estadisticas de accidentes,Accident statistics
+risk_assessment,civil_protection,Evaluacion de riesgos,Risk assessment
+civil_protection_policy,civil_protection,Politica de proteccion civil,Civil protection policy
+transit_disruptions,mobility,Disrupciones de transito,Transit disruptions
+road_conditions,mobility,Condiciones viales,Road conditions
+transportation_planning,mobility,Planificacion de transporte,Transportation planning
+traffic_patterns,mobility,Patrones de trafico,Traffic patterns
+public_transit,mobility,Transporte publico,Public transit
+cultural_life,culture,Vida cultural,Cultural life
+arts_scene,culture,Escena artistica,Arts scene
+festival_landscape,culture,Panorama de festivales,Festival landscape
+heritage,culture,Patrimonio,Heritage
+cultural_policy,culture,Politica cultural,Cultural policy
+sports_landscape,sports,Panorama deportivo,Sports landscape
+competition_coverage,sports,Cobertura de competencias,Competition coverage
+sports_infrastructure,sports,Infraestructura deportiva,Sports infrastructure
+athlete_profile,sports,Perfil de atleta,Athlete profile
+league_overview,sports,Panorama de liga,League overview
+social_movements,civic_participation,Movimientos sociales,Social movements
+activism,civic_participation,Activismo,Activism
+citizen_engagement,civic_participation,Participacion ciudadana,Citizen engagement
+political_participation,civic_participation,Participacion politica,Political participation
+community_organizing,civic_participation,Organizacion comunitaria,Community organizing

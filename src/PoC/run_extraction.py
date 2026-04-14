@@ -19,7 +19,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Ensure project root is on sys.path
-_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+_PROJECT_ROOT = Path('/Users/oscarcuellar/ocn/media/kg/kg/')
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
@@ -84,7 +84,7 @@ extractor = EntityExtractor(ontology=ontology)
 # ── Step 1: Keyword matching ───────────────────────────────────────────────────
 
 matched_articles: list[tuple[dict, set]] = []   # (article, matched_classes)
-
+all_posts: list[dict] = []
 for filepath in files:
     print(f"\n{'='*70}")
     print(f"File: {filepath.name}")
@@ -96,6 +96,7 @@ for filepath in files:
     if not isinstance(posts, list):
         posts = [posts]
 
+    all_posts.extend(posts)
     for i, post in enumerate(posts):
         if LIMIT and i >= LIMIT:
             break
@@ -125,7 +126,7 @@ else:
 
     for article, matched_classes in matched_articles:
         text_preview = (article["title"] or article["text"])[:60].replace("\n", " ")
-        print(f"\n--- {text_preview}...")
+        print(f"\n--- {text_preview}...", article.get("url"))
 
         try:
             entities = extractor.extract(article, validate=True)
@@ -151,4 +152,4 @@ else:
 # Example inspection:
 #
 #   all_entities[0]
-#   [e for e in all_entities if e.get("_supertype") == "robbery_assault"]
+#   [e for e in all_entities if e.get("_supertype") == "robbery_assault_event"]

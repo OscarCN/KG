@@ -1,0 +1,103 @@
+{
+    "Culture": {
+        "meta": {
+            "description": "Culture includes any theme, event, mention, or discussion related to cultural life, arts, entertainment, and heritage. It considers music, theater, cinema, visual arts, gastronomy, festivals, cultural venues, creative industries, and cultural policy. An article talks about culture whenever it addresses or touches any related subject — whether reporting a specific cultural event, discussing arts programming, covering heritage preservation, or mentioning cultural activity in passing. An article may match both this theme and a specific event schema (e.g. paid_mass_event) — both are extracted separately.",
+            "example": {
+                "theme_type": "cultural_life",
+                "theme_subtype": "arts_programming",
+                "description": "La Secretaria de Cultura presento la cartelera cultural del verano con mas de 50 actividades gratuitas en espacios publicos.",
+                "tags": ["cultura", "cartelera", "verano", "actividades gratuitas"],
+                "context": "El programa busca acercar las artes a comunidades con menor acceso a espacios culturales.",
+                "relevance": 1,
+                "sentiment": "positive",
+                "location": {
+                    "country": "Mexico",
+                    "state": "Queretaro",
+                    "city": "Queretaro",
+                    "neighborhood": null,
+                    "zone": null,
+                    "street": null,
+                    "number": null,
+                    "place_name": null
+                },
+                "related_subtopics": ["free_programming", "public_spaces", "community_access"],
+                "time_scope": {
+                    "date_range": {
+                        "start": "2025-06-01T00:00:00",
+                        "end": "2025-08-31T23:59:59"
+                    },
+                    "timezone": null,
+                    "mention": "verano 2025",
+                    "precision_days": 90
+                },
+                "cultural_domains": ["musica", "teatro", "danza", "artes visuales"],
+                "venues_or_spaces": ["plazas publicas", "centros culturales", "parques"],
+                "artists_or_figures": null,
+                "events_referenced": ["Cartelera cultural del verano"]
+            }
+        },
+        "schema": {
+            "theme_type": {
+                "type": "EnumStr",
+                "required": true,
+                "description": "Type of culture theme. Choose the single most specific category that matches.",
+                "enum": ["cultural_life", "arts_scene", "festival_landscape", "heritage", "cultural_policy"]
+            },
+            "theme_subtype": {
+                "type": "str",
+                "description": "More specific subtype, e.g. 'arts_programming', 'music_scene', 'theater_season', 'heritage_restoration', 'museum_exhibitions', 'gastronomy_overview'."
+            },
+            "description": {
+                "type": "str",
+                "required": true,
+                "description": "Summary of how the article touches or discusses culture — whether reporting a cultural event, covering arts programming, discussing heritage, or mentioning cultural activity."
+            },
+            "tags": {
+                "type": "List[str]",
+                "description": "Keywords and topics relevant to this cultural theme."
+            },
+            "context": {
+                "type": "str",
+                "description": "Broader context: cultural trends, policy background, historical significance."
+            },
+            "relevance": {
+                "type": "EnumStr",
+                "description": "Relevance of this theme within the article: 1 = main topic, 2 = secondary, 3 = implicit.",
+                "enum": ["1", "2", "3"]
+            },
+            "sentiment": {
+                "type": "EnumStr",
+                "description": "General sentiment or tone of the discourse about culture.",
+                "enum": ["positive", "negative", "neutral", "mixed", "alarming", "hopeful"]
+            },
+            "location": {
+                "type": "Location",
+                "description": "Geographic area the cultural theme pertains to. Fill only if the discussion is explicitly about a specific area."
+            },
+            "related_subtopics": {
+                "type": "List[str]",
+                "description": "Specific subtopics discussed, e.g. ['street_art', 'traditional_music', 'film_festivals']."
+            },
+            "time_scope": {
+                "type": "DateRangeFromUnstructured",
+                "description": "The time period the article's cultural discussion covers (e.g. 'temporada de verano 2025', 'este ano'). Captures the temporal scope of the discourse."
+            },
+            "cultural_domains": {
+                "type": "List[str]",
+                "description": "Cultural domains discussed (e.g. 'musica', 'artes visuales', 'teatro', 'cine', 'literatura', 'gastronomia', 'danza')."
+            },
+            "venues_or_spaces": {
+                "type": "List[str]",
+                "description": "Cultural venues, spaces, or institutions mentioned (e.g. 'Teatro de la Republica', 'Centro Cultural', 'museos'). Each venue separately."
+            },
+            "artists_or_figures": {
+                "type": "List[PersonReference]",
+                "description": "Artists, cultural figures, or relevant people mentioned. Use name, role (e.g. 'musico', 'director', 'curador'), and organization if mentioned."
+            },
+            "events_referenced": {
+                "type": "List[str]",
+                "description": "Specific events referenced within the cultural discourse (e.g. 'Festival de Musica', 'Bienal de Arte'). Each event separately."
+            }
+        }
+    }
+}

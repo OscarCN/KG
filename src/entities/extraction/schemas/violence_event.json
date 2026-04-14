@@ -1,7 +1,7 @@
 {
     "ViolenceEvent": {
         "meta": {
-            "description": "A violent incident such as a shooting, armed attack, homicide, or armed confrontation. Extracted from news articles.",
+            "description": "An identifiable single violent incident such as a shooting, armed attack, homicide, or armed confrontation. Each incident is a specific occurrence distinguishable by its location and date — not a violence trend, security overview, or general topic about violence. Extracted from news articles and social media.",
             "example": {
                 "event_type": "shooting",
                 "event_subtype": "drive_by_shooting",
@@ -13,13 +13,19 @@
                 "relevance": 1,
                 "date_range": {
                     "date_range": {"start": "2025-09-20T03:15:00", "end": null},
-                    "mention": "la madrugada del sabado"
+                    "timezone": null,
+                    "mention": "la madrugada del sabado",
+                    "precision_days": null
                 },
                 "location": {
                     "country": "Mexico",
                     "state": "Guanajuato",
                     "city": "Leon",
-                    "neighborhood": "Los Olivos"
+                    "neighborhood": "Los Olivos",
+                    "zone": null,
+                    "street": null,
+                    "number": null,
+                    "place_name": null
                 },
                 "casualties": {"mention": "dos muertos y un herido", "dead": 2, "injured": 1, "missing": 0},
                 "weapon": "firearm",

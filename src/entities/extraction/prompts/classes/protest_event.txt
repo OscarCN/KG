@@ -1,0 +1,237 @@
+SYSTEM:
+
+Eres un modelo para extraer información estructurada de protestas, marchas, manifestaciones y movilizaciones cívicas a partir de artículos de noticias o publicaciones de redes sociales.
+
+Variables de contexto:
+- {source_type}: tipo de fuente (por ejemplo: "noticia", "publicación de Facebook", "publicación de red social").
+- {date_now}: fecha de publicación o fecha actual de referencia.
+
+
+USER:
+
+Buscamos protestas, marchas, manifestaciones o movilizaciones cívicas identificables descritas en el texto fuente. Esto incluye marchas organizadas, plantones, mítines, vigilias, huelgas, piquetes y cualquier acción colectiva pública en la que ciudadanos o grupos exijan atención a una causa. Se distingue de los bloqueos (que se centran en la interrupción de vialidades o servicios): aquí nos enfocamos en la demanda social o política en sí misma.
+
+**Regla de coexistencia protesta/bloqueo:** Si la nota menciona tanto una protesta como un bloqueo, extrae únicamente la protesta cuando haya una movilización cívica identificable con demanda social o política. No extraigas bloqueos puros cuyo foco sea únicamente la interrupción vial o de servicios.
+
+**Regla de unicidad:** Cada protesta es una ocurrencia específica distinguible por su ubicación y fecha. No extraigas movimientos sociales generales, convocatorias recurrentes sin fecha concreta ni resúmenes históricos como un solo evento. Divide en eventos separados solo cuando haya ocurrencias distinguibles por fecha y/o ubicación.
+
+**Regla de campos nulos:** Si no se menciona información para un campo, devuelve `null`. Para campos compuestos (`date_range`, `location`, `participant_count`), devuelve `null` si no hay información suficiente; si sí existe información parcial, incluye solo las subclaves mencionadas o inferibles y omite las demás o déjalas en `null`.
+
+**Si no se identifica ninguna protesta extraíble, responde con `[]`.**
+
+No inventes protestas; solo extrae lo que esté explícitamente descrito en el texto.
+
+Para cada protesta o manifestación mencionada, extrae los siguientes campos:
+
+
+
+1. **Tipo de evento** (`event_type`): el tipo de movilización cívica. Valor fijo:
+
+`"protest"` — Protesta: marcha, manifestación, plantón, mitin, huelga o cualquier acción colectiva pública de demanda social o política.
+
+
+
+2. **Subtipo de evento** (`event_subtype`): propón un subtipo más específico según el contexto. Por ejemplo: `"march"` (marcha), `"sit_in"` (plantón), `"rally"` (mitin), `"picket"` (piquete), `"vigil"` (vigilia), `"strike"` (huelga), `"demonstration"` (manifestación). Si no es claro, deja `null`.
+
+
+
+3. **Estatus de la protesta** (`status`): el estatus que se describe en la nota. Determina el estatus solo a partir de lo explícito en el texto o de marcas temporales claras; no hagas inferencias excesivas. Escoge del siguiente catálogo:
+
+- `"planned"` — Planeada: la protesta está programada para el futuro.
+- `"ongoing"` — En curso: el texto indica explícitamente que la protesta está sucediendo al momento de la publicación.
+- `"past"` — Pasada: la protesta ya ocurrió.
+- `"dispersed"` — Dispersada: la protesta fue dispersada por las autoridades o se disolvió.
+
+Si no es determinable, deja `null`.
+
+
+
+4. **Nombre de la protesta** (`name`): si la protesta o movimiento tiene un nombre propio o se le identifica de alguna forma específica, escríbelo. De lo contrario, `null`. Ejemplos: "Marcha por la Paz", "Paro Nacional de Maestros".
+
+
+
+5. **Descripción** (`description`): redacta un texto breve describiendo la protesta: quiénes protestan, dónde y cuál es la causa principal.
+
+
+
+6. **Etiquetas** (`tags`): palabras clave que describan la protesta. Usa etiquetas basadas en el texto y en inferencias mínimas y obvias; no agregues etiquetas especulativas.
+
+Ejemplo: `["protesta", "maestros", "salario", "marcha", "sindicato"]`
+
+
+
+7. **Contexto** (`context`): si se menciona, resume el contexto de la protesta: antecedentes políticos, negociaciones previas, protestas relacionadas, historial del conflicto, etc. Si no se menciona, `null`.
+
+
+
+8. **Relevancia en la noticia** (`relevance`): la relevancia que tiene la protesta en la nota. El valor debe ser un **string**. Escoge entre:
+
+- `"1"` — La protesta es el tema principal de la nota.
+- `"2"` — La protesta se menciona secundariamente.
+- `"3"` — La protesta solo se menciona implícitamente.
+
+
+
+9. **Fecha de la protesta** (`date_range`): extrae la fecha o rango de fechas de la protesta. Copia la mención textual tal como aparece en la nota (`mention`), un periodo de fechas con inicio y opcionalmente fin (`date_range`), la zona horaria si se menciona (`timezone`), y la precisión en días si la fecha es aproximada (`precision_days`).
+
+`precision_days` es la cantidad de días de incertidumbre a partir de la fecha inicial estimada dentro de los cuales probablemente cae la fecha real. Si la fecha es exacta, `precision_days` es `null`.
+
+Si solo se menciona un periodo aproximado (por ejemplo, "la semana pasada", "a principios de mes"), estima un periodo razonable: escribe la fecha inicial estimada y el valor de `precision_days`.
+
+Usa el formato `"YYYY-MM-DDTHH:MM:SS"`. La fecha de referencia es `{date_now}`. El tipo de fuente es `{source_type}`; si es una publicación de red social, la fecha de publicación puede servir como referencia cuando no se menciona una fecha explícita.
+
+Ejemplos:
+
+```json
+{
+  "date_range": {
+    "start": "2025-10-10T10:00:00",
+    "end": "2025-10-10T14:00:00"
+  },
+  "timezone": null,
+  "mention": "la mañana del viernes, de 10 am a 2 pm",
+  "precision_days": null
+}
+```
+
+```json
+{
+  "date_range": {
+    "start": "2025-07-07T00:00:00",
+    "end": null
+  },
+  "timezone": null,
+  "mention": "el pasado lunes 7 de julio",
+  "precision_days": null
+}
+```
+
+```json
+{
+  "date_range": {
+    "start": "2025-07-03T00:00:00",
+    "end": null
+  },
+  "timezone": null,
+  "mention": "a finales de la semana pasada",
+  "precision_days": 4
+}
+```
+
+Si no hay información de fecha, devuelve `null` para todo el campo.
+
+
+
+10. **Ubicación** (`location`): si se menciona dónde ocurre la protesta, extrae los datos de ubicación de manera estructurada. Incluye solo las subclaves que estén explícitamente mencionadas en la nota; las demás pueden omitirse o dejarse en `null`. Las subclaves posibles son: `country`, `state`, `city`, `neighborhood`, `zone`, `street`, `number`, `place_name`.
+
+En `place_name` escribe únicamente el nombre propio de un lugar geográfico identificable en un mapa (plaza, zócalo, palacio de gobierno, monumento, glorieta, etc.). No agregues referencias espaciales ni descripciones genéricas. Ejemplos INCORRECTOS: "frente al edificio de gobierno", "afuera de la escuela", "calles del centro". Si no hay nombre propio, deja `null`.
+
+Ejemplo:
+
+```json
+{
+  "country": "México",
+  "state": "Guanajuato",
+  "city": "León",
+  "place_name": "Plaza Principal"
+}
+```
+
+Si la nota describe la protesta en una sola ubicación principal, devuelve un solo objeto. Si se mencionan ubicaciones adicionales relevantes, inclúyelas en `description`, `route` o `context`.
+
+
+
+11. **Organizador** (`organizer`): nombre del grupo, sindicato, organización, colectivo o movimiento que organizó o convocó la protesta, si se menciona. Si no, `null`.
+
+
+
+12. **Número de participantes** (`participant_count`): si la nota menciona un estimado de personas que participaron o participarán. Copia la mención textual (`mention`) y proporciona un estimado numérico razonable (`estimate`).
+
+Ejemplos:
+
+```json
+{"mention": "cientos de maestros", "estimate": 300}
+```
+
+```json
+{"mention": "alrededor de 2 mil manifestantes", "estimate": 2000}
+```
+
+Si no se menciona, devuelve `null` para todo el campo.
+
+
+
+13. **Demanda** (`demand`): describe lo que los manifestantes exigen o la causa que apoyan, tal como se menciona en la nota. Si no se menciona, `null`.
+
+
+
+14. **Ruta** (`route`): si se menciona la ruta de la marcha o manifestación, descríbela. Ejemplo: "de la Plaza Principal al Palacio de Gobierno". Si no se menciona, `null`.
+
+
+
+15. **Servicios afectados** (`affected_services`): descripción de la afectación al tráfico, transporte público u otros servicios causada por la protesta, si se menciona. Si no, `null`.
+
+
+
+16. **Respuesta de las autoridades** (`authorities_response`): respuesta de las autoridades ante la protesta: presencia policial, negociaciones, declaraciones oficiales, operativos de seguridad, etc. Si no se menciona, `null`.
+
+
+
+17. **Incidentes** (`incidents`): cualquier incidente ocurrido durante la protesta: enfrentamientos, detenciones, heridos, daños a propiedad, uso de gas lacrimógeno, etc. Si no se menciona, `null`.
+
+
+
+---
+
+**Formato de respuesta:**
+
+Responde con una lista en formato JSON, donde cada elemento representa una protesta detectada. No añadas texto adicional fuera del JSON. Si no hay protestas, responde con `[]`.
+
+Ejemplo completo:
+
+```json
+[
+  {
+    "event_type": "protest",
+    "event_subtype": "march",
+    "status": "past",
+    "name": null,
+    "description": "Cientos de maestros marcharon desde la plaza central hasta el palacio de gobierno exigiendo aumentos salariales.",
+    "tags": ["protesta", "maestros", "salario", "marcha"],
+    "context": "El sindicato de maestros ha estado en negociaciones con el gobierno estatal durante tres meses sin llegar a un acuerdo.",
+    "relevance": "1",
+    "date_range": {
+      "date_range": {
+        "start": "2025-10-10T10:00:00",
+        "end": "2025-10-10T14:00:00"
+      },
+      "timezone": null,
+      "mention": "la mañana del viernes, de 10 am a 2 pm",
+      "precision_days": null
+    },
+    "location": {
+      "country": "México",
+      "state": "Guanajuato",
+      "city": "León",
+      "place_name": "Plaza Principal"
+    },
+    "organizer": "Sindicato Nacional de Trabajadores de la Educación (SNTE)",
+    "participant_count": {
+      "mention": "cientos de maestros",
+      "estimate": 300
+    },
+    "demand": "aumento salarial del 20%",
+    "route": "de la Plaza Principal al Palacio de Gobierno",
+    "affected_services": "tráfico reducido en el centro histórico durante 4 horas",
+    "authorities_response": null,
+    "incidents": null
+  }
+]
+```
+
+
+USER:
+
+La noticia es la siguiente:
+
+{body}

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Entity linking system for a knowledge graph (KG). Links entities (events, people, organizations, locations, etc.) from unstructured/semi-structured sources (news, social media) to ground truth entities in a knowledge base. Spanish-language / Mexico-focused.
+Knowledge graph (KG) entity extraction and linking system. Extracts events, entities, concepts, and themes from unstructured/semi-structured sources (news, social media) and links them to ground truth entries in a knowledge base. Spanish-language / Mexico-focused.
 
 Three main subsystems:
 1. **Schema layer** (`src/schema/`) — Declarative schema definitions and a `Parser` that normalizes raw records through structure mapping → type parsing → defaults → validation.
@@ -61,6 +61,7 @@ The schema system can be used as a library with no external services.
 - Reusable composite types live in `types/composite_types.json` and are auto-resolved by the loader.
 - External modules `utils.connections`, `utils.es`, `tools.lsh`, `es.es` are imported by PoC scripts (live outside this repo).
 - Datetimes default to Mexico City timezone (`America/Mexico_City`).
-- Event type taxonomy and prompts are in Spanish.
+- Ontology class taxonomy and prompts are in Spanish.
+- Entity schemas cover two categories: **events** (specific occurrences with location and datetime, suffixed `_event`) and **themes** (topical classifiers — any article touching a related subject matches, no required datetime). Future schemas will cover entities/concepts (including laws, real estate developments, etc.).
 - After each non-trivial change/implementation/fix, add or change the relevant documentation in README.md and/or any pertinent documentation sub-file (e.g. schema/readme_schema.md). After every change check that documentation files are kept consistent, and that none of their content is kept outdated
 - Keep all documentation files well organized, consistent, clear, complete and lean.

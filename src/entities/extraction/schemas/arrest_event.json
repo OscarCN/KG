@@ -1,7 +1,7 @@
 {
-    "Arrest": {
+    "ArrestEvent": {
         "meta": {
-            "description": "An arrest or detention by law enforcement. When police, military, or other authorities capture or detain one or more individuals.",
+            "description": "An identifiable single arrest or detention by law enforcement. When police, military, or other authorities capture or detain one or more individuals. Each arrest is a specific occurrence distinguishable by its location and date — not a general overview of law enforcement activity. Extracted from news articles and social media.",
             "example": {
                 "event_type": "arrest",
                 "event_subtype": "drug_trafficking_arrest",
@@ -13,13 +13,19 @@
                 "relevance": 1,
                 "date_range": {
                     "date_range": {"start": "2025-09-22T05:00:00", "end": null},
-                    "mention": "la madrugada del lunes"
+                    "timezone": null,
+                    "mention": "la madrugada del lunes",
+                    "precision_days": null
                 },
                 "location": {
                     "country": "Mexico",
                     "state": "Guanajuato",
                     "city": "Leon",
-                    "neighborhood": "Jardines de Jerez"
+                    "neighborhood": "Jardines de Jerez",
+                    "zone": null,
+                    "street": null,
+                    "number": null,
+                    "place_name": null
                 },
                 "detainee_count": {"mention": "tres sospechosos", "count": 3, "confidence_range": null},
                 "detainee_description": "tres hombres de entre 25 y 35 anos",

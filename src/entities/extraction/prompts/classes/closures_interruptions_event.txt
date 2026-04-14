@@ -1,0 +1,189 @@
+SYSTEM:
+
+Eres un modelo para extraer información estructurada de cierres, bloqueos e interrupciones de tráfico, servicios u operaciones en artículos de noticias y publicaciones en redes sociales. Se te van a presentar instrucciones para resolver la tarea, algunos ejemplos, y posteriormente una noticia o publicación para que extraigas la información.
+
+La variable {source_type} indica el tipo de fuente (por ejemplo: "noticia", "publicación de Facebook", "publicación en redes sociales"). En el caso de publicaciones en redes sociales, las fechas a menudo pueden inferirse a partir de la fecha de publicación ({date_now}) si no se mencionan explícitamente en el texto.
+
+
+USER:
+
+Buscamos cierres, bloqueos o interrupciones identificables de tráfico, servicios u operaciones descritos en un artículo de noticias o publicación en redes sociales. Incluye cierres viales, bloqueos (por protestas u otras causas), y suspensiones de servicios u operaciones. Cada cierre o interrupción debe ser una ocurrencia específica distinguible por su ubicación y fecha, no una descripción general o tendencia. Puede tratarse de un cierre o bloqueo a nivel nacional que afecte múltiples ubicaciones.
+
+Si la nota solo describe afectaciones generales, riesgos de cierre o antecedentes sin una interrupción específica identificable, responde con una lista vacía: `[]`.
+
+No dupliques una misma ocurrencia si la nota la menciona varias veces; consolida la información en un solo objeto.
+
+Para cada cierre, bloqueo o interrupción mencionado en la nota, extrae los siguientes campos. Si no se menciona un campo, deja su valor null. No inventes cierres ni interrupciones, solo extrae lo que esté explícitamente relacionado en la nota.
+
+
+
+1. Tipo de evento (event_type): obtén el tipo de cierre o interrupción del siguiente catálogo, usando la categoría que sea más específica al evento:
+
+"blockade" — Bloqueo: obstrucción física de una vía, acceso o espacio, generalmente por protesta, manifestación u otra causa
+"closure" — Cierre: cierre vial, cierre de instalaciones, cierre programado por obras, eventos o mantenimiento
+"suspension_of_operations" — Suspensión de operaciones: suspensión temporal de servicios, operaciones, transporte público, actividades comerciales, etc.
+
+
+
+2. Subtipo de evento (event_subtype): propón un subtipo más específico dado el contexto. Por ejemplo: "protest_blockade" (bloqueo por protesta), "road_closure_for_works" (cierre vial por obras), "service_suspension" (suspensión de servicio), "strike" (huelga), "road_closure_for_event" (cierre vial por evento), "bridge_closure" (cierre de puente), etc.
+
+
+
+3. Estatus del evento (status): el estatus actual del cierre o interrupción según se anuncia en la noticia, del siguiente catálogo:
+
+"planned" — Planeado: el cierre o interrupción está programado para el futuro
+"ongoing" — En curso: el cierre o interrupción está sucediendo actualmente
+"past" — Pasado: el cierre o interrupción ya ocurrió y terminó
+"resolved" — Resuelto: el cierre o interrupción fue resuelto o levantado
+
+
+
+4. Nombre del evento (name): Si el cierre o interrupción tiene un nombre o identificador específico, escríbelo. De lo contrario, deja el valor en null.
+
+
+
+5. Descripción (description): Redacta un texto libre con una descripción breve del cierre o interrupción.
+
+
+
+6. Etiquetas (tags): palabras clave explícitas o claramente derivadas del texto que describan el cierre o interrupción. No inventes etiquetas que no estén sustentadas por la información de la nota.
+
+Por ejemplo:
+
+"tags": ["blockade", "protest", "farmers", "highway", "water_subsidies"]
+
+
+
+7. Contexto (context): Si la información existe, escribe un texto libre resumiendo el contexto general: negociaciones en curso, demandas relacionadas, antecedentes históricos, afectaciones reportadas, operativos de seguridad, etc.
+
+
+
+8. Relevancia en la noticia (relevance): La relevancia que tiene el cierre o interrupción en la noticia. Responde siempre como cadena de texto (string), escogiendo entre:
+
+"1" — Si el cierre o interrupción es el tema principal de la nota
+"2" — Si se menciona secundariamente
+"3" — Si solo se menciona implícitamente
+
+
+
+9. Fecha del evento (date_range): Es la fecha o rango de fechas del cierre o interrupción. Responde con los siguientes subcampos:
+
+- mention: el texto tal cual se menciona en la nota.
+- date_range: un objeto con inicio (start) y opcionalmente fin (end).
+- timezone: la zona horaria si se menciona en la nota; si no se menciona, usa null.
+- precision_days: si la fecha es aproximada, un rango razonable en días dentro del cual probablemente cae la fecha real; si la fecha es exacta, usa null.
+
+Si solo se menciona un periodo aproximado (por ejemplo, "la semana pasada", "a finales de mes", etc.), interpreta un periodo estimado razonable, y escribe la fecha inicial del periodo junto con un rango de precisión en días en el que muy probablemente se encuentre la fecha real.
+
+Incluye siempre los cuatro subcampos (mention, date_range, timezone, precision_days), usando null para los que no apliquen.
+
+Cuatro ejemplos:
+
+"date_range": { "mention": "desde las 6 de la mañana de hoy", "date_range": {"start": "2025-10-05T06:00:00", "end": null}, "timezone": null, "precision_days": null }
+
+"date_range": { "mention": "del lunes 7 al viernes 11 de julio", "date_range": {"start": "2025-07-07T00:00:00", "end": "2025-07-11T23:59:00"}, "timezone": null, "precision_days": null }
+
+"date_range": { "mention": "la semana pasada", "date_range": {"start": "2025-06-23T00:00:00", "end": null}, "timezone": null, "precision_days": 7 }
+
+Ejemplo para publicaciones en redes sociales cuando no se menciona una fecha explícita (se usa la fecha de publicación como referencia):
+
+Si la publicación dice "hoy cerramos operaciones" y la fecha de publicación es 2025-07-15:
+"date_range": { "mention": "hoy", "date_range": {"start": "2025-07-15T00:00:00", "end": null}, "timezone": null, "precision_days": null }
+
+Usa el formato estandarizado de fechas "YYYY-MM-DDTHH:MM:SS".
+Como contexto, la fecha de hoy es {date_now}. El tipo de fuente es {source_type}; si es una publicación en redes sociales, la fecha de publicación puede servir como referencia cuando no se menciona una fecha explícita.
+
+
+
+10. Ubicación (location): Si el cierre o interrupción sucede en alguna ubicación, extrae los datos de ubicación de manera estructurada. Usa un único objeto de ubicación que represente la ubicación principal del evento. Si el cierre afecta múltiples ubicaciones, elige la más representativa o la mencionada con mayor detalle.
+
+Formato:
+
+"location": {
+    "country": "Mexico",
+    "state": "Queretaro",
+    "city": "Queretaro",
+    "neighborhood": null,
+    "zone": null,
+    "street": "Autopista Mexico-Queretaro km 120",
+    "number": null,
+    "place_name": null
+}
+
+Llena solo los campos mencionados explícitamente en la nota; los demás déjalos en null o simplemente omítelos. En el campo de "place_name" escribe el nombre propio del lugar, sólo si es un lugar geográfico identificable en un mapa (puente, terminal, estación, plaza, aeropuerto, etc.). Sólo escribe nombres propios de lugares, no agregues referencias espaciales ni descripciones genéricas. Ejemplos de valores INCORRECTOS son: "cruce de dos avenidas", "entrada principal de la ciudad", "varias calles del centro". Si no se menciona el nombre propio del lugar, deja el valor null.
+
+
+
+11. Rutas o servicios afectados (affected_routes): Descripción de las vialidades, rutas, líneas de transporte o servicios afectados por el cierre o interrupción. Escribe un texto libre con la información tal como se menciona en la nota. Si no se menciona, deja el valor null.
+
+Por ejemplo: "Autopista Mexico-Queretaro, ambos sentidos" o "Línea 3 del Metro, estaciones Balderas a Centro Médico".
+
+
+
+12. Causa (cause): Razón o motivo del cierre o interrupción. Escribe un texto libre describiendo la causa según se menciona en la nota. Si no se menciona, deja el valor null.
+
+
+
+13. Mención de duración (duration_mention): Si se menciona o estima la duración del cierre o interrupción, escribe el texto tal cual aparece en la nota. Si no se menciona, deja el valor null.
+
+Por ejemplo: "desde las 6am, sin hora de término estimada" o "el cierre durará aproximadamente 3 horas".
+
+
+
+14. Rutas alternativas (alternative_routes): Si se mencionan rutas alternativas, desvíos o soluciones temporales para los afectados, escríbelas en texto libre. Si no se mencionan, deja el valor null.
+
+
+
+15. Responsable (responsible_party): Nombre del grupo, entidad, organización o autoridad directamente responsable del cierre o interrupción, o de su gestión, según quede más claramente atribuido en la nota. Si se mencionan tanto el actor causante como el administrador, extrae el que tenga mayor protagonismo en la nota. Si no se menciona, deja el valor null.
+
+
+
+Formato de respuesta:
+
+Responde con una lista en formato JSON, donde cada elemento representa un cierre, bloqueo o interrupción detectado en la nota. No añadas texto adicional fuera del JSON. Si no se detecta ningún cierre o interrupción identificable, responde con una lista vacía: `[]`.
+
+Ejemplo de formato esperado:
+
+[
+  {
+    "event_type": "blockade",
+    "event_subtype": "protest_blockade",
+    "status": "ongoing",
+    "name": null,
+    "description": "Farmers block the highway Mexico-Queretaro at km 120 demanding water subsidies.",
+    "tags": ["blockade", "protest", "farmers", "highway", "water_subsidies"],
+    "context": "The blockade started at 6am and has caused traffic delays of over 2 hours. Negotiations are underway with state authorities.",
+    "relevance": "1",
+    "date_range": {
+      "mention": "desde las 6 de la manana de hoy",
+      "date_range": {
+        "start": "2025-10-05T06:00:00",
+        "end": null
+      },
+      "timezone": null,
+      "precision_days": null
+    },
+    "location": {
+      "country": "Mexico",
+      "state": "Queretaro",
+      "city": null,
+      "neighborhood": null,
+      "zone": null,
+      "street": "Autopista Mexico-Queretaro km 120",
+      "number": null,
+      "place_name": null
+    },
+    "affected_routes": "Autopista Mexico-Queretaro, ambos sentidos",
+    "cause": "Demanda de subsidios de agua para agricultores",
+    "duration_mention": "desde las 6am, sin hora de termino estimada",
+    "alternative_routes": null,
+    "responsible_party": null
+  }
+]
+
+
+USER:
+
+La noticia es la siguiente:
+
+{body}

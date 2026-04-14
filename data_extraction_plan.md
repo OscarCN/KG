@@ -39,15 +39,25 @@ keyword → event_type → supertype → schema
 
 ### 2.2 Supertypes and their event types
 
-| Supertype | Event types (classes) | Description |
+| Supertype | Types (classes) | Description |
 |---|---|---|
+| **Events** | | |
 | `paid_mass_event` | concert, festival, party, fair, inauguration, sports_event, religious_event, cultural_event, congress, exposition, conference, convention | Events with attendance, venue, pricing, dates |
-| `robbery_assault` | robbery, assault, security_event | Property/person crimes |
-| `public_works` | pothole, street_lighting, paving, public_transport, infrastructure | Non-event location-based infrastructure issues |
+| `robbery_assault_event` | robbery, assault, kidnapping, security_event | Property/person crimes |
+| `public_works_event` | pothole, street_lighting, paving, public_transport, infrastructure, trash_complaint, water_issue, sinkhole, public_road | Infrastructure issues |
 | `violence_event` | shooting, attack, homicide, confrontation | Violent incidents |
-| `closures_interruptions` | blockade, closure, suspension_of_operations | Traffic/service disruptions |
-| `emergency` | fire, crash, explosion, flood, accident, emergency_general | Emergency incidents |
-| `arrest` | arrest, detention | Law enforcement captures |
+| `closures_interruptions_event` | blockade, closure, suspension_of_operations | Traffic/service disruptions |
+| `emergency_event` | fire, crash, explosion, flood, accident, pedestrian_hit, emergency_general | Emergency incidents |
+| `protest_event` | protest | Protests and demonstrations |
+| `arrest_event` | arrest, detention | Law enforcement captures |
+| **Themes** | | |
+| `security` | crime_trends, law_enforcement, public_safety, security_policy | Security discourse |
+| `public_infrastructure` | infrastructure_conditions, urban_services, water_management, waste_management, transportation_infrastructure, urban_planning | Infrastructure discourse |
+| `civil_protection` | emergency_preparedness, disaster_trends, accident_statistics, risk_assessment, civil_protection_policy | Emergency/disaster discourse |
+| `mobility` | transit_disruptions, road_conditions, transportation_planning, traffic_patterns, public_transit | Mobility/transit discourse |
+| `culture` | cultural_life, arts_scene, festival_landscape, heritage, cultural_policy | Cultural discourse |
+| `sports` | sports_landscape, competition_coverage, sports_infrastructure, athlete_profile, league_overview | Sports discourse |
+| `civic_participation` | social_movements, activism, citizen_engagement, political_participation, community_organizing | Civic engagement discourse |
 
 ### 2.3 Catalogue storage
 
@@ -108,15 +118,26 @@ Each schema field has a `"description"` key that serves as the extraction instru
 
 ### 3.4 Schemas to implement now
 
-Seven schemas, one per supertype:
+Fifteen schemas — 8 event supertypes and 7 theme supertypes:
 
+**Event schemas** (specific occurrences with location and datetime):
 1. **`paid_mass_event.json`** — the most detailed, based on the legacy `events.py` prompt
-2. **`robbery_assault.json`** — crime-specific fields (victim_count, weapon, stolen_items)
-3. **`public_works.json`** — infrastructure fields (status, responsible_authority, affected_area)
+2. **`robbery_assault_event.json`** — crime-specific fields (victim_count, weapon, stolen_items)
+3. **`public_works_event.json`** — infrastructure fields (status, responsible_authority, affected_area)
 4. **`violence_event.json`** — violence-specific fields (victim_count, weapon, perpetrator)
-5. **`closures_interruptions.json`** — disruption fields (affected_routes, cause, duration)
-6. **`emergency.json`** — emergency fields (casualties, damage, response_agencies)
-7. **`arrest.json`** — arrest fields (detainee, charges, authority)
+5. **`closures_interruptions_event.json`** — disruption fields (affected_routes, cause, duration)
+6. **`emergency_event.json`** — emergency fields (casualties, damage, response_agencies)
+7. **`protest_event.json`** — protest fields (organizer, participant_count, demand)
+8. **`arrest_event.json`** — arrest fields (detainee, charges, authority)
+
+**Theme schemas** (general discourse topics, no required datetime):
+9. **`security.json`** — crime trends, law enforcement, public safety
+10. **`public_infrastructure.json`** — infrastructure conditions, urban services
+11. **`civil_protection.json`** — emergency preparedness, disaster trends
+12. **`mobility.json`** — transit, road conditions, transportation planning
+13. **`culture.json`** — cultural life, arts, heritage
+14. **`sports.json`** — sports landscape, competitions, athletes
+15. **`civic_participation.json`** — social movements, activism, citizen engagement
 
 All schemas share common fields (defined via composite types): location, date_range, name, description, tags, context, relevance, event_type, event_subtype, status.
 
@@ -176,14 +197,22 @@ This is a later optimization — initial implementation extracts all fields in o
 src/entities/
   extraction/
     __init__.py
-    schemas/              # Entity JSON schemas
+    schemas/              # Entity JSON schemas (events + themes)
       paid_mass_event.json
-      robbery_assault.json
-      public_works.json
+      robbery_assault_event.json
+      public_works_event.json
       violence_event.json
-      closures_interruptions.json
-      emergency.json
-      arrest.json
+      closures_interruptions_event.json
+      emergency_event.json
+      protest_event.json
+      arrest_event.json
+      security.json
+      public_infrastructure.json
+      civil_protection.json
+      mobility.json
+      culture.json
+      sports.json
+      civic_participation.json
     catalogues/           # Ontology CSV files
       event_types.csv
       keywords.csv

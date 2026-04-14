@@ -1,7 +1,7 @@
 {
-    "PublicWorks": {
+    "PublicWorksEvent": {
         "meta": {
-            "description": "Public infrastructure issue or works project. Not necessarily an event but has a location and temporal data. Includes potholes, street lighting issues, paving, public transport problems, and general infrastructure. Extracted from news articles.",
+            "description": "An identifiable single public infrastructure issue or works project. Includes potholes, street lighting issues, paving, public transport problems, and general infrastructure. Each issue is a specific occurrence distinguishable by its location and date — not a general overview of infrastructure conditions or policy. Extracted from news articles and social media.",
             "example": {
                 "event_type": "pothole",
                 "event_subtype": "road_damage",
@@ -13,13 +13,19 @@
                 "relevance": 1,
                 "date_range": {
                     "date_range": {"start": "2025-10-01T00:00:00", "end": null},
-                    "mention": "desde inicios de octubre"
+                    "timezone": null,
+                    "mention": "desde inicios de octubre",
+                    "precision_days": null
                 },
                 "location": {
                     "country": "Mexico",
                     "state": "Guanajuato",
                     "city": "Leon",
-                    "street": "Blvd. Adolfo Lopez Mateos"
+                    "neighborhood": null,
+                    "zone": null,
+                    "street": "Blvd. Adolfo Lopez Mateos",
+                    "number": null,
+                    "place_name": null
                 },
                 "responsible_authority": "Direccion de Obras Publicas Municipal",
                 "affected_area": "tramo entre Blvd. Torres Landa y Blvd. Hidalgo",

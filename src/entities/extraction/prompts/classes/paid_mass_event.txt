@@ -65,9 +65,9 @@ Por ejemplo:
 
 8. Relevancia en la noticia (relevance): La relevancia que tiene el evento en la noticia, escoge entre:
 
-1 — Si el evento es el tema principal de la nota
-2 — Si el evento se menciona secundariamente
-3 — Si el evento sólo se menciona implícitamente
+"1" — Si el evento es el tema principal de la nota
+"2" — Si el evento se menciona secundariamente
+"3" — Si el evento sólo se menciona implícitamente
 
 
 

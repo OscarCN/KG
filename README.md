@@ -9,7 +9,7 @@ Entity linking system that matches entities found in unstructured and semi-struc
 Two knowledge bases:
 
 - **Geographic KB** — Hierarchical geographic entities (countries, provinces, cities, neighborhoods, streets, places) linked by "is in" relations. Each entity has coordinates, shape, and aliases.
-- **Entities/Events KB** — General entities (people, organizations, companies, products, technologies, regulations) and events (concerts, protests, accidents, congresses) typed by an ontology. Events always have a date/date range and may have location, description, and other attributes.
+- **Entities/Events KB** — Entities, concepts, themes, and events typed by an ontology. See [Ontology categories](#ontology-categories) below for the distinction between these types. Each entry has attributes defined by its ontology class schema.
 
 Each entity has an **ontology class** that defines its schema (attributes, identifying features) and how it should be uniquely described. Ontology schemas are defined in JSON and parsed by the schema system.
 
@@ -52,6 +52,7 @@ src/
     run_extraction.py# Step-by-step IPython script for the extraction pipeline
     sentence_pairs_model.py  # Sentence-pair similarity model (PyTorch)
 resources/          # Input data files (Excel, prompt contexts)
+cache/              # Extraction result cache (per article+class, auto-generated)
 ```
 
 ### Schema System (`src/schema/`)
@@ -66,11 +67,39 @@ Declarative schema definitions in JSON with a Python normalization pipeline. See
 
 LLM-based structured extraction from unstructured text (news articles, social media). See [`src/entities/readme_entities.md`](src/entities/readme_entities.md) for full documentation.
 
-- **Ontology**: three-level hierarchy (matching rule → event type → supertype → schema) with rules in Excel (`keywords.xlsx`) and type mapping in CSV (`event_types.csv`)
-- **8 supertypes**: paid_mass_event, robbery_assault (incl. kidnapping), public_works (incl. trash, water, sinkhole, public road), violence_event, closures_interruptions, emergency (incl. pedestrian hit), protest, arrest
-- **Three-step extraction flow**: keyword matching → LLM classification (filters candidate classes to those actually discussed) → per-class LLM extraction (one call per confirmed class, scoped to that event type)
-- **Schema-driven prompt generation**: extraction prompts auto-generated from JSON schemas via LLM using a generate+feedback loop (`prompt_generator.py`). Each prompt is built from three context layers — class `meta.description`, field `description`, and composite type descriptions (e.g. `DateRangeFromUnstructured` contributes approximate-date and `precision_days` instructions). `robbery_assault.txt` serves as the style exemplar. Write schema descriptions carefully — they directly affect prompt quality.
+- **Ontology**: three-level hierarchy (matching rule → class → supertype → schema) with rules in Excel (`keywords.xlsx`) and type mapping in CSV (`event_types.csv`)
+- **15 supertypes** — 8 events + 7 themes:
+  - **Events** (identifiable single occurrences with location and datetime): paid_mass_event, robbery_assault_event (incl. kidnapping), public_works_event (incl. trash, water, sinkhole, public road), violence_event, closures_interruptions_event, emergency_event (incl. pedestrian hit), protest_event, arrest_event
+  - **Themes** (topical classifiers, no required datetime): security, public_infrastructure, civil_protection, mobility, culture, sports, civic_participation
+- **Three-step extraction flow**: keyword matching → LLM classification (filters candidate classes to those actually discussed) → per-class LLM extraction (one call per confirmed class, scoped to that class)
+- **Schema-driven prompt generation**: extraction prompts auto-generated from JSON schemas via LLM using a generate+feedback loop (`prompt_generator.py`). Each prompt is built from three context layers — class `meta.description`, field `description`, and composite type descriptions (e.g. `DateRangeFromUnstructured` contributes approximate-date and `precision_days` instructions). `paid_mass_event.txt` serves as the style exemplar. Write schema descriptions carefully — they directly affect prompt quality. `meta.example` must include ALL subfields of composite types (with null for absent values) — omitting fields causes generated prompts to miss them.
 - **Same schema infrastructure**: entity schemas use the same JSON format, `load_schema()`, `Parser`, and composite types as pipeline schemas
+
+### Ontology Categories
+
+The system classifies content into four broad ontology categories, each with different identifying characteristics:
+
+| Category | Description | Identifying features | Examples |
+|----------|-------------|---------------------|----------|
+| **Event** | A specific, identifiable occurrence that happened at a particular time and place | Location + date/time make each event distinguishable from others | A concert, an accident, a protest, an arrest |
+| **Theme** | A topical classification — any article that touches or discusses a related subject matches | Optional location (city/state level), no required date — acts as a broad classifier for article content | Security (crime, violence, policing), mobility (traffic, transit), culture (arts, heritage) |
+| **Entity/Concept** | A specific, identifiable thing that is not an event | May have a name, location, or other identifying attributes, but not necessarily a date | A real estate development, a specific technology, a chemical compound, an individual person, a law initiative |
+
+The system implements both **events** (8 supertypes — identifiable single occurrences with a location and date) and **themes** (7 supertypes — topical classifiers without required datetime). A theme matches whenever an article addresses, reports on, or touches any subject within its domain — whether through a specific event, a complaint, statistics, policy discussion, or a passing mention. An article may match both a theme and a specific event schema — both are extracted separately. Events have `_event` suffix in their supertype name (e.g. `arrest_event`, `emergency_event`); themes do not (e.g. `security`, `mobility`).
+
+The extraction pipeline (keyword matching → LLM classification → per-class extraction) is designed to work with all three categories. The classification prompt evaluates each class description to determine whether the article discusses a specific event, entity/concept, or theme matching that class.
+
+### Future: Class Inheritance
+
+Classes will support inheritance, where a more specific class inherits attributes from a broader one. The current event/theme naming convention supports this:
+- **violence_event** inherits from **security** (theme) — a specific shooting inherits the general security topic attributes
+- **public_works_event** inherits from **public_infrastructure** (theme)
+- **emergency_event** inherits from **civil_protection** (theme)
+- **closures_interruptions_event** inherits from **mobility** (theme)
+- **protest_event** inherits from **civic_participation** (theme)
+- **water usage law (entity)** inherits from **law initiative (entity)** — a specific water regulation inherits general law initiative attributes
+
+This allows shared attributes and behavior to be defined once at the parent level and specialized at the child level.
 
 ## Infrastructure
 

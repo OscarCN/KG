@@ -1,0 +1,264 @@
+SYSTEM:
+
+Eres un modelo para extraer información estructurada de temas de seguridad en artículos de noticias. Se te van a presentar instrucciones para resolver la tarea, algunos ejemplos, y posteriormente una noticia para que extraigas la información.
+
+Como contexto adicional, la variable {source_type} indica el tipo de fuente (por ejemplo: "noticia", "publicación de Facebook", "publicación de red social"). En el caso de publicaciones de redes sociales, las fechas pueden inferirse a partir de la fecha de publicación ({date_now}) cuando no se mencionan explícitamente en el texto.
+
+
+USER:
+
+Buscamos cualquier tema, evento, mención o discusión relacionada con seguridad en un artículo de noticias. Esto incluye crimen, violencia, inseguridad general, desorden público, operativos policiales, actividad criminal, seguridad pública, políticas de seguridad, tendencias delictivas y estadísticas de violencia. Un artículo se considera relacionado con seguridad si aborda, menciona o analiza cualquier tema relacionado, ya sea reportando un crimen específico, analizando tendencias, cubriendo políticas públicas, citando estadísticas o mencionando preocupaciones de seguridad de manera incidental. Un artículo puede coincidir tanto con este tema como con un esquema de evento específico (por ejemplo, un evento de robo o un evento de violencia); ambos se extraen por separado.
+
+Para cada **tema o discusión de seguridad distinto** mencionado en la nota, extrae los siguientes campos. Si no se menciona un campo, deja su valor `null`. No inventes temas de seguridad; solo extrae lo que esté explícitamente relacionado en la nota. Cada elemento extraído debe representar un **tema o discusión de seguridad diferenciado**, no cada mención aislada de un incidente a menos que el artículo lo discuta como tema de seguridad. Si varios párrafos tratan el mismo tema, unifícalos en un solo objeto. No crees objetos duplicados para el mismo tema con diferencias menores de redacción.
+
+Si no hay ningún tema de seguridad en la nota, responde con `[]`.
+
+Incluye **todas** las claves del esquema en cada objeto JSON de salida; si no hay información para un campo, usa `null`. Asegúrate de usar tipos JSON válidos y consistentes con el esquema: listas (`[]`) para campos de tipo lista, cadenas (`"..."`) para campos de tipo texto y enumeraciones de texto, enteros para `precision_days`, y `null` cuando no aplique.
+
+Escribe los nombres de lugares sin tildes ni acentos (por ejemplo, "Mexico", "Leon", "Guanajuato") para mantener consistencia en la normalización.
+
+---
+
+**Campos a extraer:**
+
+1. **Tipo de tema de seguridad** (`theme_type`): obtén el tipo de tema del siguiente catálogo, escogiendo la categoría más específica que corresponda:
+
+- `"crime_trends"` — Tendencias delictivas: análisis, cifras, patrones o evolución de la actividad criminal
+- `"law_enforcement"` — Aplicación de la ley: operativos policiales, detenciones, acciones de fuerzas de seguridad
+- `"public_safety"` — Seguridad pública: percepción de seguridad, medidas de protección ciudadana, programas de prevención
+- `"security_policy"` — Política de seguridad: reformas, leyes, estrategias gubernamentales, decisiones institucionales en materia de seguridad
+
+
+
+2. **Subtipo de tema** (`theme_subtype`): propón un subtipo más específico dado el contexto del artículo. Por ejemplo: `"homicide_statistics"`, `"organized_crime_overview"`, `"police_reform"`, `"neighborhood_watch"`, `"drug_trafficking_trends"`, `"extortion_patterns"`, `"vehicle_theft_analysis"`, etc. Si no hay suficiente especificidad en la nota para proponer un subtipo útil, deja `theme_subtype` en `null`.
+
+
+
+3. **Descripción** (`description`): redacta un resumen de cómo el artículo aborda o discute el tema de seguridad como **tema o discusión**, ya sea analizando tendencias, cubriendo políticas, citando estadísticas o enmarcando un incidente dentro de una problemática de seguridad más amplia. No describas un incidente aislado a menos que el artículo lo enmarque explícitamente como parte de una discusión de seguridad.
+
+
+
+4. **Etiquetas** (`tags`): palabras clave y temas relevantes para este tema de seguridad. Las etiquetas deben estar fundamentadas en el contenido del artículo; no agregues etiquetas especulativas que no se deriven del texto.
+
+Por ejemplo:
+
+```json
+"tags": ["seguridad", "homicidios", "crimen_organizado", "guanajuato"]
+```
+
+
+
+5. **Contexto** (`context`): si la información existe en la nota, escribe un texto libre resumiendo el contexto más amplio: tendencias históricas, antecedentes, contexto de políticas públicas, desarrollos relacionados. Si no hay contexto adicional, deja `null`.
+
+
+
+6. **Relevancia en la noticia** (`relevance`): la relevancia que tiene el tema de seguridad en la noticia. Este campo es una **cadena de texto** (string). Escoge entre:
+
+- `"1"` — Si el tema de seguridad es el tema principal de la nota
+- `"2"` — Si el tema de seguridad se menciona secundariamente
+- `"3"` — Si el tema de seguridad solo se menciona implícitamente
+
+
+
+7. **Sentimiento** (`sentiment`): el sentimiento o tono general del discurso sobre seguridad en el artículo, escoge entre:
+
+- `"positive"` — Positivo: tono optimista o favorable
+- `"negative"` — Negativo: tono pesimista o desfavorable
+- `"neutral"` — Neutral: tono informativo sin carga emocional
+- `"mixed"` — Mixto: combina elementos positivos y negativos
+- `"alarming"` — Alarmante: tono de alerta o preocupación grave
+- `"hopeful"` — Esperanzador: tono que transmite esperanza o mejoría
+
+
+
+8. **Ubicación** (`location`): la ubicación geográfica explícita sobre la que trata la discusión de seguridad, no necesariamente el lugar de publicación del artículo. Llena solo si la discusión es explícitamente sobre un área geográfica específica. Extrae los datos de ubicación de manera estructurada en el siguiente formato:
+
+```json
+"location": {
+    "country": "Mexico",
+    "state": "Guanajuato",
+    "city": "Leon",
+    "neighborhood": null,
+    "zone": "zona norte",
+    "street": null,
+    "number": null,
+    "place_name": null
+}
+```
+
+Llena solo los campos mencionados explícitamente en la nota. En el campo `"place_name"` escribe el nombre propio del lugar, solo si es un lugar geográfico identificable en un mapa (cuartel, base militar, plaza, centro de mando, etc.). Solo escribe nombres propios de lugares, no agregues referencias espaciales ni descripciones genéricas. Ejemplos de valores INCORRECTOS son: "varias colonias del municipio", "zona conflictiva", "calles del centro". Si no se menciona el nombre propio del lugar, deja el valor `null`.
+
+Si el tema de seguridad se refiere a varias ubicaciones, escribe una lista con todos los campos en cada objeto:
+
+```json
+"location": [
+  {
+    "country": "Mexico",
+    "state": "Guanajuato",
+    "city": "Leon",
+    "neighborhood": null,
+    "zone": null,
+    "street": null,
+    "number": null,
+    "place_name": null
+  },
+  {
+    "country": "Mexico",
+    "state": "Jalisco",
+    "city": "Guadalajara",
+    "neighborhood": null,
+    "zone": null,
+    "street": null,
+    "number": null,
+    "place_name": null
+  }
+]
+```
+
+
+
+9. **Subtemas relacionados** (`related_subtopics`): subtemas o problemáticas específicas discutidas bajo el tema de seguridad. Si no hay subtemas identificables, deja `null`.
+
+Por ejemplo:
+
+```json
+"related_subtopics": ["homicide_rate", "police_corruption", "organized_crime", "drug_trafficking"]
+```
+
+
+
+10. **Alcance temporal** (`time_scope`): el periodo de tiempo que cubre la discusión de seguridad en el artículo (por ejemplo, "primer semestre 2025", "ultimo mes", "este ano"). **No es la fecha de un evento específico**, sino el alcance temporal del discurso de seguridad. No uses la fecha de un incidente aislado como `time_scope` a menos que la discusión de seguridad en la nota se limite explícitamente a ese periodo.
+
+Responde con:
+- `mention`: el texto tal cual se menciona en la nota.
+- `date_range`: un objeto con `start` y opcionalmente `end` en formato `"YYYY-MM-DDTHH:MM:SS"`.
+- `timezone`: la zona horaria si se menciona, o `null`.
+- `precision_days`: un entero con la precisión en días si la fecha es aproximada. **Cuando el periodo sea exacto (con inicio y fin conocidos), usa `precision_days: null`.**
+
+Si solo se menciona un periodo aproximado (por ejemplo, "en los ultimos meses", "este ano", etc.), interpreta un periodo estimado razonable y escribe la fecha inicial del periodo junto con un rango de precisión en días en el que muy probablemente se encuentre el periodo real.
+
+Tres ejemplos:
+
+```json
+"time_scope": {
+  "date_range": { "start": "2025-01-01T00:00:00", "end": "2025-06-30T23:59:59" },
+  "timezone": null,
+  "mention": "primer semestre de 2025",
+  "precision_days": null
+}
+```
+
+```json
+"time_scope": {
+  "date_range": { "start": "2025-06-01T00:00:00", "end": null },
+  "timezone": null,
+  "mention": "durante el ultimo mes",
+  "precision_days": 30
+}
+```
+
+```json
+"time_scope": {
+  "date_range": { "start": "2025-01-01T00:00:00", "end": null },
+  "timezone": null,
+  "mention": "en lo que va de 2025",
+  "precision_days": 180
+}
+```
+
+Como contexto, la fecha de hoy es {date_now}. El tipo de fuente es {source_type}; si es una publicación de red social, la fecha de publicación puede servir como referencia cuando no se menciona una fecha explícita.
+
+
+
+11. **Tipos de delitos discutidos** (`crime_types_discussed`): tipos de crímenes o delitos discutidos en el artículo. Usa los términos en español tal como aparecen en la nota, preservando la forma original (singular o plural, por ejemplo "homicidios" si así aparece, no normalices a "homicidio"). Si no se discuten delitos, deja `null`.
+
+Por ejemplo:
+
+```json
+"crime_types_discussed": ["homicidios", "robos", "secuestro", "extorsion", "narcotrafico"]
+```
+
+
+
+12. **Autoridades mencionadas** (`authorities_mentioned`): autoridades de seguridad o fuerzas del orden mencionadas en la discusión. Si no se mencionan, deja `null`.
+
+Por ejemplo:
+
+```json
+"authorities_mentioned": ["Guardia Nacional", "Policia Municipal", "Fiscalia General del Estado", "Secretaria de Seguridad Publica"]
+```
+
+
+
+13. **Estadísticas mencionadas** (`statistics_mentioned`): cualquier estadística, cifra o dato numérico mencionado sobre crimen o seguridad. Resume las cifras conservando los valores numéricos y comparaciones tal como aparecen en la nota.
+
+Por ejemplo:
+
+```json
+"statistics_mentioned": "15% de disminucion en homicidios respecto al ano anterior, 3,200 robos reportados en el semestre"
+```
+
+Si no se mencionan estadísticas, deja el valor `null`.
+
+
+
+14. **Temas relacionados** (`related_subjects`): otros temas o dominios que el artículo toca en conexión con la seguridad. Usa términos descriptivos en inglés. Si no hay otros dominios claramente conectados con la seguridad, deja `related_subjects` en `null`.
+
+Por ejemplo:
+
+```json
+"related_subjects": ["economics", "prevention", "public_policy", "education", "health", "migration", "technology", "urban_planning", "human_rights"]
+```
+
+---
+
+**Formato de respuesta:**
+
+Responde con una lista en formato JSON, donde cada elemento representa un tema de seguridad detectado en la nota. No añadas texto adicional fuera del JSON.
+
+Ejemplo de formato esperado:
+
+```json
+[
+  {
+    "theme_type": "crime_trends",
+    "theme_subtype": "homicide_statistics",
+    "description": "Analisis de las cifras de homicidios en Leon durante el primer semestre de 2025, mostrando una disminucion del 15% respecto al mismo periodo del ano anterior.",
+    "tags": ["seguridad", "homicidios", "estadisticas", "leon"],
+    "context": "La Secretaria de Seguridad Publica presento su informe semestral ante el congreso local.",
+    "relevance": "1",
+    "sentiment": "hopeful",
+    "location": {
+      "country": "Mexico",
+      "state": "Guanajuato",
+      "city": "Leon",
+      "neighborhood": null,
+      "zone": null,
+      "street": null,
+      "number": null,
+      "place_name": null
+    },
+    "related_subtopics": ["homicide_rate", "police_effectiveness", "organized_crime"],
+    "time_scope": {
+      "date_range": {
+        "start": "2025-01-01T00:00:00",
+        "end": "2025-06-30T23:59:59"
+      },
+      "timezone": null,
+      "mention": "primer semestre de 2025",
+      "precision_days": null
+    },
+    "crime_types_discussed": ["homicidio", "robo", "secuestro"],
+    "authorities_mentioned": ["Secretaria de Seguridad Publica", "Guardia Nacional"],
+    "statistics_mentioned": "15% de disminucion en homicidios, 3,200 robos reportados",
+    "related_subjects": ["economics", "prevention", "public_policy"]
+  }
+]
+```
+
+
+USER:
+
+La noticia es la siguiente:
+
+{body}

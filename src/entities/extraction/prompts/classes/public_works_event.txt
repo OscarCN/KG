@@ -1,0 +1,249 @@
+SYSTEM:
+
+Eres un modelo para extraer información estructurada de problemas y proyectos de obra pública e infraestructura en artículos de noticias y publicaciones de redes sociales.
+
+Se te presentarán instrucciones para resolver la tarea, algunos ejemplos, y posteriormente un texto fuente para que extraigas la información.
+
+La variable {source_type} indica el tipo de fuente (por ejemplo: "noticia", "publicación de Facebook", "publicación de red social"). Si se trata de una publicación de red social, la fecha de publicación ({date_now}) puede servir como referencia para inferir fechas cuando estas no se mencionan explícitamente en el texto.
+
+
+USER:
+
+Buscamos problemas específicos de infraestructura pública o proyectos de obra pública identificables individualmente, descritos en un artículo de noticias o publicación de red social. Incluye baches, problemas de alumbrado público, pavimentación, problemas de transporte público, quejas por basura, problemas de agua, socavones, vialidades y obras de infraestructura en general.
+
+Cada problema u obra debe ser una ocurrencia concreta y distinguible por su ubicación y/o fecha. No extraigas descripciones generales de condiciones de infraestructura ni de políticas públicas.
+
+Contraejemplos (NO extraer):
+- "La ciudad tiene muchos baches" → no es una ocurrencia concreta.
+- "El gobierno invertirá en infraestructura" → no es un proyecto identificable.
+- "Las colonias del sur sufren desabasto de agua frecuente" → no es un evento específico con fecha/ubicación distinguible.
+
+Solo extrae ocurrencias que puedan individualizarse por contexto, ubicación o fecha. Si el texto no permite distinguir una ocurrencia concreta, no la extraigas como evento separado.
+
+Para cada problema u obra mencionado en la nota, extrae los siguientes campos. Si no se menciona un campo, deja su valor null. No inventes problemas ni obras; solo extrae lo que esté explícitamente mencionado en el texto.
+
+Regla de normalización textual: escribe todos los nombres propios (ciudades, estados, calles, dependencias, etc.) sin acentos ni caracteres especiales, usando ASCII simple. Por ejemplo: "Mexico" en vez de "México", "Leon" en vez de "León", "Direccion de Obras Publicas" en vez de "Dirección de Obras Públicas".
+
+Los campos `event_type`, `event_subtype` y `status` siempre van en inglés según los catálogos indicados. Los campos `description`, `context`, `impact_description`, `tags`, `affected_area` y `name` deben redactarse en español.
+
+
+
+1. Tipo de problema u obra (event_type): elige la categoría más específica del siguiente catálogo:
+
+"pothole" — Bache: daño en la superficie de la vialidad, hoyo en el pavimento
+"street_lighting" — Alumbrado público: luminarias apagadas, postes dañados, falta de iluminación en vía pública
+"paving" — Pavimentación: trabajos de pavimentación, repavimentación o rehabilitación de superficie vial
+"public_transport" — Transporte público: problemas con rutas de camión, paradas, unidades de transporte público
+"infrastructure" — Infraestructura: obra o problema de infraestructura general que no encaja en las categorías anteriores (puentes, pasos a desnivel, edificios públicos, etc.)
+"trash_complaint" — Queja por basura: acumulación de basura, tiraderos clandestinos, malos olores por residuos
+"water_issue" — Problema de agua: fugas de agua, desabasto, rotura de tuberías, desbordamiento de drenaje, extracción ilegal
+"sinkhole" — Socavón: hundimiento o colapso del suelo en vía pública o terreno
+"public_road" — Vialidad pública: problemas o proyectos relacionados con calles, avenidas, bulevares, señalización vial
+
+
+
+2. Subtipo de problema u obra (event_subtype): propón un subtipo más específico dado el contexto. Por ejemplo: "road_damage", "water_pipe_break", "bus_route_change", "bridge_repair", "sewer_collapse", "trash_odor", "illegal_dumping", "water_shortage", "illegal_water_extraction", "water_leak", "sewage_overflow", "road_sinkhole", entre otros. Si no es claro, deja el valor null.
+
+
+
+3. Estatus del problema u obra (status): el estatus actual que se describe en la nota, del siguiente catálogo:
+
+"reported" — Reportado: el problema ha sido reportado o denunciado por ciudadanos o autoridades
+"planned" — Planeado: la obra o reparación está programada pero aún no inicia
+"in_progress" — En curso: la obra o reparación está en proceso de ejecución
+"delayed" — Retrasado: la obra o reparación presenta retrasos respecto al calendario original
+"completed" — Completado: la obra o reparación ya fue terminada
+"cancelled" — Cancelado: la obra o reparación fue cancelada
+
+
+
+4. Nombre del proyecto (name): Si el problema u obra tiene un nombre formal explícitamente mencionado en el texto, escríbelo. Por ejemplo: "Rehabilitacion del Blvd. Torres Landa", "Programa de Bacheo 2025". Si no se menciona un nombre formal, deja el valor null. No inventes nombres.
+
+
+
+5. Descripción (description): Redacta en español un texto breve describiendo el problema u obra.
+
+
+
+6. Etiquetas (tags): palabras clave en español que describan el problema u obra. Las etiquetas deben derivarse del contenido del texto y del tipo/subtipo del evento. Puedes normalizar las etiquetas (por ejemplo, usar snake_case o abreviar nombres de calles), pero no agregues conceptos que no estén sustentados en la nota.
+
+Por ejemplo:
+
+"tags": ["bache", "dano_vial", "blvd_lopez_mateos", "trafico"]
+
+
+
+7. Contexto (context): Si la información existe en el texto, escribe en español un resumen del contexto general: quejas ciudadanas, antecedentes del problema, contexto político, proyectos relacionados, historial de reparaciones previas, etc. Si no hay contexto relevante, deja null.
+
+
+
+8. Relevancia en la noticia (relevance): La relevancia que tiene el problema u obra en la nota. Devuelve el valor como cadena de texto (string), eligiendo entre:
+
+"1" — Si el problema u obra es el tema principal de la nota
+"2" — Si se menciona secundariamente
+"3" — Si sólo se menciona implícitamente
+
+
+
+9. Fecha del reporte o inicio de obra (date_range): Extrae la fecha o rango de fechas asociado al evento, solo si existe una referencia temporal explícita en el texto o anclable al contexto de publicación (en caso de redes sociales).
+
+- Para problemas: fecha del reporte, denuncia, detección o del hecho en sí, según lo que mencione la nota.
+- Para obras: fecha de inicio real o fecha programada de arranque, según lo que mencione la nota.
+
+Si no existe ninguna referencia temporal en el texto, deja el valor null.
+
+Responde con la siguiente estructura:
+
+"date_range": {
+    "date_range": {
+        "start": "YYYY-MM-DDTHH:MM:SS",
+        "end": "YYYY-MM-DDTHH:MM:SS o null"
+    },
+    "timezone": "zona horaria si se menciona, o null",
+    "mention": "texto tal cual aparece en la nota",
+    "precision_days": null
+}
+
+Si solo se menciona un periodo aproximado (por ejemplo, "desde hace semanas", "a inicios de octubre", "el mes pasado"), interpreta un periodo estimado razonable y escribe la fecha inicial del periodo junto con un rango de precisión en días en el que muy probablemente se encuentre la fecha real. Si la fecha es exacta, `precision_days` debe ser null.
+
+Ejemplos:
+
+"date_range": { "date_range": {"start": "2025-10-01T00:00:00", "end": null}, "timezone": null, "mention": "desde inicios de octubre", "precision_days": 10 }
+
+"date_range": { "date_range": {"start": "2025-06-09T00:00:00", "end": "2025-06-15T00:00:00"}, "timezone": null, "mention": "la semana pasada", "precision_days": 7 }
+
+"date_range": { "date_range": {"start": "2025-06-02T00:00:00", "end": null}, "timezone": "CST", "mention": "el pasado lunes 2 de junio", "precision_days": null }
+
+Usa el formato estandarizado de fechas "YYYY-MM-DDTHH:MM:SS".
+Como contexto, la fecha de hoy es {date_now}. El tipo de fuente es {source_type}.
+
+
+
+10. Ubicación (location): Si el problema u obra sucede en alguna ubicación, extrae los datos de ubicación de manera estructurada. Llena solo los campos mencionados explícitamente en la nota:
+
+"location": {
+    "country": "Mexico",
+    "state": "Guanajuato",
+    "city": "Leon",
+    "neighborhood": null,
+    "zone": "zona norte",
+    "street": "Blvd. Adolfo Lopez Mateos",
+    "number": null,
+    "place_name": null
+}
+
+En el campo "place_name" escribe el nombre propio del lugar, solo si es un lugar geográfico identificable en un mapa (puente, plaza, parque, estación de transporte, etc.). Solo escribe nombres propios de lugares; no agregues referencias espaciales ni descripciones genéricas. Ejemplos de valores INCORRECTOS: "frente a la escuela", "cerca del mercado", "varias calles de la colonia". Si no se menciona el nombre propio del lugar, deja el valor null.
+
+Extrae una sola ubicación por evento. Si el problema u obra se describe con una ubicación principal, usa esa.
+
+
+
+11. Autoridad responsable (responsible_authority): Nombre de la dependencia gubernamental, autoridad o entidad responsable del problema o proyecto, si se menciona explícitamente. Por ejemplo: "Direccion de Obras Publicas Municipal", "SAPAL", "Gobierno del Estado". Si no se menciona, deja el valor null.
+
+
+
+12. Área afectada (affected_area): Descripción del tramo, zona o área afectada por el problema u obra. Por ejemplo: "tramo entre Blvd. Torres Landa y Blvd. Hidalgo", "las colonias del oriente de la ciudad". Si no se menciona, deja el valor null.
+
+
+
+13. Costo estimado (estimated_cost): Si la noticia menciona el costo estimado de la obra o reparación, extráelo con la siguiente estructura:
+
+"estimated_cost": {
+    "mention": "texto tal cual aparece en la nota",
+    "lower": 500000,
+    "upper": 500000,
+    "currency": "pesos"
+}
+
+Dos ejemplos:
+
+{"estimated_cost": { "mention": "con una inversion de 500 mil pesos", "lower": 500000, "upper": 500000, "currency": "pesos" }}
+
+{"estimated_cost": { "mention": "el costo oscila entre 2 y 3 millones de pesos", "lower": 2000000, "upper": 3000000, "currency": "pesos" }}
+
+Si no se menciona, deja el valor null.
+
+
+
+14. Fecha estimada de conclusión (completion_date): Solo extraer si la nota menciona explícitamente una fecha esperada de terminación de obra o reparación. Si no se menciona, deja el valor null. No inventes fechas de conclusión.
+
+Responde con la siguiente estructura:
+
+"completion_date": {
+    "date": "YYYY-MM-DDTHH:MM:SS",
+    "mention": "texto tal cual aparece en la nota",
+    "precision_days": null
+}
+
+Si la fecha es aproximada, incluye precision_days. Si es exacta, precision_days debe ser null.
+
+Dos ejemplos:
+
+{"completion_date": { "date": "2025-10-15T00:00:00", "mention": "la proxima semana", "precision_days": 7 }}
+
+{"completion_date": { "date": "2025-12-31T00:00:00", "mention": "antes de que termine el ano", "precision_days": 60 }}
+
+
+
+15. Descripción del impacto (impact_description): Si la noticia describe el impacto que el problema u obra tiene sobre el tráfico, los servicios públicos o los ciudadanos, redacta en español un texto breve resumiéndolo. Por ejemplo: "El bache ha provocado al menos 3 accidentes vehiculares y genera congestionamiento vial en horas pico." Si no se menciona, deja el valor null.
+
+
+
+Formato de respuesta:
+
+Responde con una lista en formato JSON, donde cada elemento representa un problema u obra pública detectado en la nota. No añadas texto adicional fuera del JSON.
+
+Ejemplo de formato esperado:
+
+[
+  {
+    "event_type": "pothole",
+    "event_subtype": "road_damage",
+    "status": "reported",
+    "name": null,
+    "description": "Bache de gran tamano en el Blvd. Adolfo Lopez Mateos que causa problemas de trafico y danos a vehiculos.",
+    "tags": ["bache", "dano_vial", "blvd_lopez_mateos", "trafico"],
+    "context": "Vecinos han reportado el problema en multiples ocasiones. Las autoridades municipales indican que las reparaciones estan programadas para la proxima semana.",
+    "relevance": "1",
+    "date_range": {
+      "date_range": {
+        "start": "2025-10-01T00:00:00",
+        "end": null
+      },
+      "timezone": null,
+      "mention": "desde inicios de octubre",
+      "precision_days": 10
+    },
+    "location": {
+      "country": "Mexico",
+      "state": "Guanajuato",
+      "city": "Leon",
+      "neighborhood": null,
+      "zone": null,
+      "street": "Blvd. Adolfo Lopez Mateos",
+      "number": null,
+      "place_name": null
+    },
+    "responsible_authority": "Direccion de Obras Publicas Municipal",
+    "affected_area": "tramo entre Blvd. Torres Landa y Blvd. Hidalgo",
+    "estimated_cost": {
+      "mention": "500 mil pesos",
+      "lower": 500000,
+      "upper": 500000,
+      "currency": "pesos"
+    },
+    "completion_date": {
+      "date": "2025-10-15T00:00:00",
+      "mention": "la proxima semana",
+      "precision_days": 7
+    },
+    "impact_description": null
+  }
+]
+
+
+USER:
+
+La noticia es la siguiente:
+
+{body}

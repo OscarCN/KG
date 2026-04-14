@@ -1,0 +1,103 @@
+{
+    "Security": {
+        "meta": {
+            "description": "Security includes any theme, event, mention, or discussion related to crime, violence, general insecurity, and public disorder. It considers law enforcement, police operations, criminal activity, public safety, security policy, crime trends, and violence statistics. An article talks about security whenever it addresses or touches any related subject — whether reporting a specific crime, discussing policy, citing statistics, or mentioning security concerns in passing. An article may match both this theme and a specific event schema (e.g. robbery_assault_event, violence_event) — both are extracted separately.",
+            "example": {
+                "theme_type": "crime_trends",
+                "theme_subtype": "homicide_statistics",
+                "description": "Analisis de las cifras de homicidios en Leon durante el primer semestre de 2025, mostrando una disminucion del 15% respecto al mismo periodo del ano anterior.",
+                "tags": ["seguridad", "homicidios", "estadisticas", "leon"],
+                "context": "La Secretaria de Seguridad Publica presento su informe semestral ante el congreso local.",
+                "relevance": 1,
+                "sentiment": "hopeful",
+                "location": {
+                    "country": "Mexico",
+                    "state": "Guanajuato",
+                    "city": "Leon",
+                    "neighborhood": null,
+                    "zone": null,
+                    "street": null,
+                    "number": null,
+                    "place_name": null
+                },
+                "related_subtopics": ["homicide_rate", "police_effectiveness", "organized_crime"],
+                "time_scope": {
+                    "date_range": {
+                        "start": "2025-01-01T00:00:00",
+                        "end": "2025-06-30T23:59:59"
+                    },
+                    "timezone": null,
+                    "mention": "primer semestre de 2025",
+                    "precision_days": 180
+                },
+                "crime_types_discussed": ["homicidio", "robo", "secuestro"],
+                "authorities_mentioned": ["Secretaria de Seguridad Publica", "Guardia Nacional"],
+                "statistics_mentioned": "15% de disminucion en homicidios, 3,200 robos reportados",
+                "related_subjects": ["economics", "prevention", "public_policy"]
+            }
+        },
+        "schema": {
+            "theme_type": {
+                "type": "EnumStr",
+                "required": true,
+                "description": "Type of security theme. Choose the single most specific category that matches.",
+                "enum": ["crime_trends", "law_enforcement", "public_safety", "security_policy"]
+            },
+            "theme_subtype": {
+                "type": "str",
+                "description": "More specific subtype, e.g. 'homicide_statistics', 'organized_crime_overview', 'police_reform', 'neighborhood_watch', 'drug_trafficking_trends'."
+            },
+            "description": {
+                "type": "str",
+                "required": true,
+                "description": "Summary of how the article touches or discusses security — whether reporting a specific incident, analyzing trends, covering policy, or mentioning security concerns."
+            },
+            "tags": {
+                "type": "List[str]",
+                "description": "Keywords and topics relevant to this security theme."
+            },
+            "context": {
+                "type": "str",
+                "description": "Broader context: trends, historical background, policy context, related developments."
+            },
+            "relevance": {
+                "type": "EnumStr",
+                "description": "Relevance of this theme within the article: 1 = main topic, 2 = secondary, 3 = implicit.",
+                "enum": ["1", "2", "3"]
+            },
+            "sentiment": {
+                "type": "EnumStr",
+                "description": "General sentiment or tone of the discourse about security.",
+                "enum": ["positive", "negative", "neutral", "mixed", "alarming", "hopeful"]
+            },
+            "location": {
+                "type": "Location",
+                "description": "Geographic area the security theme pertains to (city, state, region, country). Fill only if the discussion is explicitly about a specific geographic area."
+            },
+            "related_subtopics": {
+                "type": "List[str]",
+                "description": "Specific subtopics or issues discussed under the security theme, e.g. ['homicide_rate', 'police_corruption', 'organized_crime']."
+            },
+            "time_scope": {
+                "type": "DateRangeFromUnstructured",
+                "description": "The time period the article's security discussion covers (e.g. 'primer semestre 2025', 'ultimo mes', 'este ano'). Not a specific event date — captures the temporal scope of the discourse."
+            },
+            "crime_types_discussed": {
+                "type": "List[str]",
+                "description": "Types of crimes discussed in the article (e.g. 'homicidio', 'robo', 'secuestro', 'extorsion'). Use Spanish terms as they appear."
+            },
+            "authorities_mentioned": {
+                "type": "List[str]",
+                "description": "Law enforcement or security authorities mentioned in the discussion (e.g. 'Guardia Nacional', 'Policia Municipal', 'Fiscalia')."
+            },
+            "statistics_mentioned": {
+                "type": "str",
+                "description": "Any statistics, numbers, or data points mentioned about crime or security (e.g. '15% de aumento', '200 homicidios en el semestre')."
+            },
+            "related_subjects": {
+                "type": "List[str]",
+                "description": "Other subjects or domains touched by the article in connection with security (e.g. 'economics' if it discusses economic impact of crime, 'prevention' for prevention programs, 'education' for school safety, 'health' for violence as public health issue, 'migration', 'technology', 'urban_planning', 'human_rights')."
+            }
+        }
+    }
+}

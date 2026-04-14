@@ -1,0 +1,196 @@
+SYSTEM:
+
+Eres un modelo para extraer información estructurada de participación ciudadana en artículos de noticias. Se te van a presentar instrucciones para resolver la tarea, algunos ejemplos, y posteriormente una noticia para que extraigas la información.
+
+El valor de contexto {source_type} indica el tipo de fuente (por ejemplo: "noticia", "publicación en redes sociales"). En el caso de publicaciones en redes sociales, las fechas pueden inferirse a partir de la fecha de publicación ({date_now}) si no se mencionan explícitamente en el texto.
+
+
+USER:
+
+Buscamos temas, eventos, menciones o discusiones relacionadas con la participación ciudadana, movimientos sociales, activismo y participación política descritos en un artículo de noticias. Esto incluye protestas, peticiones, organización comunitaria, participación electoral, defensa de derechos humanos y demandas ciudadanas.
+
+Un artículo se considera relacionado con participación ciudadana si aborda, menciona o discute cualquier tema afín, ya sea reportando una protesta específica, cubriendo organización ciudadana, discutiendo participación política o mencionando demandas sociales de manera secundaria. Sin embargo, extrae un tema solo cuando el artículo haga referencia a un actor, demanda, forma de participación, movimiento o acción ciudadana concreta; no extraigas menciones genéricas de insatisfacción pública o políticas gubernamentales sin componente de acción ciudadana. Un artículo puede coincidir tanto con este tema como con un esquema de evento específico (por ejemplo, un evento de protesta); ambos se extraen por separado.
+
+Para cada tema de participación ciudadana mencionado en la nota, extrae los siguientes campos. No inventes temas ni información; solo extrae lo que esté explícitamente presente o claramente implícito en la nota.
+
+**Reglas generales de formato:**
+- Para campos de texto (str) sin información, usa `null`.
+- Para campos de lista (List[str]) sin información, usa una lista vacía `[]`.
+- Para campos de tipo objeto sin información, usa `null`.
+- El campo `relevance` es de tipo cadena de texto (string): usa siempre `"1"`, `"2"` o `"3"` entre comillas, nunca valores numéricos sin comillas.
+- Para nombres de lugares en `location`, conserva la ortografía oficial en español con acentos (por ejemplo, "México", "Querétaro", "León").
+- Si no hay ningún tema de participación ciudadana en el artículo, responde con `[]`.
+
+
+
+1. **Tipo de tema** (theme_type): obtén el tipo de participación ciudadana del siguiente catálogo, escogiendo la categoría más específica que corresponda:
+
+- `"social_movements"` — Movimientos sociales: movimientos colectivos organizados que buscan cambios sociales, políticos o económicos
+- `"activism"` — Activismo: acciones individuales o grupales orientadas a promover, impedir o dirigir cambios sociales o políticos
+- `"citizen_engagement"` — Participación ciudadana: involucramiento de los ciudadanos en asuntos públicos, comunitarios o de gobierno
+- `"political_participation"` — Participación política: participación en procesos electorales, partidos políticos, campañas o ejercicio del voto
+- `"community_organizing"` — Organización comunitaria: esfuerzos de vecinos o comunidades para organizarse en torno a necesidades o demandas locales
+
+
+
+2. **Subtipo de tema** (theme_subtype): propón un subtipo más específico dado el contexto del artículo. Usa etiquetas cortas normalizadas en formato snake_case en inglés. Por ejemplo: `"neighborhood_organizing"`, `"environmental_activism"`, `"voter_participation"`, `"labor_movement"`, `"human_rights_advocacy"`, `"indigenous_rights"`, `"feminist_movement"`, `"student_movement"`, etc. Si no aplica, usa `null`.
+
+
+
+3. **Descripción** (description): redacta un resumen de cómo el artículo aborda o discute la participación ciudadana, ya sea reportando una protesta, cubriendo organización ciudadana, discutiendo participación política o mencionando demandas sociales.
+
+
+
+4. **Etiquetas** (tags): palabras clave y temas relevantes para este tema de participación ciudadana. Las etiquetas deben estar fundamentadas en el contenido explícito del artículo; no agregues etiquetas genéricas o ideológicas que no se desprendan del texto. Si no hay etiquetas relevantes, usa `[]`.
+
+Por ejemplo:
+
+"tags": ["participación ciudadana", "organización vecinal", "servicios públicos", "peticiones"]
+
+
+
+5. **Contexto** (context): si la información existe en el artículo, escribe un texto libre resumiendo el contexto más amplio: movimientos históricos, antecedentes de políticas públicas, condiciones sociales que impulsan la participación, etc. Si no se menciona, usa `null`.
+
+
+
+6. **Relevancia en la noticia** (relevance): la relevancia que tiene el tema de participación ciudadana en la noticia. Responde siempre con una cadena de texto (string entre comillas):
+
+- `"1"` — El tema es el asunto principal de la nota
+- `"2"` — El tema se menciona de manera secundaria
+- `"3"` — El tema solo se menciona implícitamente
+
+
+
+7. **Sentimiento** (sentiment): el sentimiento o tono del discurso específicamente sobre la participación ciudadana en el artículo (no el tono general del artículo si trata otros temas). Escoge entre:
+
+- `"positive"` — Positivo: tono favorable, optimista o de aprobación
+- `"negative"` — Negativo: tono desfavorable, crítico o de rechazo
+- `"neutral"` — Neutral: tono informativo sin carga emocional evidente
+- `"mixed"` — Mixto: el artículo presenta tanto aspectos positivos como negativos
+- `"alarming"` — Alarmante: tono de preocupación, urgencia o alarma
+- `"hopeful"` — Esperanzador: tono de esperanza o expectativa positiva hacia el futuro
+
+
+
+8. **Ubicación** (location): si el tema de participación ciudadana se refiere a un área geográfica específica, extrae los datos de ubicación de manera estructurada. Llena solo los campos mencionados explícitamente en la nota; omite los campos sin información (no los incluyas con valor null). En el campo `place_name` escribe únicamente el nombre propio de un lugar geográfico identificable en un mapa (plaza, parque, palacio de gobierno, etc.). No agregues referencias espaciales ni descripciones genéricas. Ejemplos de valores INCORRECTOS: "diversas colonias de la ciudad", "calles del centro", "comunidades rurales". Si no se menciona un nombre propio de lugar, no incluyas el campo.
+
+Formato:
+
+"location": {
+    "country": "México",
+    "state": "Querétaro",
+    "city": "Querétaro"
+}
+
+Si el tema se refiere a varias ubicaciones, escribe una lista: "location": [ { "country": "México", ... }, { "country": "México", ... } ]
+
+Si no hay ubicación específica, usa `null`.
+
+
+
+9. **Subtemas relacionados** (related_subtopics): subtemas específicos discutidos en el artículo en relación con la participación ciudadana. Usa etiquetas cortas en formato snake_case. Si no hay subtemas, usa `[]`.
+
+Por ejemplo:
+
+"related_subtopics": ["voter_turnout", "petition_campaigns", "community_assemblies"]
+
+
+
+10. **Alcance temporal** (time_scope): el periodo de tiempo que cubre la discusión de participación ciudadana en el artículo (por ejemplo, "2025", "últimos meses", "desde enero"). Responde con el texto tal cual se menciona en la nota (mention), un periodo de fechas con inicio y opcionalmente fin (date_range), y la precisión en días si la fecha es aproximada (precision_days).
+
+Si solo se menciona un periodo aproximado (por ejemplo, "en los últimos meses", "durante este año", etc.), interpreta un periodo estimado razonable, y escribe la fecha inicial del periodo junto con un rango de precisión en días en el que muy probablemente se encuentre el periodo real. Cuando la mención es una fecha o periodo exacto y acotado (por ejemplo, "el 15 de marzo de 2025" o "durante 2025"), `precision_days` refleja la duración del periodo, no incertidumbre; si la fecha es puntual y exacta, usa `null` para `precision_days`.
+
+Si no se menciona ni se puede inferir ningún periodo temporal de la discusión de participación ciudadana, usa `null` para todo el campo `time_scope`.
+
+Tres ejemplos:
+
+"time_scope": { "mention": "durante 2025", "date_range": {"start": "2025-01-01T00:00:00", "end": "2025-12-31T23:59:59"}, "precision_days": 365 }
+
+"time_scope": { "mention": "en las últimas semanas", "date_range": {"start": "2025-06-01T00:00:00", "end": null}, "precision_days": 21 }
+
+"time_scope": { "mention": "desde marzo pasado", "date_range": {"start": "2025-03-01T00:00:00", "end": null}, "precision_days": 30 }
+
+Usa el formato estandarizado de fechas "YYYY-MM-DDTHH:MM:SS".
+Como contexto, la fecha de hoy es {date_now}. El tipo de fuente es {source_type}; si es una publicación en redes sociales, la fecha de publicación puede servir como referencia cuando no se menciona una fecha explícita.
+
+
+
+11. **Movimientos discutidos** (movements_discussed): movimientos sociales o causas discutidas en el artículo. Incluye cada movimiento en un elemento separado de la lista. Si no se mencionan, usa `[]`.
+
+Por ejemplo:
+
+"movements_discussed": ["organización vecinal", "demanda de servicios públicos", "movimiento ambiental"]
+
+
+
+12. **Organizaciones mencionadas** (organizations_mentioned): organizaciones cívicas, grupos activistas o asociaciones comunitarias mencionadas en el artículo. Incluye cada organización en un elemento separado de la lista. Si no se mencionan, usa `[]`.
+
+Por ejemplo:
+
+"organizations_mentioned": ["Comités vecinales", "Junta de Mejoras", "Greenpeace México"]
+
+
+
+13. **Demandas o causas** (demands_or_causes): las causas, demandas o problemáticas que impulsan la participación ciudadana. Incluye cada demanda o causa en un elemento separado de la lista. Si no se mencionan, usa `[]`.
+
+Por ejemplo:
+
+"demands_or_causes": ["Mejoras en recolección de basura", "abasto de agua", "alumbrado público"]
+
+
+
+14. **Respuesta gubernamental** (government_response): si se menciona, describe la respuesta del gobierno o de instituciones ante las demandas ciudadanas. Si no se menciona, usa `null`.
+
+
+
+15. **Formas de participación** (participation_forms): formas de participación ciudadana discutidas en el artículo (por ejemplo: "protesta", "petición", "asamblea", "consulta pública", "voto", "marcha", "plantón", "firma de peticiones"). Incluye cada forma en un elemento separado de la lista. Si no se mencionan, usa `[]`.
+
+Por ejemplo:
+
+"participation_forms": ["asambleas vecinales", "peticiones formales", "mesas de diálogo"]
+
+
+
+**Formato de respuesta:**
+
+Responde con una lista en formato JSON, donde cada elemento representa un tema de participación ciudadana detectado en la nota. No añadas texto adicional fuera del JSON. Si no hay temas de participación ciudadana en el artículo, responde con `[]`.
+
+Ejemplo de formato esperado:
+
+[
+  {
+    "theme_type": "citizen_engagement",
+    "theme_subtype": "neighborhood_organizing",
+    "description": "Vecinos de diversas colonias se organizan para exigir mejoras en servicios públicos a través de asambleas y peticiones formales.",
+    "tags": ["participación ciudadana", "organización vecinal", "servicios públicos", "peticiones"],
+    "context": "El fenómeno de organización vecinal ha crecido tras las deficiencias en recolección de basura y abasto de agua.",
+    "relevance": "1",
+    "sentiment": "hopeful",
+    "location": {
+      "country": "México",
+      "state": "Querétaro",
+      "city": "Querétaro"
+    },
+    "related_subtopics": ["neighborhood_assemblies", "service_demands", "citizen_petitions"],
+    "time_scope": {
+      "mention": "2025",
+      "date_range": {
+        "start": "2025-01-01T00:00:00",
+        "end": "2025-12-31T23:59:59"
+      },
+      "precision_days": 365
+    },
+    "movements_discussed": ["organización vecinal", "demanda de servicios públicos"],
+    "organizations_mentioned": ["Comités vecinales", "Junta de Mejoras"],
+    "demands_or_causes": ["Mejoras en recolección de basura", "abasto de agua", "alumbrado público"],
+    "government_response": "El municipio abrió mesas de diálogo con representantes vecinales",
+    "participation_forms": ["asambleas vecinales", "peticiones formales", "mesas de diálogo"]
+  }
+]
+
+
+USER:
+
+La noticia es la siguiente:
+
+{body}

@@ -1,6 +1,6 @@
 # Entities — Extraction & Mapping
 
-This directory implements the entity/event extraction pipeline: structured data extraction from unstructured text using LLM-based extraction guided by declarative JSON schemas.
+This directory implements the entity extraction pipeline: structured data extraction from unstructured text using LLM-based extraction guided by declarative JSON schemas. The system extracts events, entities, concepts, and themes — see [Ontology categories](#ontology-categories) for the distinction between these types.
 
 ## Directory Structure
 
@@ -8,14 +8,23 @@ This directory implements the entity/event extraction pipeline: structured data 
 entities/
   extraction/
     schemas/              # Entity JSON schemas (one per supertype)
+      # Events
       paid_mass_event.json
-      robbery_assault.json
-      public_works.json
+      robbery_assault_event.json
+      public_works_event.json
       violence_event.json
-      closures_interruptions.json
-      emergency.json
-      protest.json
-      arrest.json
+      closures_interruptions_event.json
+      emergency_event.json
+      protest_event.json
+      arrest_event.json
+      # Themes
+      security.json
+      public_infrastructure.json
+      civil_protection.json
+      mobility.json
+      culture.json
+      sports.json
+      civic_participation.json
     catalogues/           # Ontology catalogues
       event_types.csv     # event_type → supertype mapping with labels
       keywords.xlsx       # Matching rules: class, keywords, filters (Excel)
@@ -28,28 +37,72 @@ entities/
   readme_entities.md      # This file
 ```
 
-## Ontology
+## Ontology Categories
+
+The system distinguishes three broad categories of extractable content:
+
+| Category | Description | Identifying features | Examples |
+|----------|-------------|---------------------|----------|
+| **Event** | A specific, identifiable occurrence that happened at a particular time and place | Location + date/time make each event distinguishable from others | A concert on a specific date, an accident at a specific location, a protest march |
+| **Theme** | A topical classification — any article that touches or discusses a related subject matches | Optional location (city/state level), no required date — acts as a broad classifier for article content | Security (crime, violence, policing), mobility (traffic, transit), culture (arts, heritage) |
+| **Entity/Concept** | A specific, identifiable thing that is not an event | May have a name, location, or other identifying attributes, but not necessarily a date | A particular real estate development, a specific technology, a chemical compound, an individual person, a law initiative (with jurisdiction and date) |
+
+**Currently implemented**: 15 supertypes — 8 **events** and 7 **themes**.
+
+- **Events** (8 supertypes): identifiable single occurrences with a location and date. Each event schema requires that the extracted item be a specific occurrence distinguishable from others by its location and datetime (e.g. an accident that happened somewhere at some time, not an article about accident trends or statistics). Event supertypes have the `_event` suffix (e.g. `arrest_event`, `emergency_event`), except `violence_event` and `paid_mass_event` which already had it.
+- **Themes** (7 supertypes): topical classifiers without required datetime. A theme matches whenever an article addresses, reports on, or touches any subject within its domain — whether through a specific event, a complaint, a policy discussion, statistics, or a passing mention. Themes have optional location (city/state level). An article may match both a theme and a specific event schema — both are extracted separately. Theme supertypes have no suffix (e.g. `security`, `mobility`).
+
+**Planned**: new supertypes for entities/concepts will be added. These will use the same extraction pipeline (keyword matching → LLM classification → per-class extraction) but with schemas that reflect their different identifying features (e.g. a real estate development has a name and location but may not have a date, a law initiative has a jurisdiction and date).
+
+### Future: Class Inheritance
+
+Classes will support inheritance, where a more specific class inherits attributes from a broader one. The current event/theme naming convention is designed to support this:
+- **violence_event** inherits from **security** (theme) — a specific shooting inherits the general security topic attributes
+- **public_works_event** inherits from **public_infrastructure** (theme)
+- **emergency_event** inherits from **civil_protection** (theme)
+- **closures_interruptions_event** inherits from **mobility** (theme)
+- **paid_mass_event** inherits from **culture** and/or **sports** (themes)
+- **protest_event** inherits from **civic_participation** (theme)
+- **water usage law (entity)** inherits from **law initiative (entity)** — a specific water regulation inherits general law initiative attributes
+
+This allows shared attributes and behavior to be defined once at the parent level and specialized at the child level.
+
+## Ontology Routing
 
 Three-level hierarchy for routing articles to the correct extraction schema:
 
 ```
-keyword → event_type → supertype → schema
+keyword → class → supertype → schema
 ```
 
-### Event types (`catalogues/event_types.csv`)
+### Class types (`catalogues/event_types.csv`)
 
-Each event type maps to exactly one **supertype** (superclass). The supertype determines which JSON schema is used for extraction.
+Each class maps to exactly one **supertype** (superclass). The supertype determines which JSON schema is used for extraction.
+
+**Event supertypes** — identifiable single occurrences with location and datetime:
 
 | Supertype | Event types | Schema |
 |---|---|---|
 | `paid_mass_event` | concert, festival, party, fair, inauguration, sports_event, religious_event, cultural_event, congress, exposition, conference, convention | `paid_mass_event.json` |
-| `robbery_assault` | robbery, assault, kidnapping, security_event | `robbery_assault.json` |
-| `public_works` | pothole, street_lighting, paving, public_transport, infrastructure, trash_complaint, water_issue, sinkhole, public_road | `public_works.json` |
+| `robbery_assault_event` | robbery, assault, kidnapping, security_event | `robbery_assault_event.json` |
+| `public_works_event` | pothole, street_lighting, paving, public_transport, infrastructure, trash_complaint, water_issue, sinkhole, public_road | `public_works_event.json` |
 | `violence_event` | shooting, attack, homicide, confrontation | `violence_event.json` |
-| `closures_interruptions` | blockade, closure, suspension_of_operations | `closures_interruptions.json` |
-| `emergency` | fire, crash, explosion, flood, accident, pedestrian_hit, emergency_general | `emergency.json` |
-| `protest` | protest | `protest.json` |
-| `arrest` | arrest, detention | `arrest.json` |
+| `closures_interruptions_event` | blockade, closure, suspension_of_operations | `closures_interruptions_event.json` |
+| `emergency_event` | fire, crash, explosion, flood, accident, pedestrian_hit, emergency_general | `emergency_event.json` |
+| `protest_event` | protest | `protest_event.json` |
+| `arrest_event` | arrest, detention | `arrest_event.json` |
+
+**Theme supertypes** — general discourse topics, no required datetime:
+
+| Supertype | Theme types | Schema |
+|---|---|---|
+| `security` | crime_trends, law_enforcement, public_safety, security_policy | `security.json` |
+| `public_infrastructure` | infrastructure_conditions, urban_services, water_management, waste_management, transportation_infrastructure, urban_planning | `public_infrastructure.json` |
+| `civil_protection` | emergency_preparedness, disaster_trends, accident_statistics, risk_assessment, civil_protection_policy | `civil_protection.json` |
+| `mobility` | transit_disruptions, road_conditions, transportation_planning, traffic_patterns, public_transit | `mobility.json` |
+| `culture` | cultural_life, arts_scene, festival_landscape, heritage, cultural_policy | `culture.json` |
+| `sports` | sports_landscape, competition_coverage, sports_infrastructure, athlete_profile, league_overview | `sports.json` |
+| `civic_participation` | social_movements, activism, citizen_engagement, political_participation, community_organizing | `civic_participation.json` |
 
 ### Matching rules (`catalogues/keywords.xlsx`)
 
@@ -81,7 +134,7 @@ Entity schemas live in `extraction/schemas/` and use the same JSON format as the
 
 Each schema defines:
 - **`meta.description`**: describes what this entity type represents. Used in two LLM-facing stages: (1) the classification step, where it helps the LLM decide whether an article actually refers to this event type, and (2) prompt generation, where it becomes the LLM system message. Write these descriptions carefully — they directly affect classification accuracy and extraction quality.
-- **`meta.example`**: a complete example of the expected JSON output (included in the generated prompt)
+- **`meta.example`**: a complete example of the expected JSON output (included in the generated prompt). Composite type fields must include ALL subfields defined by the type, with null for absent values — omitting fields causes generated prompts to miss them during extraction.
 - **`schema`**: field definitions, each with:
   - `type`: data type (same type system as `src/schema/types/`)
   - `description`: extraction instruction for the LLM — doubles as field documentation
@@ -104,9 +157,10 @@ Schemas reference composite types from `src/schema/types/composite_types.json`:
 | `CountMention` | mention, count, confidence_range | Generic numeric count (victims, detainees, vehicles) |
 | `PersonReference` | name, role, organization | People mentioned |
 
-### Common fields
+### Common fields (event supertypes)
 
-All schemas share these fields (with the same semantics):
+All 8 event schemas share these fields (with the same semantics):
+
 - `event_type` (EnumStr) — from the supertype's catalogue
 - `event_subtype` (str) — free-form specific subtype
 - `status` (EnumStr) — current status
@@ -117,6 +171,21 @@ All schemas share these fields (with the same semantics):
 - `relevance` (EnumStr) — 1/2/3 relevance in the article
 - `date_range` (DateRangeFromUnstructured) — when it happened
 - `location` (Location) — where it happened
+
+### Common fields (theme supertypes)
+
+All 7 theme schemas share these fields:
+
+- `theme_type` (EnumStr) — from the supertype's catalogue
+- `theme_subtype` (str) — free-form specific subtype
+- `description` (str, required) — summary of how the article touches or discusses the theme
+- `tags` (List[str]) — keywords and topics
+- `context` (str) — broader context, trends, policy
+- `relevance` (EnumStr) — 1/2/3 relevance in the article
+- `sentiment` (EnumStr) — tone: positive/negative/neutral/mixed/alarming/hopeful
+- `location` (Location, optional) — geographic area the theme pertains to
+- `related_subtopics` (List[str]) — specific issues discussed under this theme
+- `time_scope` (DateRangeFromUnstructured) — temporal scope of the discourse as a structured date range with original mention and precision
 
 ## Prompt Generation (`prompt_generator.py`)
 
@@ -133,17 +202,17 @@ For a given supertype, gathers three layers of context into a structured dict th
 ### Generation template
 
 A prompt sent to a generation LLM that:
-- Receives the schema context + `robbery_assault.txt` as reference style exemplar
+- Receives the schema context + `paid_mass_event.txt` as reference style exemplar
 - Translates all English descriptions to instructional Spanish
 - Renders `EnumStr` fields as catalogues with `"value" — Spanish label: description`
-- Expands composite types with JSON structure examples and `mention` pattern ("texto tal cual se menciona en la nota")
+- Expands composite types with complete JSON structure examples (ALL subfields must appear, with null for absent values) and `mention` pattern ("texto tal cual se menciona en la nota")
 - Injects global rules: null for missing fields, don't invent events, JSON list response format
 - Injects type-specific rules: `DateRangeFromUnstructured`/`DateFromUnstructured` approximate date instructions and `precision_days` examples, `Location` place_name guidance
 - Includes template variables `{date_now}`, `{source_type}`, `{body}` for runtime substitution
 
 ### Feedback loop
 
-The generated draft is sent to a separate feedback LLM (potentially a different, more powerful model) that checks completeness, schema consistency, Spanish quality, format, and template variables. Feedback is then applied by the generation LLM to produce the final prompt.
+The generated draft is sent to a separate feedback LLM (potentially a different, more powerful model) that checks completeness, schema consistency, Spanish quality, format, template variables, and — critically — composite type field completeness (every subfield of every composite type must appear in JSON examples, with null for absent values). Feedback is then applied by the generation LLM to produce the final prompt.
 
 ### Output
 
@@ -156,7 +225,7 @@ Generated prompts include these template variables, substituted by `extract.py` 
 | Variable | Source | Description |
 |---|---|---|
 | `{date_now}` | `datetime.now()` | Current date (dd/mm/YYYY), used as temporal context for date interpretation |
-| `{source_type}` | `article["source_type"]` | Source type (e.g. "news", "facebook"). For social media, dates can be inferred from the publication date |
+| `{source_type}` | `article["source_type"]` | Source type (e.g. "news", "facebook"). For social media, dates may not be explicitly mentioned in the text — the LLM may infer them from the publication date or other context |
 | `{body}` | `article["text"]` | The article text to extract from |
 
 ### Usage
@@ -165,7 +234,7 @@ Generated prompts include these template variables, substituted by `extract.py` 
 from src.entities.extraction.prompt_generator import PromptGeneration
 
 gen = PromptGeneration()
-gen.generate("emergency")     # generate one supertype
+gen.generate("emergency_event")  # generate one supertype
 gen.generate_all()            # generate all supertypes
 ```
 
@@ -176,16 +245,6 @@ gen.generate_all()            # generate all supertypes
 | `OPENROUTER_GENERATION_MODEL` | no | `anthropic/claude-opus-4.6` | Model for prompt generation |
 | `OPENROUTER_FEEDBACK_MODEL` | no | `openai/gpt-5.4` | Model for prompt feedback/review |
 
-### Writing good schema descriptions
-
-When adding or editing schemas, keep in mind that the prompt generator uses these descriptions to craft extraction instructions. Each layer of context matters:
-
-- **`meta.description`**: what the entity type represents and what distinguishes it from similar types. This drives both the LLM classification step and the generated prompt's system message.
-- **Field `description`**: what to extract and how. These become per-field extraction instructions in the generated prompt. Be specific about the domain (e.g. "Date or date range when the incident occurred" not just "Date").
-- **Composite type `description`** (in `composite_types.json`): structural and behavioral instructions that are injected automatically for any field using that type. E.g. `precision_days` semantics, `mention` pattern for quoting original text.
-- **`event_type.description`**: always include "Choose the single most specific category that matches."
-- **`date_range.description`**: always specify what dates the field refers to (e.g. "when the incident occurred", "when the works are scheduled").
-
 ## Extraction Pipeline (`extract.py`)
 
 ```
@@ -194,19 +253,21 @@ Article → rule matching → LLM classification → per-class LLM extraction �
 
 ### Three-step flow
 
-1. **Keyword matching** — `Ontology.match()` evaluates all keyword/phrase/category rules against the article, returning a set of candidate ontology classes (event_types).
-2. **LLM classification** — `EntityExtractor.classify()` presents the LLM with the article and the subset of ontology classes that matched (with their descriptions). The LLM decides which classes the article genuinely discusses, filtering out false positives from keyword overlap.
-3. **Per-class extraction** — For each confirmed class, `EntityExtractor.extract_supertype()` loads the class's supertype schema/prompt and calls the LLM with a focus instruction scoping extraction to that specific event type. Results are parsed and validated.
+1. **Keyword matching** — `Ontology.match()` evaluates all keyword/phrase/category rules against the article, returning a set of candidate ontology classes.
+2. **LLM classification** — `EntityExtractor.classify()` presents the LLM with the article and the candidate classes split into two groups with different selection criteria. **Events** are selected only if the article reports a specific identifiable occurrence. **Themes** are selected whenever the article touches, mentions, or discusses any related subject — even as context or in passing. A single article can match multiple classes from both groups (e.g. a robbery article confirms both the `robbery` event class and the `security` theme). **Note**: when entity/concept classes are added, the classification prompt in `classify()` must be updated to include a third group with its own selection criteria (entities have different identifying features from both events and themes).
+3. **Per-supertype extraction** — Confirmed classes are grouped by supertype. When multiple classes share a supertype (e.g. `pedestrian_hit` + `emergency_general` → `emergency_event`), extraction runs once without a class focus so the LLM extracts all relevant entries under that schema. When a supertype has a single confirmed class, extraction runs with a focus instruction scoping to that class. Results are parsed, validated, and cached per `(article URL, class or supertype)` pair (see [Cache](#cache)).
 
 This flow avoids redundant extraction calls for keyword matches that don't correspond to actual content, and produces cleaner results when an article triggers keywords from multiple unrelated classes.
 
 ### Components
 
-- **`Ontology`** — loads `event_types.csv` and `keywords.xlsx`, evaluates matching rules (keywords, exclusions, categories, document type) against articles, resolves matched ontology classes to supertypes, and provides class descriptions for the classification step.
+- **`Ontology`** — loads `event_types.csv` and `keywords.xlsx`, evaluates matching rules (keywords, exclusions, categories, document type) against articles, resolves matched ontology classes to supertypes, and provides class descriptions for the classification step. Class descriptions (from `meta.description`) tell the classifier what ontology category each class belongs to and what distinguishes extractable items.
 - **`EntityExtractor`** — orchestrates the pipeline: `match()` finds candidate classes, `classify()` asks the LLM which classes actually apply, `extract_supertype()` extracts events scoped to a specific class, `extract()` runs the full three-step flow.
 - **`call_llm()`** — sends messages to an LLM via OpenRouter (`src/llm/openrouter/`). Requests JSON mode for reliable parsing. Model and API key configured via environment variables (see below).
 - **`_load_prompt()`** — reads prompt files from `prompts/classes/`, substitutes context variables (`{date_now}`, `{source_type}`, `{body}`).
 - **`_validate_entity()`** — runs each extracted entity through the schema `Parser` for type coercion and validation.
+- **`_cache_read()` / `_cache_write()`** — file-based extraction cache keyed by `sha256(article_url|class_name)`, stored as JSON in `cache/`.
+- **`_classify_cache_read()` / `_classify_cache_write()`** — file-based classification cache keyed by `sha256(classify|article_url|sorted_classes)`, stored as JSON in `cache/`.
 
 ### Usage
 
@@ -255,10 +316,67 @@ After execution, `all_entities` holds all validated entity dicts for further ins
 
 The client uses the OpenAI-compatible chat completions endpoint with JSON mode enabled. To use a different model (e.g. `anthropic/claude-sonnet-4-20250514`, `google/gemini-pro`), set `OPENROUTER_MODEL`.
 
-## Adding New Entity Types
+### Cache
 
-1. **New event type under existing supertype**: add a row to `event_types.csv` and add matching rules to `keywords.xlsx`. If the new type needs a new enum value, add it to the schema's `event_type.enum` list.
+Both classification and per-class extraction results are cached to `cache/` (project root) as JSON files, so re-processing the same article skips LLM calls for already-processed steps.
 
-2. **New supertype (new schema)**: create a new JSON schema in `schemas/`, add event types to `event_types.csv`, add matching rules to `keywords.xlsx`. The prompt generator will auto-generate the extraction prompt.
+| Step | Key | Functions |
+|------|-----|-----------|
+| Classification | `sha256(classify\|article_url\|sorted_matched_classes)` | `_classify_cache_read()` / `_classify_cache_write()` |
+| Extraction | `sha256(article_url\|class_name)` | `_cache_read()` / `_cache_write()` |
 
-3. **New composite type**: add to `src/schema/types/composite_types.json` and `type_catalog.py`, then reference by name from any schema.
+Classification cache is checked in `EntityExtractor.classify()` — the same article with the same set of candidate classes returns the cached confirmed list. Different candidate sets (e.g. from updated keyword rules) produce different cache keys and trigger a fresh LLM call.
+
+Extraction cache is checked in `EntityExtractor.extract()` — the `extract_supertype()` method itself does not interact with the cache, so direct calls to it always hit the LLM.
+
+Articles without a `url` or `id` field bypass both caches entirely.
+
+## Design Guide
+
+### Adding new classes
+
+**New class under an existing supertype** — modify these files:
+
+| File | Action |
+|------|--------|
+| `catalogues/event_types.csv` | Add row mapping the new class to its supertype |
+| `catalogues/keywords.xlsx` | Add matching rules (keywords, phrases, filters) for the new class |
+| `schemas/{supertype}.json` | Add the new class as an enum value in `event_type.enum` or `theme_type.enum` (if not already present) |
+| `prompts/classes/{supertype}.txt` | Regenerate via `PromptGeneration().generate("{supertype}")` — the updated enum is picked up automatically |
+
+**New supertype (new schema)** — create/modify these files:
+
+| File | Action |
+|------|--------|
+| `schemas/{supertype}.json` | **Create**: define `meta.description`, `meta.example`, and all field definitions. The filename (without `.json`) is the supertype name, and the top-level JSON key must be the PascalCase version (e.g. `public_works_event` → `PublicWorksEvent`). See [Writing good schema descriptions](#writing-good-schema-descriptions) |
+| `catalogues/event_types.csv` | Add rows mapping each class to the new supertype |
+| `catalogues/keywords.xlsx` | Add matching rules (keywords, phrases, filters) for each class in the new supertype |
+| `prompts/classes/{supertype}.txt` | **Generated**: run `PromptGeneration().generate("{supertype}")` |
+
+For **theme supertypes**: same files and process. Theme schemas use `theme_type` instead of `event_type`, have no required `date_range`, and use optional `location`. The `meta.description` should frame the theme as a broad classifier — any article that touches or discusses any related subject matches (events, complaints, mentions, statistics, policy). See existing theme schemas (e.g. `security.json`) for the pattern.
+
+For **entity/concept supertypes** (future): same schema/catalogue/keyword files, but also requires updating the classification prompt in `EntityExtractor.classify()` (`extract.py`) to add a third category group with its own selection criteria. Currently the prompt splits candidates into "Eventos" and "Temas" with different selection rules; entities/concepts will need their own group and instructions describing when to select them.
+
+The extraction pipeline handles all ontology categories — the `meta.description` drives the classification decision.
+
+### Writing good schema descriptions
+
+Schema descriptions are used by the prompt generator to craft extraction instructions and by the classification prompt to decide whether an article matches a class. Each layer of context matters:
+
+- **`meta.description`**: what the class represents, what ontology category it belongs to (event, theme, or entity/concept), and what distinguishes it from similar classes. For events, specify that it refers to identifiable single occurrences with location and date. For themes, frame as a broad classifier — list the subjects it covers and state that any article touching any related subject matches. This drives both the LLM classification step and the generated prompt's system message.
+- **Field `description`**: what to extract and how. These become per-field extraction instructions in the generated prompt. Be specific about the domain (e.g. "Date or date range when the incident occurred" not just "Date").
+- **Composite type `description`** (in `composite_types.json`): structural and behavioral instructions that are injected automatically for any field using that type. E.g. `precision_days` semantics, `mention` pattern for quoting original text.
+- **`event_type.description`**: always include "Choose the single most specific category that matches."
+- **`date_range.description`**: always specify what dates the field refers to (e.g. "when the incident occurred", "when the works are scheduled").
+- **`meta.example` composite type completeness**: every composite type in the example must include ALL subfields from the type definition, with null for absent values. Omitting fields (e.g. showing only `country`, `state`, `city` for Location instead of all 8 fields) causes the generated prompt to miss those fields, and the extraction LLM will not extract them.
+
+### Designing composite types
+
+Composite types exist to make extracted information **machine-readable** rather than dumping everything into free-text strings. When designing a new composite type:
+
+- **Decompose into typed fields**: break the information into its smallest useful parts with specific types (numbers, dates, enums, coordinates), not strings. For example, `PriceRange` separates `lower` (float), `upper` (float), and `currency` (str) instead of storing `"$200-$500 MXN"` as a single string.
+- **Preserve the original text via `mention`**: most composite types include a `mention` field that captures the exact text as it appeared in the source ("texto tal cual se menciona en la nota"). This preserves the original phrasing for auditing and re-extraction while the structured fields hold the parsed values.
+- **Include contextual metadata**: add fields for attributes that are implicit in human text but required for machine processing — `timezone` on dates, `currency` on prices, `precision_days` on approximate dates, `confidence_range` on estimates. Without these, downstream consumers must guess or assume.
+- **Design for comparability**: fields should support direct comparison and aggregation across records. Two `DateRangeFromUnstructured` values can be compared programmatically; two free-text date strings cannot.
+
+To register a new composite type: add it to `src/schema/types/composite_types.json` and `type_catalog.py`, then reference by name from any schema.
