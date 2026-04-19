@@ -1,12 +1,18 @@
 {
     "CivilProtection": {
         "meta": {
+            "category": "theme",
             "description": "Civil protection includes any theme, event, mention, or discussion related to emergencies, disasters, accidents, risk prevention, and emergency response. It considers fires, floods, earthquakes, crashes, hazardous conditions, emergency preparedness, and civil protection policy. An article talks about civil protection whenever it addresses or touches any related subject — whether reporting a specific accident, discussing flood risk, covering prevention measures, or mentioning emergency services in passing. An article may match both this theme and a specific event schema (e.g. emergency_event) — both are extracted separately.",
             "example": {
                 "theme_type": "disaster_trends",
                 "theme_subtype": "flood_risk_analysis",
                 "description": "Proteccion Civil advierte sobre el aumento de riesgo de inundaciones en zonas bajas de la ciudad durante la temporada de lluvias.",
-                "tags": ["proteccion civil", "inundaciones", "temporada de lluvias", "prevencion"],
+                "tags": [
+                    "proteccion civil",
+                    "inundaciones",
+                    "temporada de lluvias",
+                    "prevencion"
+                ],
                 "context": "El municipio destino recursos adicionales para limpieza de cauces y sistemas de drenaje pluvial.",
                 "relevance": 1,
                 "sentiment": "alarming",
@@ -20,7 +26,11 @@
                     "number": null,
                     "place_name": null
                 },
-                "related_subtopics": ["flood_risk", "drainage_systems", "prevention_measures"],
+                "related_subtopics": [
+                    "flood_risk",
+                    "drainage_systems",
+                    "prevention_measures"
+                ],
                 "time_scope": {
                     "date_range": {
                         "start": "2025-06-01T00:00:00",
@@ -30,10 +40,22 @@
                     "mention": "temporada de lluvias 2025",
                     "precision_days": 150
                 },
-                "hazard_types_discussed": ["inundacion", "deslizamiento de tierra"],
-                "preparedness_measures": ["Limpieza de cauces", "revision de sistemas de drenaje pluvial", "alerta temprana"],
-                "agencies_mentioned": ["Proteccion Civil Municipal", "Bomberos"],
-                "statistics_mentioned": ["30% mas lluvias esperadas que el ano anterior"]
+                "hazard_types_discussed": [
+                    "inundacion",
+                    "deslizamiento de tierra"
+                ],
+                "preparedness_measures": [
+                    "Limpieza de cauces",
+                    "revision de sistemas de drenaje pluvial",
+                    "alerta temprana"
+                ],
+                "agencies_mentioned": [
+                    "Proteccion Civil Municipal",
+                    "Bomberos"
+                ],
+                "statistics_mentioned": [
+                    "30% mas lluvias esperadas que el ano anterior"
+                ]
             }
         },
         "schema": {
@@ -41,7 +63,13 @@
                 "type": "EnumStr",
                 "required": true,
                 "description": "Type of civil protection theme. Choose the single most specific category that matches.",
-                "enum": ["emergency_preparedness", "disaster_trends", "accident_statistics", "risk_assessment", "civil_protection_policy"]
+                "enum": [
+                    "emergency_preparedness",
+                    "disaster_trends",
+                    "accident_statistics",
+                    "risk_assessment",
+                    "civil_protection_policy"
+                ]
             },
             "theme_subtype": {
                 "type": "str",
@@ -63,12 +91,23 @@
             "relevance": {
                 "type": "EnumStr",
                 "description": "Relevance of this theme within the article: 1 = main topic, 2 = secondary, 3 = implicit.",
-                "enum": ["1", "2", "3"]
+                "enum": [
+                    "1",
+                    "2",
+                    "3"
+                ]
             },
             "sentiment": {
                 "type": "EnumStr",
                 "description": "General sentiment or tone of the discourse about civil protection.",
-                "enum": ["positive", "negative", "neutral", "mixed", "alarming", "hopeful"]
+                "enum": [
+                    "positive",
+                    "negative",
+                    "neutral",
+                    "mixed",
+                    "alarming",
+                    "hopeful"
+                ]
             },
             "location": {
                 "type": "Location",

@@ -1,6 +1,7 @@
 {
     "ProtestEvent": {
         "meta": {
+            "category": "event",
             "description": "An identifiable single protest, march, demonstration, or civic mobilization. Includes organized marches, sit-ins, rallies, and any collective public action where citizens or groups demand attention to a cause. Distinct from blockades (which focus on road/service interruption) — protests are about the social/political demand itself. Each protest is a specific occurrence distinguishable by its location and date — not a trend or overview of social movements. Extracted from news articles and social media.",
             "example": {
                 "event_type": "protest",
@@ -8,11 +9,19 @@
                 "status": "past",
                 "name": null,
                 "description": "Hundreds of teachers marched from the central plaza to the government palace demanding salary increases.",
-                "tags": ["protest", "teachers", "salary", "march"],
+                "tags": [
+                    "protest",
+                    "teachers",
+                    "salary",
+                    "march"
+                ],
                 "context": "The teachers' union has been in negotiations with the state government for three months without agreement.",
                 "relevance": 1,
                 "date_range": {
-                    "date_range": {"start": "2025-10-10T10:00:00", "end": "2025-10-10T14:00:00"},
+                    "date_range": {
+                        "start": "2025-10-10T10:00:00",
+                        "end": "2025-10-10T14:00:00"
+                    },
                     "timezone": null,
                     "mention": "la manana del viernes, de 10am a 2pm",
                     "precision_days": null
@@ -28,7 +37,10 @@
                     "place_name": "Plaza Principal"
                 },
                 "organizer": "Sindicato Nacional de Trabajadores de la Educacion (SNTE)",
-                "participant_count": {"mention": "cientos de maestros", "estimate": 300},
+                "participant_count": {
+                    "mention": "cientos de maestros",
+                    "estimate": 300
+                },
                 "demand": "aumento salarial del 20%",
                 "route": "de la Plaza Principal al Palacio de Gobierno",
                 "affected_services": "trafico reducido en el centro historico durante 4 horas"
@@ -39,7 +51,9 @@
                 "type": "EnumStr",
                 "required": true,
                 "description": "Type of protest or civic mobilization. Choose the single most specific category that matches.",
-                "enum": ["protest"]
+                "enum": [
+                    "protest"
+                ]
             },
             "event_subtype": {
                 "type": "str",
@@ -48,7 +62,12 @@
             "status": {
                 "type": "EnumStr",
                 "description": "Current status of the protest.",
-                "enum": ["planned", "ongoing", "past", "dispersed"]
+                "enum": [
+                    "planned",
+                    "ongoing",
+                    "past",
+                    "dispersed"
+                ]
             },
             "name": {
                 "type": "str",
@@ -69,7 +88,11 @@
             "relevance": {
                 "type": "EnumStr",
                 "description": "Relevance within the article: 1 = main topic, 2 = secondary, 3 = implicit.",
-                "enum": ["1", "2", "3"]
+                "enum": [
+                    "1",
+                    "2",
+                    "3"
+                ]
             },
             "date_range": {
                 "type": "DateRangeFromUnstructured",

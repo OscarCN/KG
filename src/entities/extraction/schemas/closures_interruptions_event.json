@@ -1,6 +1,7 @@
 {
     "ClosuresInterruptionsEvent": {
         "meta": {
+            "category": "event",
             "description": "An identifiable closure, blockade, or interruption of traffic, services, or operations. Includes road closures, blockades (protests), and suspension of services or operations. Each closure/interruption is a specific occurrence distinguishable by its location and date — not a general overview or trend, it can be an e.g. nation wide closure/blockage in many places. Extracted from news articles and social media.",
             "example": {
                 "event_type": "blockade",
@@ -8,11 +9,20 @@
                 "status": "ongoing",
                 "name": null,
                 "description": "Farmers block the highway Mexico-Queretaro at km 120 demanding water subsidies.",
-                "tags": ["blockade", "protest", "farmers", "highway", "water_subsidies"],
+                "tags": [
+                    "blockade",
+                    "protest",
+                    "farmers",
+                    "highway",
+                    "water_subsidies"
+                ],
                 "context": "The blockade started at 6am and has caused traffic delays of over 2 hours. Negotiations are underway with state authorities.",
                 "relevance": 1,
                 "date_range": {
-                    "date_range": {"start": "2025-10-05T06:00:00", "end": null},
+                    "date_range": {
+                        "start": "2025-10-05T06:00:00",
+                        "end": null
+                    },
                     "timezone": null,
                     "mention": "desde las 6 de la manana de hoy",
                     "precision_days": null
@@ -37,7 +47,11 @@
                 "type": "EnumStr",
                 "required": true,
                 "description": "Type of closure or interruption. Choose the single most specific category that matches.",
-                "enum": ["blockade", "closure", "suspension_of_operations"]
+                "enum": [
+                    "blockade",
+                    "closure",
+                    "suspension_of_operations"
+                ]
             },
             "event_subtype": {
                 "type": "str",
@@ -46,7 +60,12 @@
             "status": {
                 "type": "EnumStr",
                 "description": "Current status of the closure/interruption.",
-                "enum": ["planned", "ongoing", "past", "resolved"]
+                "enum": [
+                    "planned",
+                    "ongoing",
+                    "past",
+                    "resolved"
+                ]
             },
             "name": {
                 "type": "str",
@@ -67,7 +86,11 @@
             "relevance": {
                 "type": "EnumStr",
                 "description": "Relevance within the article: 1 = main topic, 2 = secondary, 3 = implicit.",
-                "enum": ["1", "2", "3"]
+                "enum": [
+                    "1",
+                    "2",
+                    "3"
+                ]
             },
             "date_range": {
                 "type": "DateRangeFromUnstructured",

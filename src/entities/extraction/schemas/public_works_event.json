@@ -1,6 +1,7 @@
 {
     "PublicWorksEvent": {
         "meta": {
+            "category": "event",
             "description": "An identifiable single public infrastructure issue or works project. Includes potholes, street lighting issues, paving, public transport problems, and general infrastructure. Each issue is a specific occurrence distinguishable by its location and date — not a general overview of infrastructure conditions or policy. Extracted from news articles and social media.",
             "example": {
                 "event_type": "pothole",
@@ -8,11 +9,19 @@
                 "status": "reported",
                 "name": null,
                 "description": "Large pothole on Blvd. Adolfo Lopez Mateos causing traffic problems and vehicle damage.",
-                "tags": ["pothole", "road_damage", "blvd_lopez_mateos", "traffic"],
+                "tags": [
+                    "pothole",
+                    "road_damage",
+                    "blvd_lopez_mateos",
+                    "traffic"
+                ],
                 "context": "Neighbors have reported the issue multiple times. Municipal authorities say repairs are scheduled for next week.",
                 "relevance": 1,
                 "date_range": {
-                    "date_range": {"start": "2025-10-01T00:00:00", "end": null},
+                    "date_range": {
+                        "start": "2025-10-01T00:00:00",
+                        "end": null
+                    },
                     "timezone": null,
                     "mention": "desde inicios de octubre",
                     "precision_days": null
@@ -29,7 +38,12 @@
                 },
                 "responsible_authority": "Direccion de Obras Publicas Municipal",
                 "affected_area": "tramo entre Blvd. Torres Landa y Blvd. Hidalgo",
-                "estimated_cost": {"mention": "500 mil pesos", "lower": 500000, "upper": 500000, "currency": "pesos"},
+                "estimated_cost": {
+                    "mention": "500 mil pesos",
+                    "lower": 500000,
+                    "upper": 500000,
+                    "currency": "pesos"
+                },
                 "completion_date": {
                     "date": "2025-10-15T00:00:00",
                     "mention": "la proxima semana",
@@ -42,7 +56,17 @@
                 "type": "EnumStr",
                 "required": true,
                 "description": "Type of public works issue from the catalogue. Choose the single most specific category that matches.",
-                "enum": ["pothole", "street_lighting", "paving", "public_transport", "infrastructure", "trash_complaint", "water_issue", "sinkhole", "public_road"]
+                "enum": [
+                    "pothole",
+                    "street_lighting",
+                    "paving",
+                    "public_transport",
+                    "infrastructure",
+                    "trash_complaint",
+                    "water_issue",
+                    "sinkhole",
+                    "public_road"
+                ]
             },
             "event_subtype": {
                 "type": "str",
@@ -51,7 +75,14 @@
             "status": {
                 "type": "EnumStr",
                 "description": "Current status of the issue or works project.",
-                "enum": ["reported", "planned", "in_progress", "delayed", "completed", "cancelled"]
+                "enum": [
+                    "reported",
+                    "planned",
+                    "in_progress",
+                    "delayed",
+                    "completed",
+                    "cancelled"
+                ]
             },
             "name": {
                 "type": "str",
@@ -72,7 +103,11 @@
             "relevance": {
                 "type": "EnumStr",
                 "description": "Relevance within the article: 1 = main topic, 2 = secondary, 3 = implicit.",
-                "enum": ["1", "2", "3"]
+                "enum": [
+                    "1",
+                    "2",
+                    "3"
+                ]
             },
             "date_range": {
                 "type": "DateRangeFromUnstructured",

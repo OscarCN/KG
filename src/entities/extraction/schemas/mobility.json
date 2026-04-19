@@ -1,12 +1,18 @@
 {
     "Mobility": {
         "meta": {
+            "category": "theme",
             "description": "Mobility includes any theme, event, mention, or discussion related to urban mobility, transportation, and transit. It considers traffic, road conditions, public transit, cycling, pedestrian issues, transportation planning, and commuting. An article talks about mobility whenever it addresses or touches any related subject — whether reporting a road closure, discussing public transit quality, covering a traffic incident, or mentioning transportation infrastructure in passing. An article may match both this theme and a specific event schema (e.g. closures_interruptions_event) — both are extracted separately.",
             "example": {
                 "theme_type": "transportation_planning",
                 "theme_subtype": "public_transit_expansion",
                 "description": "El gobierno estatal presento el plan de expansion del sistema de transporte publico que incluye nuevas rutas y unidades.",
-                "tags": ["transporte publico", "movilidad", "expansion", "plan de gobierno"],
+                "tags": [
+                    "transporte publico",
+                    "movilidad",
+                    "expansion",
+                    "plan de gobierno"
+                ],
                 "context": "El plan responde a demandas ciudadanas de mejor conectividad en zonas perifericas de la ciudad.",
                 "relevance": 1,
                 "sentiment": "hopeful",
@@ -20,7 +26,11 @@
                     "number": null,
                     "place_name": null
                 },
-                "related_subtopics": ["bus_routes", "transit_coverage", "accessibility"],
+                "related_subtopics": [
+                    "bus_routes",
+                    "transit_coverage",
+                    "accessibility"
+                ],
                 "time_scope": {
                     "date_range": {
                         "start": "2025-01-01T00:00:00",
@@ -30,10 +40,18 @@
                     "mention": "2025-2027",
                     "precision_days": 1095
                 },
-                "transportation_modes": ["autobus", "transporte publico"],
-                "infrastructure_mentioned": ["nuevas rutas de transporte", "estaciones de transferencia"],
+                "transportation_modes": [
+                    "autobus",
+                    "transporte publico"
+                ],
+                "infrastructure_mentioned": [
+                    "nuevas rutas de transporte",
+                    "estaciones de transferencia"
+                ],
                 "congestion_or_conditions": null,
-                "policy_or_plans": ["Plan de Expansion del Transporte Publico 2025-2027"]
+                "policy_or_plans": [
+                    "Plan de Expansion del Transporte Publico 2025-2027"
+                ]
             }
         },
         "schema": {
@@ -41,7 +59,13 @@
                 "type": "EnumStr",
                 "required": true,
                 "description": "Type of mobility theme. Choose the single most specific category that matches.",
-                "enum": ["transit_disruptions", "road_conditions", "transportation_planning", "traffic_patterns", "public_transit"]
+                "enum": [
+                    "transit_disruptions",
+                    "road_conditions",
+                    "transportation_planning",
+                    "traffic_patterns",
+                    "public_transit"
+                ]
             },
             "theme_subtype": {
                 "type": "str",
@@ -63,12 +87,23 @@
             "relevance": {
                 "type": "EnumStr",
                 "description": "Relevance of this theme within the article: 1 = main topic, 2 = secondary, 3 = implicit.",
-                "enum": ["1", "2", "3"]
+                "enum": [
+                    "1",
+                    "2",
+                    "3"
+                ]
             },
             "sentiment": {
                 "type": "EnumStr",
                 "description": "General sentiment or tone of the discourse about mobility.",
-                "enum": ["positive", "negative", "neutral", "mixed", "alarming", "hopeful"]
+                "enum": [
+                    "positive",
+                    "negative",
+                    "neutral",
+                    "mixed",
+                    "alarming",
+                    "hopeful"
+                ]
             },
             "location": {
                 "type": "Location",

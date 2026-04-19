@@ -1,12 +1,18 @@
 {
     "CivicParticipation": {
         "meta": {
+            "category": "theme",
             "description": "Civic participation includes any theme, event, mention, or discussion related to citizen engagement, social movements, activism, and political participation. It considers protests, petitions, community organizing, voter participation, human rights advocacy, and civic demands. An article talks about civic participation whenever it addresses or touches any related subject — whether reporting a specific protest, discussing citizen organizing, covering political engagement, or mentioning social demands in passing. An article may match both this theme and a specific event schema (e.g. protest_event) — both are extracted separately.",
             "example": {
                 "theme_type": "citizen_engagement",
                 "theme_subtype": "neighborhood_organizing",
                 "description": "Vecinos de diversas colonias se organizan para exigir mejoras en servicios publicos a traves de asambleas y peticiones formales.",
-                "tags": ["participacion ciudadana", "organizacion vecinal", "servicios publicos", "peticiones"],
+                "tags": [
+                    "participacion ciudadana",
+                    "organizacion vecinal",
+                    "servicios publicos",
+                    "peticiones"
+                ],
                 "context": "El fenomeno de organizacion vecinal ha crecido tras las deficiencias en recoleccion de basura y abasto de agua.",
                 "relevance": 1,
                 "sentiment": "hopeful",
@@ -20,7 +26,11 @@
                     "number": null,
                     "place_name": null
                 },
-                "related_subtopics": ["neighborhood_assemblies", "service_demands", "citizen_petitions"],
+                "related_subtopics": [
+                    "neighborhood_assemblies",
+                    "service_demands",
+                    "citizen_petitions"
+                ],
                 "time_scope": {
                     "date_range": {
                         "start": "2025-01-01T00:00:00",
@@ -30,11 +40,25 @@
                     "mention": "2025",
                     "precision_days": 365
                 },
-                "movements_discussed": ["organizacion vecinal", "demanda de servicios publicos"],
-                "organizations_mentioned": ["Comites vecinales", "Junta de Mejoras"],
-                "demands_or_causes": ["Mejoras en recoleccion de basura", "abasto de agua", "alumbrado publico"],
+                "movements_discussed": [
+                    "organizacion vecinal",
+                    "demanda de servicios publicos"
+                ],
+                "organizations_mentioned": [
+                    "Comites vecinales",
+                    "Junta de Mejoras"
+                ],
+                "demands_or_causes": [
+                    "Mejoras en recoleccion de basura",
+                    "abasto de agua",
+                    "alumbrado publico"
+                ],
                 "government_response": "El municipio abrio mesas de dialogo con representantes vecinales",
-                "participation_forms": ["asambleas vecinales", "peticiones formales", "mesas de dialogo"]
+                "participation_forms": [
+                    "asambleas vecinales",
+                    "peticiones formales",
+                    "mesas de dialogo"
+                ]
             }
         },
         "schema": {
@@ -42,7 +66,13 @@
                 "type": "EnumStr",
                 "required": true,
                 "description": "Type of civic participation theme. Choose the single most specific category that matches.",
-                "enum": ["social_movements", "activism", "citizen_engagement", "political_participation", "community_organizing"]
+                "enum": [
+                    "social_movements",
+                    "activism",
+                    "citizen_engagement",
+                    "political_participation",
+                    "community_organizing"
+                ]
             },
             "theme_subtype": {
                 "type": "str",
@@ -64,12 +94,23 @@
             "relevance": {
                 "type": "EnumStr",
                 "description": "Relevance of this theme within the article: 1 = main topic, 2 = secondary, 3 = implicit.",
-                "enum": ["1", "2", "3"]
+                "enum": [
+                    "1",
+                    "2",
+                    "3"
+                ]
             },
             "sentiment": {
                 "type": "EnumStr",
                 "description": "General sentiment or tone of the discourse about civic participation.",
-                "enum": ["positive", "negative", "neutral", "mixed", "alarming", "hopeful"]
+                "enum": [
+                    "positive",
+                    "negative",
+                    "neutral",
+                    "mixed",
+                    "alarming",
+                    "hopeful"
+                ]
             },
             "location": {
                 "type": "Location",

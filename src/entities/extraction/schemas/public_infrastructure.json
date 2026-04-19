@@ -1,12 +1,18 @@
 {
     "PublicInfrastructure": {
         "meta": {
+            "category": "theme",
             "description": "Public infrastructure includes any theme, event, mention, complaint, or discussion related to the condition, quality, or management of public infrastructure and urban services. It considers roads, water supply, sewage, drainage, street lighting, waste management, urban planning, and construction. An article talks about public infrastructure whenever it addresses or touches any related subject — whether reporting a specific pothole, discussing water management policy, covering a citizen complaint, or mentioning infrastructure conditions in passing. An article may match both this theme and a specific event schema (e.g. public_works_event) — both are extracted separately.",
             "example": {
                 "theme_type": "urban_services",
                 "theme_subtype": "water_service_quality",
                 "description": "Vecinos de varias colonias de Queretaro denuncian falta de agua recurrente y exigen mejoras en la red de distribucion.",
-                "tags": ["agua", "servicios publicos", "queretaro", "infraestructura"],
+                "tags": [
+                    "agua",
+                    "servicios publicos",
+                    "queretaro",
+                    "infraestructura"
+                ],
                 "context": "La problematica se agrava en temporada de calor. La Comision Estatal de Aguas reconocio el problema.",
                 "relevance": 1,
                 "sentiment": "negative",
@@ -20,7 +26,11 @@
                     "number": null,
                     "place_name": null
                 },
-                "related_subtopics": ["water_shortage", "distribution_network", "citizen_complaints"],
+                "related_subtopics": [
+                    "water_shortage",
+                    "distribution_network",
+                    "citizen_complaints"
+                ],
                 "time_scope": {
                     "date_range": {
                         "start": "2025-03-01T00:00:00",
@@ -30,9 +40,17 @@
                     "mention": "temporada de calor 2025",
                     "precision_days": 120
                 },
-                "infrastructure_types_discussed": ["red de agua", "distribucion hidrica"],
-                "responsible_authorities": ["Comision Estatal de Aguas", "Municipio de Queretaro"],
-                "citizen_complaints": ["Falta de agua recurrente en colonias del norte de la ciudad"],
+                "infrastructure_types_discussed": [
+                    "red de agua",
+                    "distribucion hidrica"
+                ],
+                "responsible_authorities": [
+                    "Comision Estatal de Aguas",
+                    "Municipio de Queretaro"
+                ],
+                "citizen_complaints": [
+                    "Falta de agua recurrente en colonias del norte de la ciudad"
+                ],
                 "budget_or_investment": null
             }
         },
@@ -41,7 +59,14 @@
                 "type": "EnumStr",
                 "required": true,
                 "description": "Type of public infrastructure theme. Choose the single most specific category that matches.",
-                "enum": ["infrastructure_conditions", "urban_services", "water_management", "waste_management", "transportation_infrastructure", "urban_planning"]
+                "enum": [
+                    "infrastructure_conditions",
+                    "urban_services",
+                    "water_management",
+                    "waste_management",
+                    "transportation_infrastructure",
+                    "urban_planning"
+                ]
             },
             "theme_subtype": {
                 "type": "str",
@@ -63,12 +88,23 @@
             "relevance": {
                 "type": "EnumStr",
                 "description": "Relevance of this theme within the article: 1 = main topic, 2 = secondary, 3 = implicit.",
-                "enum": ["1", "2", "3"]
+                "enum": [
+                    "1",
+                    "2",
+                    "3"
+                ]
             },
             "sentiment": {
                 "type": "EnumStr",
                 "description": "General sentiment or tone of the discourse about infrastructure.",
-                "enum": ["positive", "negative", "neutral", "mixed", "alarming", "hopeful"]
+                "enum": [
+                    "positive",
+                    "negative",
+                    "neutral",
+                    "mixed",
+                    "alarming",
+                    "hopeful"
+                ]
             },
             "location": {
                 "type": "Location",

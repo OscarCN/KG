@@ -1,6 +1,7 @@
 {
     "RobberyAssaultEvent": {
         "meta": {
+            "category": "event",
             "description": "An identifiable single robbery, assault, or property/person crime incident. Includes theft, mugging, carjacking, and general security events involving property or personal crime. Each incident is a specific occurrence distinguishable by its location and date — not a crime trend, security overview, or statistics report. Extracted from news articles and social media.",
             "example": {
                 "event_type": "robbery",
@@ -8,11 +9,18 @@
                 "status": "past",
                 "name": null,
                 "description": "Armed carjacking reported on Blvd. Lopez Mateos, where two suspects stole a vehicle at gunpoint.",
-                "tags": ["carjacking", "armed_robbery", "blvd_lopez_mateos"],
+                "tags": [
+                    "carjacking",
+                    "armed_robbery",
+                    "blvd_lopez_mateos"
+                ],
                 "context": "Authorities report an increase in carjackings in the area over the past month.",
                 "relevance": 1,
                 "date_range": {
-                    "date_range": {"start": "2025-09-15T22:30:00", "end": null},
+                    "date_range": {
+                        "start": "2025-09-15T22:30:00",
+                        "end": null
+                    },
                     "timezone": null,
                     "mention": "la noche del lunes 15 de septiembre",
                     "precision_days": null
@@ -27,7 +35,11 @@
                     "number": null,
                     "place_name": null
                 },
-                "victim_count": {"mention": "una persona", "count": 1, "confidence_range": null},
+                "victim_count": {
+                    "mention": "una persona",
+                    "count": 1,
+                    "confidence_range": null
+                },
                 "weapon": "firearm",
                 "stolen_items": "vehiculo sedan color blanco",
                 "suspect_description": "dos hombres encapuchados",
@@ -39,7 +51,12 @@
                 "type": "EnumStr",
                 "required": true,
                 "description": "Type of crime from the catalogue. Choose the single most specific category that matches.",
-                "enum": ["robbery", "assault", "kidnapping", "security_event"]
+                "enum": [
+                    "robbery",
+                    "assault",
+                    "kidnapping",
+                    "security_event"
+                ]
             },
             "event_subtype": {
                 "type": "str",
@@ -48,7 +65,11 @@
             "status": {
                 "type": "EnumStr",
                 "description": "Status of the incident as reported.",
-                "enum": ["past", "ongoing", "under_investigation"]
+                "enum": [
+                    "past",
+                    "ongoing",
+                    "under_investigation"
+                ]
             },
             "name": {
                 "type": "str",
@@ -69,7 +90,11 @@
             "relevance": {
                 "type": "EnumStr",
                 "description": "Relevance within the article: 1 = main topic, 2 = secondary, 3 = implicit.",
-                "enum": ["1", "2", "3"]
+                "enum": [
+                    "1",
+                    "2",
+                    "3"
+                ]
             },
             "date_range": {
                 "type": "DateRangeFromUnstructured",

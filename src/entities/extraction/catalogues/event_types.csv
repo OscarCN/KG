@@ -76,3 +76,9 @@ activism,civic_participation,Activismo,Activism
 citizen_engagement,civic_participation,Participacion ciudadana,Citizen engagement
 political_participation,civic_participation,Participacion politica,Political participation
 community_organizing,civic_participation,Organizacion comunitaria,Community organizing
+law_initiative,legislative_initiative,Iniciativa de ley,Law initiative
+reform_initiative,legislative_initiative,Iniciativa de reforma,Reform initiative
+decree,legislative_initiative,Decreto,Decree
+regulation,legislative_initiative,Reglamento,Regulation
+legislative_agreement,legislative_initiative,Punto de acuerdo,Legislative agreement
+ratification,legislative_initiative,Ratificacion,Ratification

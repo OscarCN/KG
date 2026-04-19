@@ -1,0 +1,176 @@
+{
+    "LegislativeInitiative": {
+        "meta": {
+            "category": "entity",
+            "description": "A specific, identifiable legislative initiative — a proposed law, reform, decree, regulation, legislative agreement, or ratification — filed before a legislative body. Each initiative is a named, attribute-bearing entity distinguishable by its title, proponents, jurisdiction, and filing date. An article refers to a legislative_initiative when it reports on or discusses a specific, identifiable proposal (e.g. a particular bill with a title or author, a specific reform being debated, a named decree), not when it covers general legislative activity, political commentary, or the broader theme of lawmaking.",
+            "example": {
+                "entity_type": "reform_initiative",
+                "entity_subtype": "constitutional_reform",
+                "name": "Reforma al Poder Judicial",
+                "aliases": ["Reforma judicial", "Iniciativa de reforma al Poder Judicial de la Federacion"],
+                "description": "Iniciativa de reforma constitucional presentada por el Ejecutivo Federal para modificar la estructura del Poder Judicial, incluyendo la eleccion por voto popular de ministros, magistrados y jueces.",
+                "tags": ["reforma_judicial", "poder_judicial", "constitucion", "voto_popular"],
+                "context": "La iniciativa forma parte de un paquete de reformas enviadas al Congreso al inicio del nuevo periodo legislativo. Ha generado amplio debate entre juristas y partidos de oposicion.",
+                "relevance": "1",
+                "status": "approved",
+                "current_stage": "published",
+                "jurisdiction": {
+                    "country": "Mexico",
+                    "state": null,
+                    "city": null,
+                    "neighborhood": null,
+                    "zone": null,
+                    "street": null,
+                    "number": null,
+                    "place_name": null
+                },
+                "legislative_body": "Congreso de la Union",
+                "date_introduced": {
+                    "date": "2024-02-05T00:00:00",
+                    "mention": "el pasado 5 de febrero",
+                    "precision_days": null
+                },
+                "date_planned_vote": {
+                    "date": "2024-09-03T00:00:00",
+                    "mention": "la votacion esta prevista para la primera semana de septiembre",
+                    "precision_days": 7
+                },
+                "authors": [
+                    {
+                        "name": "Andres Manuel Lopez Obrador",
+                        "role": "Presidente de la Republica",
+                        "organization": "Ejecutivo Federal"
+                    }
+                ],
+                "parties_involved": ["Morena", "PAN", "PRI", "MC"],
+                "topic_areas": ["poder_judicial", "constitucional", "eleccion_popular"],
+                "affected_laws": ["Constitucion Politica de los Estados Unidos Mexicanos"],
+                "identifiers": ["Expediente 2024-I-015"],
+                "vote_result": "aprobada en lo general con 357 votos a favor",
+                "text_url": "https://www.diputados.gob.mx/LeyesBiblio/iniciativas/reforma-pj.pdf",
+                "related_subjects": ["rule_of_law", "democracy", "judicial_independence"]
+            }
+        },
+        "schema": {
+            "entity_type": {
+                "type": "EnumStr",
+                "required": true,
+                "description": "Type of legislative initiative. Choose the single most specific category that matches.",
+                "enum": [
+                    "law_initiative",
+                    "reform_initiative",
+                    "decree",
+                    "regulation",
+                    "legislative_agreement",
+                    "ratification"
+                ]
+            },
+            "entity_subtype": {
+                "type": "str",
+                "description": "More specific subtype, e.g. 'constitutional_reform', 'fiscal_reform', 'labor_law', 'environmental_regulation', 'international_treaty_ratification'."
+            },
+            "name": {
+                "type": "str",
+                "required": true,
+                "description": "Short name or title of the initiative, e.g. 'Reforma al Poder Judicial', 'Ley Federal de Proteccion al Consumidor', 'Decreto de extincion de fideicomisos'."
+            },
+            "aliases": {
+                "type": "List[str]",
+                "description": "Alternative names or short forms used to refer to the initiative (e.g. 'Reforma judicial', 'Ley de ingresos 2025')."
+            },
+            "description": {
+                "type": "str",
+                "required": true,
+                "description": "Brief description of what the initiative proposes or modifies."
+            },
+            "tags": {
+                "type": "List[str]",
+                "description": "Keywords describing the initiative and the areas of law it touches."
+            },
+            "context": {
+                "type": "str",
+                "description": "Contextual information: political context, debate, related initiatives, historical background."
+            },
+            "relevance": {
+                "type": "EnumStr",
+                "description": "Relevance of the initiative within the article: 1 = main topic, 2 = secondary, 3 = implicit.",
+                "enum": ["1", "2", "3"]
+            },
+            "status": {
+                "type": "EnumStr",
+                "description": "Current status of the initiative.",
+                "enum": [
+                    "proposed",
+                    "under_review",
+                    "approved",
+                    "rejected",
+                    "withdrawn",
+                    "published",
+                    "tabled"
+                ]
+            },
+            "current_stage": {
+                "type": "EnumStr",
+                "description": "Specific procedural stage of the initiative, if reported.",
+                "enum": [
+                    "filed",
+                    "committee_review",
+                    "first_reading",
+                    "approved_lower_chamber",
+                    "approved_upper_chamber",
+                    "signed",
+                    "published",
+                    "in_force"
+                ]
+            },
+            "jurisdiction": {
+                "type": "Location",
+                "description": "Geographic jurisdiction the initiative applies to (country, state, municipality). Fill the hierarchical fields that match the scope (e.g. federal initiative → country only; state reform → country + state)."
+            },
+            "legislative_body": {
+                "type": "str",
+                "description": "Legislative body where the initiative was filed (e.g. 'Congreso de la Union', 'Camara de Diputados', 'Senado de la Republica', 'Congreso del Estado de Guanajuato', 'Cabildo de Leon')."
+            },
+            "date_introduced": {
+                "type": "DateFromUnstructured",
+                "description": "Date the initiative was filed or introduced. If the article only mentions an approximate period, estimate precision_days accordingly."
+            },
+            "date_planned_vote": {
+                "type": "DateFromUnstructured",
+                "description": "Date the initiative is scheduled or expected to be voted on, if mentioned (e.g. 'la votacion esta prevista para el proximo martes'). Leave null if the article does not mention a planned vote date. If only an approximate period is mentioned, estimate precision_days accordingly."
+            },
+            "authors": {
+                "type": "List[PersonReference]",
+                "description": "Proponents or authors of the initiative (legislators, executive, political parties, civic groups). Include name, role, and organization when available."
+            },
+            "parties_involved": {
+                "type": "List[str]",
+                "description": "Political parties that proposed, supported, or opposed the initiative (e.g. 'Morena', 'PAN', 'PRI', 'MC', 'PT', 'PVEM')."
+            },
+            "topic_areas": {
+                "type": "List[str]",
+                "description": "Areas of law or policy the initiative addresses (e.g. 'fiscal', 'labor', 'environmental', 'electoral', 'criminal_code', 'education')."
+            },
+            "affected_laws": {
+                "type": "List[str]",
+                "description": "Existing laws, codes, or constitutional articles that the initiative modifies, repeals, or supplements (e.g. 'Constitucion Politica de los Estados Unidos Mexicanos', 'Codigo Fiscal de la Federacion, articulo 28')."
+            },
+            "identifiers": {
+                "type": "List[str]",
+                "description": "Official identifiers for the initiative (expediente number, folio, gazette reference, etc.)."
+            },
+            "vote_result": {
+                "type": "str",
+                "description": "Vote outcome as reported, if any (e.g. '357 votos a favor, 98 en contra', 'aprobada por mayoria calificada')."
+            },
+            "text_url": {
+                "type": "str",
+                "description": "URL to the official text of the initiative, if mentioned."
+            },
+            "related_subjects": {
+                "type": "List[str]",
+                "description": "Other subjects or domains touched by the initiative (e.g. 'rule_of_law', 'human_rights', 'economics', 'public_health', 'migration')."
+            }
+        }
+    }
+}

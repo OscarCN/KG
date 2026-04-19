@@ -1,6 +1,7 @@
 {
     "EmergencyEvent": {
         "meta": {
+            "category": "event",
             "description": "An identifiable single emergency incident such as a fire, vehicle crash, explosion, flood, accident, or general emergency. Each incident is a specific occurrence distinguishable by its location and date — not a trend, overview, or general topic about emergencies. Extracted from news articles and social media.",
             "example": {
                 "event_type": "fire",
@@ -8,11 +9,19 @@
                 "status": "past",
                 "name": null,
                 "description": "Fire breaks out in a warehouse in the industrial zone, firefighters responded for 4 hours.",
-                "tags": ["fire", "warehouse", "industrial_zone", "firefighters"],
+                "tags": [
+                    "fire",
+                    "warehouse",
+                    "industrial_zone",
+                    "firefighters"
+                ],
                 "context": "The warehouse stored chemical products. No injuries reported but nearby businesses were evacuated as a precaution.",
                 "relevance": 1,
                 "date_range": {
-                    "date_range": {"start": "2025-09-18T14:30:00", "end": "2025-09-18T18:30:00"},
+                    "date_range": {
+                        "start": "2025-09-18T14:30:00",
+                        "end": "2025-09-18T18:30:00"
+                    },
                     "timezone": null,
                     "mention": "el incendio inicio a las 2:30 de la tarde y fue controlado 4 horas despues",
                     "precision_days": null
@@ -27,7 +36,12 @@
                     "number": null,
                     "place_name": null
                 },
-                "casualties": {"mention": "sin lesionados", "dead": 0, "injured": 0, "missing": 0},
+                "casualties": {
+                    "mention": "sin lesionados",
+                    "dead": 0,
+                    "injured": 0,
+                    "missing": 0
+                },
                 "damage_description": "bodega con productos quimicos destruida, negocios cercanos evacuados",
                 "response_agencies": "Bomberos de Leon, Proteccion Civil"
             }
@@ -37,7 +51,15 @@
                 "type": "EnumStr",
                 "required": true,
                 "description": "Type of emergency from the catalogue. Choose the single most specific category that matches.",
-                "enum": ["fire", "crash", "explosion", "flood", "accident", "pedestrian_hit", "emergency_general"]
+                "enum": [
+                    "fire",
+                    "crash",
+                    "explosion",
+                    "flood",
+                    "accident",
+                    "pedestrian_hit",
+                    "emergency_general"
+                ]
             },
             "event_subtype": {
                 "type": "str",
@@ -46,7 +68,12 @@
             "status": {
                 "type": "EnumStr",
                 "description": "Current status of the emergency.",
-                "enum": ["ongoing", "past", "under_control", "under_investigation"]
+                "enum": [
+                    "ongoing",
+                    "past",
+                    "under_control",
+                    "under_investigation"
+                ]
             },
             "name": {
                 "type": "str",
@@ -67,7 +94,11 @@
             "relevance": {
                 "type": "EnumStr",
                 "description": "Relevance within the article: 1 = main topic, 2 = secondary, 3 = implicit.",
-                "enum": ["1", "2", "3"]
+                "enum": [
+                    "1",
+                    "2",
+                    "3"
+                ]
             },
             "date_range": {
                 "type": "DateRangeFromUnstructured",

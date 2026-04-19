@@ -1,12 +1,18 @@
 {
     "Security": {
         "meta": {
+            "category": "theme",
             "description": "Security includes any theme, event, mention, or discussion related to crime, violence, general insecurity, and public disorder. It considers law enforcement, police operations, criminal activity, public safety, security policy, crime trends, and violence statistics. An article talks about security whenever it addresses or touches any related subject — whether reporting a specific crime, discussing policy, citing statistics, or mentioning security concerns in passing. An article may match both this theme and a specific event schema (e.g. robbery_assault_event, violence_event) — both are extracted separately.",
             "example": {
                 "theme_type": "crime_trends",
                 "theme_subtype": "homicide_statistics",
                 "description": "Analisis de las cifras de homicidios en Leon durante el primer semestre de 2025, mostrando una disminucion del 15% respecto al mismo periodo del ano anterior.",
-                "tags": ["seguridad", "homicidios", "estadisticas", "leon"],
+                "tags": [
+                    "seguridad",
+                    "homicidios",
+                    "estadisticas",
+                    "leon"
+                ],
                 "context": "La Secretaria de Seguridad Publica presento su informe semestral ante el congreso local.",
                 "relevance": 1,
                 "sentiment": "hopeful",
@@ -20,7 +26,11 @@
                     "number": null,
                     "place_name": null
                 },
-                "related_subtopics": ["homicide_rate", "police_effectiveness", "organized_crime"],
+                "related_subtopics": [
+                    "homicide_rate",
+                    "police_effectiveness",
+                    "organized_crime"
+                ],
                 "time_scope": {
                     "date_range": {
                         "start": "2025-01-01T00:00:00",
@@ -30,10 +40,21 @@
                     "mention": "primer semestre de 2025",
                     "precision_days": 180
                 },
-                "crime_types_discussed": ["homicidio", "robo", "secuestro"],
-                "authorities_mentioned": ["Secretaria de Seguridad Publica", "Guardia Nacional"],
+                "crime_types_discussed": [
+                    "homicidio",
+                    "robo",
+                    "secuestro"
+                ],
+                "authorities_mentioned": [
+                    "Secretaria de Seguridad Publica",
+                    "Guardia Nacional"
+                ],
                 "statistics_mentioned": "15% de disminucion en homicidios, 3,200 robos reportados",
-                "related_subjects": ["economics", "prevention", "public_policy"]
+                "related_subjects": [
+                    "economics",
+                    "prevention",
+                    "public_policy"
+                ]
             }
         },
         "schema": {
@@ -41,7 +62,12 @@
                 "type": "EnumStr",
                 "required": true,
                 "description": "Type of security theme. Choose the single most specific category that matches.",
-                "enum": ["crime_trends", "law_enforcement", "public_safety", "security_policy"]
+                "enum": [
+                    "crime_trends",
+                    "law_enforcement",
+                    "public_safety",
+                    "security_policy"
+                ]
             },
             "theme_subtype": {
                 "type": "str",
@@ -63,12 +89,23 @@
             "relevance": {
                 "type": "EnumStr",
                 "description": "Relevance of this theme within the article: 1 = main topic, 2 = secondary, 3 = implicit.",
-                "enum": ["1", "2", "3"]
+                "enum": [
+                    "1",
+                    "2",
+                    "3"
+                ]
             },
             "sentiment": {
                 "type": "EnumStr",
                 "description": "General sentiment or tone of the discourse about security.",
-                "enum": ["positive", "negative", "neutral", "mixed", "alarming", "hopeful"]
+                "enum": [
+                    "positive",
+                    "negative",
+                    "neutral",
+                    "mixed",
+                    "alarming",
+                    "hopeful"
+                ]
             },
             "location": {
                 "type": "Location",

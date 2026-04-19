@@ -223,6 +223,7 @@ class Ontology:
         """Build a description list for a set of ontology classes.
 
         Returns one entry per class with its name, Spanish label, supertype,
+        ontology category (event/theme/entity, from the schema's meta.category),
         and the description from the supertype's schema meta.description.
         Used to present matched classes to the LLM for classification.
         """
@@ -232,16 +233,16 @@ class Ontology:
             if not supertype:
                 continue
             labels = self.type_labels.get(et, {})
-            # Read description from the schema's meta.description
             loaded = _get_schema(supertype)
             schema_key = _snake_to_pascal(supertype)
-            meta_desc = loaded.get("meta", {}).get(schema_key, {}).get("description", "")
+            meta = loaded.get("meta", {}).get(schema_key, {})
             descriptions.append({
                 "class": et,
                 "label_es": labels.get("label_es", et),
                 "label_en": labels.get("label_en", et),
                 "supertype": supertype,
-                "description": meta_desc,
+                "category": meta.get("category", "event"),
+                "description": meta.get("description", ""),
             })
         return descriptions
 
@@ -549,16 +550,20 @@ class EntityExtractor:
                 return cached
 
         # Separate classes by ontology category for the prompt. Each category
-        # has different selection criteria. When entity/concept classes are
-        # added, add a third group here with its own selection instructions.
-        event_lines = []
-        theme_lines = []
+        # has different selection criteria. Routing is driven by each schema's
+        # meta.category ("event" | "theme" | "entity").
+        event_lines: List[str] = []
+        theme_lines: List[str] = []
+        entity_lines: List[str] = []
         for desc in class_descriptions:
             line = f'- "{desc["class"]}" — {desc["label_es"]}: {desc["description"]}'
-            if desc["supertype"].endswith("_event"):
-                event_lines.append(line)
-            else:
+            category = desc.get("category", "event")
+            if category == "theme":
                 theme_lines.append(line)
+            elif category == "entity":
+                entity_lines.append(line)
+            else:
+                event_lines.append(line)
 
         catalogue_parts = []
         if event_lines:
@@ -574,6 +579,14 @@ class EntityExtractor:
                 "relacionado con el tema, aunque sea de paso o como contexto):\n\n"
                 + "\n".join(theme_lines)
             )
+        if entity_lines:
+            catalogue_parts.append(
+                "Entidades/Conceptos (cosas específicas e identificables que no son "
+                "eventos ni temas — selecciona solo si el artículo se refiere a una "
+                "entidad o concepto concreto de este tipo, con nombre propio o "
+                "atributos identificables; no selecciones por mención general del "
+                "dominio ni por discusión temática):\n\n" + "\n".join(entity_lines)
+            )
         catalogue_block = "\n\n".join(catalogue_parts)
 
         body = article.get("text", "")
@@ -586,7 +599,7 @@ class EntityExtractor:
                 "content": (
                     "Eres un modelo de clasificación de artículos y publicaciones. "
                     "Se te presenta un artículo y un catálogo de categorías dividido "
-                    "en dos grupos: eventos y temas.\n\n"
+                    "en hasta tres grupos: eventos, temas y entidades/conceptos.\n\n"
                     "EVENTOS: son ocurrencias específicas e identificables (con lugar "
                     "y fecha). Selecciona un evento solo si el artículo reporta o "
                     "describe un evento concreto de ese tipo.\n\n"
@@ -595,8 +608,15 @@ class EntityExtractor:
                     "relacionado — ya sea como tema principal, secundario, o incluso "
                     "como contexto o mención de paso. Un artículo que reporta un robo "
                     "también toca el tema de seguridad.\n\n"
-                    "Un artículo puede clasificarse en múltiples categorías de ambos "
-                    "grupos simultáneamente."
+                    "ENTIDADES/CONCEPTOS: son cosas específicas e identificables que "
+                    "no son eventos ni temas — por ejemplo una iniciativa de ley "
+                    "concreta, un desarrollo inmobiliario, una persona específica, una "
+                    "tecnología o un compuesto. Selecciona una entidad/concepto solo "
+                    "si el artículo se refiere a un ítem concreto de ese tipo (con "
+                    "nombre propio o atributos identificables), no por una mención "
+                    "general del dominio ni por discusión temática.\n\n"
+                    "Un artículo puede clasificarse en múltiples categorías de los "
+                    "tres grupos simultáneamente."
                 ),
             },
             {

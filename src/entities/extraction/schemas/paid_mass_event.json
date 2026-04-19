@@ -1,6 +1,7 @@
 {
     "PaidMassEvent": {
         "meta": {
+            "category": "event",
             "description": "An identifiable single event with public attendance such as a concert, festival, fair, sports event, religious event, congress, exposition, conference, convention, or inauguration. Each event is a specific occurrence distinguishable by its location and date — not a trend, overview, or general topic. Extracted from news articles and social media.",
             "example": {
                 "event_type": "sports_event",
@@ -8,11 +9,20 @@
                 "status": "planned",
                 "name": "Clasico America vs Chivas",
                 "description": "High-profile match between America and Chivas at Estadio Azteca, matchday 5 of Apertura 2025.",
-                "tags": ["soccer", "clasico", "america", "chivas", "estadio_azteca"],
+                "tags": [
+                    "soccer",
+                    "clasico",
+                    "america",
+                    "chivas",
+                    "estadio_azteca"
+                ],
                 "context": "Special security operation coordinated between the Secretaria de Seguridad Ciudadana and Liga MX. Partial road closures expected near the venue.",
                 "relevance": 1,
                 "date_range": {
-                    "date_range": {"start": "2025-08-10T18:00:00", "end": null},
+                    "date_range": {
+                        "start": "2025-08-10T18:00:00",
+                        "end": null
+                    },
                     "timezone": null,
                     "mention": "el proximo domingo 10 de agosto a las 6 de la tarde",
                     "precision_days": null
@@ -27,9 +37,20 @@
                     "number": null,
                     "place_name": "Estadio Azteca"
                 },
-                "attendance": {"mention": "mas de 60 mil aficionados", "estimate": 60000},
-                "venue_capacity": {"mention": "capacidad para 87 mil personas", "capacity": 87000},
-                "price": {"mention": "boletos entre 300 y 1500 pesos", "lower": 300, "upper": 1500, "currency": "pesos"}
+                "attendance": {
+                    "mention": "mas de 60 mil aficionados",
+                    "estimate": 60000
+                },
+                "venue_capacity": {
+                    "mention": "capacidad para 87 mil personas",
+                    "capacity": 87000
+                },
+                "price": {
+                    "mention": "boletos entre 300 y 1500 pesos",
+                    "lower": 300,
+                    "upper": 1500,
+                    "currency": "pesos"
+                }
             }
         },
         "schema": {
@@ -38,9 +59,18 @@
                 "required": true,
                 "description": "Type of event from the catalogue. Choose the most specific category that matches.",
                 "enum": [
-                    "concert", "festival", "party", "fair",
-                    "religious_event", "sports_event", "congress", "exposition",
-                    "conference", "convention", "inauguration", "cultural_event"
+                    "concert",
+                    "festival",
+                    "party",
+                    "fair",
+                    "religious_event",
+                    "sports_event",
+                    "congress",
+                    "exposition",
+                    "conference",
+                    "convention",
+                    "inauguration",
+                    "cultural_event"
                 ]
             },
             "event_subtype": {
@@ -50,7 +80,14 @@
             "status": {
                 "type": "EnumStr",
                 "description": "Current status of the event as reported in the article.",
-                "enum": ["planned", "past", "suspended", "ongoing", "cancelled", "postponed"]
+                "enum": [
+                    "planned",
+                    "past",
+                    "suspended",
+                    "ongoing",
+                    "cancelled",
+                    "postponed"
+                ]
             },
             "name": {
                 "type": "str",
@@ -71,7 +108,11 @@
             "relevance": {
                 "type": "EnumStr",
                 "description": "How relevant the event is within the article: 1 = main topic, 2 = mentioned secondarily, 3 = only implicitly mentioned.",
-                "enum": ["1", "2", "3"]
+                "enum": [
+                    "1",
+                    "2",
+                    "3"
+                ]
             },
             "date_range": {
                 "type": "DateRangeFromUnstructured",

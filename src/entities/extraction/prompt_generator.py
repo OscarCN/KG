@@ -98,6 +98,7 @@ class PromptGenerationContextManager:
         return {
             "supertype": self.supertype,
             "schema_key": self.schema_key,
+            "meta_category": type_def["meta"].get("category", "event"),
             "meta_description": type_def["meta"]["description"],
             "meta_example": type_def["meta"].get("example"),
             "fields": self._gather_fields(schema_fields),
@@ -202,10 +203,28 @@ The prompt must follow the exact SYSTEM:/USER:/USER: format shown in the referen
 
 ## Instructions
 
+The schema belongs to one of three ontology categories, given in `meta_category`:
+
+- **event**: identifiable single occurrences with a location and date (e.g. a concert, an arrest). \
+Use item terminology like "evento" / "incidente" and require a date_range field.
+- **theme**: broad topical classifiers (e.g. security, mobility). Use terminology like "tema" / \
+"discusión". Date scope is optional and describes the temporal scope of the discourse, not a \
+specific event date.
+- **entity**: specific, identifiable things that are not events (e.g. a legislative initiative, a \
+real estate development, a person). Use terminology like "entidad" / "iniciativa" / "ítem" as \
+appropriate for the domain. Date fields are optional and describe attributes of the entity (e.g. \
+date introduced, date founded), not a specific event datetime.
+
+Adapt the wording, framing, and the "don't invent X" rule below to the category. For entities, \
+instruct the LLM to only select items that are explicitly identifiable in the text (with name or \
+distinguishing attributes), not generic mentions of the domain.
+
 Generate a prompt with these sections:
 
 ### SYSTEM section
-- Start with: "Eres un modelo para extraer información estructurada de [domain in Spanish] en artículos de noticias."
+- Start with: "Eres un modelo para extraer información estructurada de [domain in Spanish] en artículos de noticias." \
+The [domain in Spanish] should reflect the category — e.g. "eventos masivos" (event), \
+"temas de seguridad" (theme), "iniciativas legislativas" (entity).
 - Add a brief note explaining that the context variable {{source_type}} indicates the source type \
 (e.g. "noticia", "publicación de Facebook", "publicación de red social"). \
 For social media posts, dates can often be inferred from the publication date ({{date_now}}) \
@@ -214,9 +233,11 @@ if not explicitly mentioned in the text.
 ### First USER section
 - Open with a Spanish paragraph describing what to extract, derived from the schema's meta_description. \
 Translate naturally — do not just transliterate.
-- Global rules: "Para cada [event/incident/issue] mencionado en la nota, extrae los siguientes campos. \
-Si no se menciona un campo, deja su valor null. No inventes [events/incidents], solo extrae lo que \
-esté explícitamente relacionado en la nota."
+- Global rules: "Para cada [item name matching the category — evento / incidente / tema / iniciativa / \
+entidad] mencionado en la nota, extrae los siguientes campos. Si no se menciona un campo, deja su \
+valor null. No inventes [plural item name], solo extrae lo que esté explícitamente relacionado en \
+la nota." For entity categories, add: "Selecciona solo ítems claramente identificables en el texto \
+(con nombre propio o atributos distintivos), no por menciones generales del dominio."
 - Number each field sequentially. For each field:
   - Use the format: "N. Spanish field name (json_key): instruction"
   - For EnumStr fields: render as a catalogue with format: "value" — Spanish label: brief description. \
@@ -248,8 +269,9 @@ omitting fields causes the LLM to ignore those fields during extraction.
 more specific instructions. The three context layers (class description, field description, \
 composite type description) should all inform the generated instruction.
 - End with "Formato de respuesta:" section:
-  - "Responde con una lista en formato JSON, donde cada elemento representa un [event/incident/issue] \
-detectado en la nota. No añadas texto adicional fuera del JSON."
+  - "Responde con una lista en formato JSON, donde cada elemento representa un [item name matching \
+the category — evento / incidente / tema / iniciativa / entidad] detectado en la nota. No añadas \
+texto adicional fuera del JSON."
   - Include the complete meta_example from the schema as the example, properly formatted as JSON
 
 ### Last USER section
@@ -303,7 +325,9 @@ schema context). No field may be omitted — absent values must be shown as null
    - CountMention MUST have all 3 fields: mention, count, confidence_range
    - PersonReference MUST have all 3 fields: name, role, organization
    List EVERY missing field as a separate issue.
-8. **Date handling**: Are approximate date instructions and precision_days examples included?
+8. **Date handling**: If the schema has a DateRangeFromUnstructured or DateFromUnstructured field, \
+are approximate date instructions and precision_days examples included? (Skip this check if the \
+schema has no date fields, which is common for entity/concept schemas.)
 9. **Field name accuracy**: Do the field names in the JSON examples match the composite type \
 schema exactly? E.g. CountMention uses "count" (not "estimate"), Attendance uses "estimate" \
 (not "count"). Report any field name mismatches.
