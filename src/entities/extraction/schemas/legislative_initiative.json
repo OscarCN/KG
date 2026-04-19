@@ -43,6 +43,8 @@
                     }
                 ],
                 "parties_involved": ["Morena", "PAN", "PRI", "MC"],
+                "legislators_supporting": ["Ricardo Monreal", "Adan Augusto Lopez", "Ignacio Mier"],
+                "legislators_against": ["Kenia Lopez Rabadan", "Jorge Romero", "Alejandro Moreno"],
                 "topic_areas": ["poder_judicial", "constitucional", "eleccion_popular"],
                 "affected_laws": ["Constitucion Politica de los Estados Unidos Mexicanos"],
                 "identifiers": ["Expediente 2024-I-015"],
@@ -146,6 +148,14 @@
             "parties_involved": {
                 "type": "List[str]",
                 "description": "Political parties that proposed, supported, or opposed the initiative (e.g. 'Morena', 'PAN', 'PRI', 'MC', 'PT', 'PVEM')."
+            },
+            "legislators_supporting": {
+                "type": "List[str]",
+                "description": "Names of individual legislators explicitly reported as supporting or voting in favor of the initiative."
+            },
+            "legislators_against": {
+                "type": "List[str]",
+                "description": "Names of individual legislators explicitly reported as opposing or voting against the initiative."
             },
             "topic_areas": {
                 "type": "List[str]",
