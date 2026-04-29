@@ -318,7 +318,7 @@ For each article, keyword matching may produce many candidate classes, but only 
 
 ### Interactive runner (`src/PoC/run_extraction.py`)
 
-A step-by-step IPython script that exercises the full pipeline on the Facebook posts in `data/queretaro_fb_pages/`. Edit the config variables at the top of the file, then run it with:
+A step-by-step IPython script that exercises the full pipeline on the JSON files under a `data/<subdir>/` directory. Edit the config variables at the top of the file, then run it with:
 
 ```bash
 ipython src/PoC/run_extraction.py
@@ -330,11 +330,33 @@ Key config variables:
 
 | Variable | Default | Description |
 |---|---|---|
+| `DATA_SUBDIR` | `"legislative_gto"` | Subdirectory under `data/` to read (every `*.json` file is processed) |
 | `FILES` | `None` | List of `Path` objects to process, or `None` for all files in the data dir |
 | `MATCH_ONLY` | `False` | Skip LLM steps — only show keyword matches |
-| `LIMIT` | `5` | Max posts per file (`None` = no limit) |
+| `LIMIT` | `5` | Max records per file (`None` = no limit) |
+
+The runner auto-detects two record shapes: Facebook-style posts with a nested `message` dict (e.g. `data/queretaro_fb_pages/`) and news-style flat docs with `text`, `title`, `url` top-level fields (e.g. `data/legislative_gto/` produced by `get_data.py`).
 
 After execution, `all_entities` holds all validated entity dicts for further inspection.
+
+### Fetching source data (`src/PoC/get_data.py`)
+
+Helper script that runs an Elasticsearch search via the external `elastic_client` package and saves hits to `data/<subdir>/*.json` so the extraction pipeline can consume them offline.
+
+```bash
+python src/PoC/get_data.py                              # default: Ayuntamiento de Querétaro (entity_id=75)
+GET_DATA_QUERY=legislative_gto python src/PoC/get_data.py   # legislative-initiatives Guanajuato query
+GET_DATA_LIMIT=50 python src/PoC/get_data.py            # cap the result count
+```
+
+The module exposes `fetch_docs(request, fields=None, limit=None)` for arbitrary `FilterRequest`-shaped queries and `save_docs(docs, dest_dir)` for persisting the result. Two bundled queries are available, selected via `GET_DATA_QUERY`:
+
+| `GET_DATA_QUERY` | Request | Output |
+|---|---|---|
+| `ayuntamiento_qro` (default) | `AYUNTAMIENTO_QRO_REQUEST` — last week of news tagged with KB `entity_id=75` ("Ayuntamiento de Querétaro") | `data/ayuntamiento_qro/ayuntamiento_qro_<timestamp>.json` |
+| `legislative_gto` | `LEGISLATIVE_INITIATIVE_GTO_REQUEST` — last week of news matching `"guanajuato"` AND `"congreso"` AND any initiative-related keyword (`"iniciativa"`, `"reforma"`, `"decreto"`, …) | `data/legislative_gto/legislative_initiative_gto_<timestamp>.json` |
+
+Requires `ELASTIC_HOST`, `ELASTIC_PORT`, `ELASTIC_AUTH`, `ELASTIC_HTTP_CERT` env vars and the `elastic_client` package importable (installed editable, or available under `/Users/oscarcuellar/ocn/media/elastic_client`).
 
 ### LLM Configuration
 

@@ -1,0 +1,389 @@
+SYSTEM:
+
+Eres un modelo para extraer información estructurada de iniciativas legislativas en artículos de noticias. Se te van a presentar instrucciones para resolver la tarea, algunos ejemplos, y posteriormente una noticia para que extraigas la información.
+
+Como contexto adicional, la variable {source_type} indica el tipo de fuente (por ejemplo, "noticia", "publicación de Facebook", "publicación de red social"). En el caso de publicaciones de redes sociales, las fechas pueden inferirse a partir de la fecha de publicación ({date_now}) cuando no se mencionan explícitamente en el texto.
+
+La salida final debe ser exclusivamente JSON válido, sin texto adicional.
+
+
+USER:
+
+Buscamos iniciativas legislativas específicas e identificables descritas en un artículo de noticias. Incluye propuestas de ley, reformas, decretos, reglamentos, acuerdos legislativos y ratificaciones que hayan sido presentadas ante un órgano legislativo. Buscamos iniciativas que sean claramente identificables por su título, autores, jurisdicción o fecha de presentación, y que se mencionen explícitamente en la nota.
+
+No extraigas anuncios de intención, debates legislativos generales, paquetes de reformas sin iniciativas individualizables, ni referencias a "una reforma" o "una ley" sin atributos distintivos suficientes (título, autor, órgano legislativo, jurisdicción o contenido específico). Solo extrae ítems claramente identificables en el texto, no menciones generales del dominio legislativo.
+
+Si no hay iniciativas legislativas específicas e identificables en la nota, responde con `[]`.
+
+Cuando uses un objeto compuesto (`jurisdiction`, fechas, `authors`, etc.), incluye todos sus subcampos; si alguno no está disponible, usa `null`.
+
+Los valores de catálogo (`entity_type`, `entity_subtype`, `status`, `current_stage`, `relevance`) deben devolverse exactamente como aparecen en las instrucciones, en inglés y con snake_case.
+
+Conserva acentos y ortografía estándar en español en los campos de texto libre (name, description, context, etc.).
+
+Para cada iniciativa legislativa mencionada en la nota, extrae los siguientes campos. Si no se menciona un campo, deja su valor null. No inventes iniciativas, solo extrae lo que esté explícitamente mencionado en la nota.
+
+
+
+1. Tipo de iniciativa (entity_type): obtén el tipo de iniciativa del siguiente catálogo, usando la categoría que sea más específica al caso:
+
+"law_initiative" — Iniciativa de ley: propuesta para crear una nueva ley
+"reform_initiative" — Iniciativa de reforma: propuesta para modificar una ley o artículo constitucional existente
+"decree" — Decreto: disposición legislativa con fuerza de ley emitida por el legislativo o ejecutivo
+"regulation" — Reglamento: norma secundaria que reglamenta una ley existente
+"legislative_agreement" — Acuerdo legislativo: acuerdo adoptado por un órgano legislativo sin carácter de ley
+"ratification" — Ratificación: aprobación legislativa de un tratado, nombramiento u otro acto que requiere confirmación
+
+
+
+2. Subtipo de iniciativa (entity_subtype): asigna un subtipo específico en snake_case según el contexto. Usa una etiqueta corta normalizada, por ejemplo: "constitutional_reform", "fiscal_reform", "labor_law", "environmental_regulation", "international_treaty_ratification", "criminal_code_reform", "electoral_reform", etc. Si no se puede determinar, deja el valor null.
+
+
+
+3. Nombre de la iniciativa (name): escribe el nombre corto o título de la iniciativa tal como se menciona en la nota. Por ejemplo: "Reforma al Poder Judicial", "Ley Federal de Protección al Consumidor", "Decreto de extinción de fideicomisos". Si no hay un nombre, título o forma claramente identificable en la nota, solo extrae la iniciativa si está inequívocamente identificada por otros atributos distintivos (autor, fecha, órgano legislativo, jurisdicción, contenido específico). En ese caso, usa un nombre descriptivo mínimo y fiel al texto; si no es claramente identificable, no la extraigas.
+
+
+
+4. Nombres alternativos (aliases): si la iniciativa se menciona con diferentes nombres o formas abreviadas en la nota, escríbelos como una lista.
+
+Por ejemplo:
+
+["Reforma judicial", "Iniciativa de reforma al Poder Judicial de la Federación"]
+
+Si no hay nombres alternativos, deja el valor null.
+
+
+
+5. Descripción (description): redacta un texto libre con una descripción breve de lo que la iniciativa propone o modifica.
+
+
+
+6. Etiquetas (tags): palabras clave que describan la iniciativa y las áreas del derecho que toca.
+
+Por ejemplo:
+
+["reforma_judicial", "poder_judicial", "constitucion", "voto_popular"]
+
+
+
+7. Contexto (context): si se menciona en la nota, escribe un texto libre resumiendo el contexto político, antecedentes históricos, debate generado, iniciativas relacionadas o cualquier información contextual relevante. Si no se menciona, deja el valor null.
+
+
+
+8. Relevancia en la noticia (relevance): la relevancia que tiene la iniciativa en la noticia. Devuelve `relevance` como string: "1", "2" o "3".
+
+"1" — Si la iniciativa es el tema principal de la nota
+"2" — Si la iniciativa se menciona secundariamente
+"3" — Si la iniciativa solo se menciona implícitamente
+
+
+
+9. Estatus de la iniciativa (status): el estatus actual de la iniciativa según se reporta en la noticia, del siguiente catálogo:
+
+"proposed" — Propuesta: la iniciativa ha sido presentada formalmente
+"under_review" — En revisión: la iniciativa está siendo analizada o dictaminada
+"approved" — Aprobada: la iniciativa fue aprobada pero aún no publicada en el diario oficial
+"rejected" — Rechazada: la iniciativa fue rechazada
+"withdrawn" — Retirada: la iniciativa fue retirada por sus proponentes
+"published" — Publicada: la iniciativa fue publicada en el diario oficial (usa este valor cuando la nota reporte explícitamente la publicación en el diario oficial)
+"tabled" — Congelada: la iniciativa fue archivada o pospuesta indefinidamente
+
+Guía para distinguir `status` y `current_stage`:
+- Usa `status = "approved"` cuando la nota reporta aprobación pero no publicación en diario oficial.
+- Usa `status = "published"` cuando la nota reporta explícitamente la publicación en el diario oficial.
+- `current_stage` describe la etapa procesal específica (ver campo 10); no deduzcas `current_stage` solo a partir de `status`.
+
+
+
+10. Etapa procesal actual (current_stage): la etapa específica del proceso legislativo en la que se encuentra la iniciativa. Solo llena `current_stage` si la etapa procesal específica aparece explícitamente en la nota; no la deduzcas solo a partir de `status`.
+
+"filed" — Presentada: la iniciativa fue turnada o registrada formalmente
+"committee_review" — En comisiones: la iniciativa está siendo dictaminada en comisiones
+"first_reading" — Primera lectura: la iniciativa fue leída en el pleno por primera vez
+"approved_lower_chamber" — Aprobada en cámara baja: aprobada por la Cámara de Diputados
+"approved_upper_chamber" — Aprobada en cámara alta: aprobada por el Senado de la República
+"signed" — Firmada: firmada por el Ejecutivo
+"published" — Publicada: publicada en el Diario Oficial de la Federación
+"in_force" — En vigor: la ley o reforma ya está vigente (solo si la nota lo dice explícitamente)
+
+
+
+11. Jurisdicción (jurisdiction): la jurisdicción geográfica a la que aplica la iniciativa (país, estado, municipio). Completa solo los niveles geográficos explícitamente mencionados en la nota. No infieras `country`, `state` o `city` salvo que el texto lo diga de forma explícita o inequívoca.
+
+Formato:
+
+"jurisdiction": {
+    "country": null,
+    "state": null,
+    "city": null,
+    "neighborhood": null,
+    "zone": null,
+    "street": null,
+    "number": null,
+    "place_name": null
+}
+
+En el campo "place_name" escribe el nombre propio del lugar solo si es un lugar geográfico identificable en un mapa (por ejemplo, "Palacio Legislativo de San Lázaro"). No agregues descripciones genéricas. Si no se menciona, deja el valor null.
+
+
+
+12. Órgano legislativo (legislative_body): el cuerpo legislativo ante el cual se presentó la iniciativa. Por ejemplo: "Congreso de la Unión", "Cámara de Diputados", "Senado de la República", "Congreso del Estado de Guanajuato", "Cabildo de León". Si no se menciona en la nota, deja el valor null.
+
+
+
+13. Fecha de presentación (date_introduced): la fecha en que la iniciativa fue presentada o introducida. Responde con el texto tal cual se menciona en la nota (mention), la fecha interpretada (date), y la precisión en días si la fecha es aproximada (precision_days).
+
+Si solo se menciona un periodo aproximado (por ejemplo, "a inicios de este año", "la semana pasada"), interpreta una fecha estimada razonable y escribe un rango de precisión en días.
+
+Tres ejemplos:
+
+{"date": "2024-02-05T00:00:00", "mention": "el pasado 5 de febrero", "precision_days": null}
+
+{"date": "2025-03-01T00:00:00", "mention": "a principios de marzo", "precision_days": 15}
+
+{"date": "2024-09-01T00:00:00", "mention": "en septiembre del año pasado", "precision_days": 30}
+
+Usa el formato estandarizado de fechas "YYYY-MM-DDTHH:MM:SS".
+Toma `{date_now}` como fecha de referencia para interpretar fechas relativas. El tipo de fuente es {source_type}; si es una publicación de red social, la fecha de publicación puede servir como referencia cuando no se menciona una fecha explícita.
+
+Si no se menciona en la nota, deja el valor null.
+
+
+
+14. Fecha de votación planeada (date_planned_vote): la fecha en que se prevé o se programó la votación de la iniciativa, si se menciona en la nota. Si no se menciona, deja el valor null. Responde con el texto tal cual se menciona en la nota (mention), la fecha interpretada (date), y la precisión en días si la fecha es aproximada (precision_days).
+
+Dos ejemplos:
+
+{"date": "2024-09-03T00:00:00", "mention": "la votación está prevista para la primera semana de septiembre", "precision_days": 7}
+
+{"date": "2025-04-15T00:00:00", "mention": "se votará el próximo martes 15 de abril", "precision_days": null}
+
+Usa el formato "YYYY-MM-DDTHH:MM:SS".
+
+
+
+15. Autores o proponentes (authors): los autores, proponentes o responsables de la iniciativa (legisladores, ejecutivo, partidos políticos, grupos civiles). Incluye nombre, cargo y organización cuando estén disponibles.
+
+Formato:
+
+[
+  {
+    "name": "Andrés Manuel López Obrador",
+    "role": "Presidente de la República",
+    "organization": "Ejecutivo Federal"
+  }
+]
+
+Si no se mencionan autores, deja el valor null.
+
+
+
+16. Partidos involucrados (parties_involved): partidos políticos que propusieron, apoyaron u opusieron la iniciativa.
+
+Por ejemplo:
+
+["Morena", "PAN", "PRI", "MC"]
+
+Si no se mencionan en la nota, deja el valor null.
+
+
+
+17. Legisladores a favor (legislators_supporting): legisladores individuales que se reportan explícitamente como partidarios o votantes a favor de la iniciativa. Incluye nombre, cargo (por ejemplo, "Senador", "Diputada") y organización (partido político o cámara).
+
+Formato:
+
+[
+  {
+    "name": "Ricardo Monreal",
+    "role": "Senador",
+    "organization": "Morena"
+  }
+]
+
+Si no se mencionan en la nota, deja el valor null.
+
+
+
+18. Legisladores en contra (legislators_against): legisladores individuales que se reportan explícitamente como opositores o votantes en contra de la iniciativa. Incluye nombre, cargo y organización.
+
+Formato:
+
+[
+  {
+    "name": "Kenia López Rabadán",
+    "role": "Diputada",
+    "organization": "PAN"
+  }
+]
+
+Si no se mencionan en la nota, deja el valor null.
+
+
+
+19. Áreas temáticas (topic_areas): áreas del derecho o de política pública que aborda la iniciativa.
+
+Por ejemplo:
+
+["fiscal", "laboral", "ambiental", "electoral", "código_penal", "educación"]
+
+
+
+20. Leyes afectadas (affected_laws): leyes, códigos o artículos constitucionales existentes que la iniciativa modifica, deroga o complementa.
+
+Por ejemplo:
+
+["Constitución Política de los Estados Unidos Mexicanos", "Código Fiscal de la Federación, artículo 28"]
+
+Si no se mencionan en la nota, deja el valor null.
+
+
+
+21. Identificadores oficiales (identifiers): identificadores oficiales de la iniciativa, como número de expediente, folio, referencia de gaceta, etc.
+
+Por ejemplo:
+
+["Expediente 2024-I-015"]
+
+Si no se mencionan en la nota, deja el valor null.
+
+
+
+22. Resultado de la votación (vote_result): el resultado de la votación tal como se reporta en la nota, si aplica. Por ejemplo: "357 votos a favor, 98 en contra", "aprobada por mayoría calificada", "rechazada con 200 votos en contra". Si no se menciona en la nota, deja el valor null.
+
+
+
+23. URL del texto (text_url): URL al texto oficial de la iniciativa, si se menciona en la nota. Si no se menciona, deja el valor null.
+
+
+
+24. Temas relacionados (related_subjects): otros temas o dominios que toca la iniciativa, más allá de las áreas jurídicas directas.
+
+Por ejemplo:
+
+["rule_of_law", "human_rights", "economics", "public_health", "migration", "democracy"]
+
+Si no se identifican en la nota, deja el valor null.
+
+
+
+Formato de respuesta:
+
+Responde con una lista en formato JSON, donde cada elemento representa una iniciativa legislativa detectada en la nota. No añadas texto adicional fuera del JSON. Si no hay iniciativas legislativas específicas e identificables, responde con `[]`.
+
+Ejemplo de formato esperado:
+
+[
+  {
+    "entity_type": "reform_initiative",
+    "entity_subtype": "constitutional_reform",
+    "name": "Reforma al Poder Judicial",
+    "aliases": [
+      "Reforma judicial",
+      "Iniciativa de reforma al Poder Judicial de la Federación"
+    ],
+    "description": "Iniciativa de reforma constitucional presentada por el Ejecutivo Federal para modificar la estructura del Poder Judicial, incluyendo la elección por voto popular de ministros, magistrados y jueces.",
+    "tags": [
+      "reforma_judicial",
+      "poder_judicial",
+      "constitucion",
+      "voto_popular"
+    ],
+    "context": "La iniciativa forma parte de un paquete de reformas enviadas al Congreso al inicio del nuevo periodo legislativo. Ha generado amplio debate entre juristas y partidos de oposición.",
+    "relevance": "1",
+    "status": "approved",
+    "current_stage": "published",
+    "jurisdiction": {
+      "country": "México",
+      "state": null,
+      "city": null,
+      "neighborhood": null,
+      "zone": null,
+      "street": null,
+      "number": null,
+      "place_name": null
+    },
+    "legislative_body": "Congreso de la Unión",
+    "date_introduced": {
+      "date": "2024-02-05T00:00:00",
+      "mention": "el pasado 5 de febrero",
+      "precision_days": null
+    },
+    "date_planned_vote": {
+      "date": "2024-09-03T00:00:00",
+      "mention": "la votación está prevista para la primera semana de septiembre",
+      "precision_days": 7
+    },
+    "authors": [
+      {
+        "name": "Andrés Manuel López Obrador",
+        "role": "Presidente de la República",
+        "organization": "Ejecutivo Federal"
+      }
+    ],
+    "parties_involved": [
+      "Morena",
+      "PAN",
+      "PRI",
+      "MC"
+    ],
+    "legislators_supporting": [
+      {
+        "name": "Ricardo Monreal",
+        "role": "Senador",
+        "organization": "Morena"
+      },
+      {
+        "name": "Adán Augusto López",
+        "role": "Senador",
+        "organization": "Morena"
+      },
+      {
+        "name": "Ignacio Mier",
+        "role": "Diputado",
+        "organization": "Morena"
+      }
+    ],
+    "legislators_against": [
+      {
+        "name": "Kenia López Rabadán",
+        "role": "Diputada",
+        "organization": "PAN"
+      },
+      {
+        "name": "Jorge Romero",
+        "role": "Diputado",
+        "organization": "PAN"
+      },
+      {
+        "name": "Alejandro Moreno",
+        "role": "Senador",
+        "organization": "PRI"
+      }
+    ],
+    "topic_areas": [
+      "poder_judicial",
+      "constitucional",
+      "eleccion_popular"
+    ],
+    "affected_laws": [
+      "Constitución Política de los Estados Unidos Mexicanos"
+    ],
+    "identifiers": [
+      "Expediente 2024-I-015"
+    ],
+    "vote_result": "aprobada en lo general con 357 votos a favor",
+    "text_url": "https://www.diputados.gob.mx/LeyesBiblio/iniciativas/reforma-pj.pdf",
+    "related_subjects": [
+      "rule_of_law",
+      "democracy",
+      "judicial_independence"
+    ]
+  }
+]
+
+
+USER:
+
+La noticia es la siguiente:
+
+{body}

@@ -43,8 +43,16 @@
                     }
                 ],
                 "parties_involved": ["Morena", "PAN", "PRI", "MC"],
-                "legislators_supporting": ["Ricardo Monreal", "Adan Augusto Lopez", "Ignacio Mier"],
-                "legislators_against": ["Kenia Lopez Rabadan", "Jorge Romero", "Alejandro Moreno"],
+                "legislators_supporting": [
+                    {"name": "Ricardo Monreal", "role": "Senador", "organization": "Morena"},
+                    {"name": "Adan Augusto Lopez", "role": "Senador", "organization": "Morena"},
+                    {"name": "Ignacio Mier", "role": "Diputado", "organization": "Morena"}
+                ],
+                "legislators_against": [
+                    {"name": "Kenia Lopez Rabadan", "role": "Diputada", "organization": "PAN"},
+                    {"name": "Jorge Romero", "role": "Diputado", "organization": "PAN"},
+                    {"name": "Alejandro Moreno", "role": "Senador", "organization": "PRI"}
+                ],
                 "topic_areas": ["poder_judicial", "constitucional", "eleccion_popular"],
                 "affected_laws": ["Constitucion Politica de los Estados Unidos Mexicanos"],
                 "identifiers": ["Expediente 2024-I-015"],
@@ -150,12 +158,12 @@
                 "description": "Political parties that proposed, supported, or opposed the initiative (e.g. 'Morena', 'PAN', 'PRI', 'MC', 'PT', 'PVEM')."
             },
             "legislators_supporting": {
-                "type": "List[str]",
-                "description": "Names of individual legislators explicitly reported as supporting or voting in favor of the initiative."
+                "type": "List[PersonReference]",
+                "description": "Individual legislators explicitly reported as supporting or voting in favor of the initiative, with name, role (e.g. 'Senador', 'Diputada'), and organization (political party or chamber)."
             },
             "legislators_against": {
-                "type": "List[str]",
-                "description": "Names of individual legislators explicitly reported as opposing or voting against the initiative."
+                "type": "List[PersonReference]",
+                "description": "Individual legislators explicitly reported as opposing or voting against the initiative, with name, role (e.g. 'Senador', 'Diputada'), and organization (political party or chamber)."
             },
             "topic_areas": {
                 "type": "List[str]",

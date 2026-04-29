@@ -6,6 +6,15 @@ Designed to be run step-by-step in IPython:
 
 Or interactively in a Jupyter/IPython session using %run:
     %run src/PoC/run_extraction.py
+
+The script is parameterized by the `DATA_SUBDIR` constant below — it reads
+every `*.json` file under `data/<DATA_SUBDIR>/` and feeds the records to
+the extractor. Two record shapes are supported automatically:
+
+1. Facebook-style posts with a nested `message` dict (e.g. the
+   `queretaro_fb_pages/` dataset).
+2. News-style documents with flat fields `text`, `title`, `url`, etc.
+   (e.g. the `legislative_gto/` dataset produced by `get_data.py`).
 """
 
 from __future__ import annotations
@@ -16,7 +25,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv('../.env.local')
 
 # Ensure project root is on sys.path
 _PROJECT_ROOT = Path('/Users/oscarcuellar/ocn/media/kg/kg/')
@@ -27,46 +36,74 @@ from src.entities.extraction.extract import EntityExtractor, Ontology
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 
+# Which subdirectory under `data/` to read. Every `*.json` file in this
+# directory is processed. Examples: "queretaro_fb_pages", "legislative_gto", "ayuntamiento_qro".
+DATA_SUBDIR: str = "ayuntamiento_qro"
+
 # Set to a list of Path objects to process specific files, or None to use all
-# files found in data/queretaro_fb_pages/
+# files found in data/<DATA_SUBDIR>/
 FILES: list[Path] | None = None
 
 # Set to True to only run keyword matching — no LLM calls
 MATCH_ONLY: bool = False
 
-# Max posts to process per file. Set to None to process all
-LIMIT: int | None = 5
+# Max records to process per file. Set to None to process all
+LIMIT: int | None = 500
 
 # ── Load data ─────────────────────────────────────────────────────────────────
 
-data_dir = _PROJECT_ROOT / "data" / "queretaro_fb_pages"
+data_dir = _PROJECT_ROOT / "data" / DATA_SUBDIR
 
 if FILES:
     files = FILES
 else:
     files = sorted(data_dir.glob("*.json"))
 
+print(f"Data dir: {data_dir}")
 print(f"Files found: {len(files)}")
 for f in files:
     print(f"  {f.name}")
 
 # ── Helper ────────────────────────────────────────────────────────────────────
 
-def _post_to_article(post: dict) -> dict:
-    """Map a Facebook page post to the article dict expected by EntityExtractor."""
-    msg = post.get("message", {})
-    body = msg.get("body", "") or ""
-    title = msg.get("title", "") or ""
-    url = msg.get("url", "")
-    doc_type = (post.get("type") or msg.get("type") or "").lower()
+def _record_to_article(record: dict) -> dict:
+    """Map a dataset record to the article dict expected by EntityExtractor.
 
-    categories = []
-    cat = msg.get("source_category")
-    if cat:
-        categories.append(cat) if isinstance(cat, str) else categories.extend(cat)
-    tags = msg.get("source_tags")
-    if tags:
-        categories.extend(tags) if isinstance(tags, list) else categories.append(tags)
+    Supports two shapes:
+    - Facebook post: `{"type": "Facebook", "message": {"body": ..., "title": ..., "url": ...}}`
+    - News doc (ES hit): flat `{"text": ..., "title": ..., "url": ..., "custom_categories": {...}}`
+    """
+    msg = record.get("message")
+    if isinstance(msg, dict):
+        body = msg.get("body", "") or ""
+        title = msg.get("title", "") or ""
+        url = msg.get("url", "") or ""
+        doc_type = (record.get("type") or msg.get("type") or "").lower()
+
+        categories: list[str] = []
+        cat = msg.get("source_category")
+        if cat:
+            categories.append(cat) if isinstance(cat, str) else categories.extend(cat)
+        tags = msg.get("source_tags")
+        if tags:
+            categories.extend(tags) if isinstance(tags, list) else categories.append(tags)
+    else:
+        body = record.get("text") or record.get("summary") or ""
+        title = record.get("title") or ""
+        url = record.get("url") or record.get("_id") or ""
+        doc_type = (record.get("doctype") or record.get("type") or "news")
+        if not isinstance(doc_type, str):
+            doc_type = str(doc_type)
+        doc_type = doc_type.lower()
+
+        categories = []
+        custom = record.get("custom_categories") or {}
+        if isinstance(custom, dict):
+            for level_vals in custom.values():
+                if isinstance(level_vals, list):
+                    categories.extend(level_vals)
+                elif isinstance(level_vals, str):
+                    categories.append(level_vals)
 
     return {
         "text": body,
@@ -84,31 +121,31 @@ extractor = EntityExtractor(ontology=ontology)
 # ── Step 1: Keyword matching ───────────────────────────────────────────────────
 
 matched_articles: list[tuple[dict, set]] = []   # (article, matched_classes)
-all_posts: list[dict] = []
+all_records: list[dict] = []
 for filepath in files:
     print(f"\n{'='*70}")
     print(f"File: {filepath.name}")
     print(f"{'='*70}")
 
     with open(filepath, encoding="utf-8") as f:
-        posts = json.load(f)
+        records = json.load(f)
 
-    if not isinstance(posts, list):
-        posts = [posts]
+    if not isinstance(records, list):
+        records = [records]
 
-    all_posts.extend(posts)
-    for i, post in enumerate(posts):
+    all_records.extend(records)
+    for i, record in enumerate(records):
         if LIMIT and i >= LIMIT:
             break
 
-        article = _post_to_article(post)
+        article = _record_to_article(record)
         matched_classes = extractor.match(article)
         if not matched_classes:
             continue
 
         supertypes = ontology.resolve_supertypes(matched_classes)
         text_preview = (article["title"] or article["text"])[:80].replace("\n", " ")
-        print(f"\n  Post {i+1}: {text_preview}...")
+        print(f"\n  Record {i+1}: {text_preview}...")
         print(f"  URL: {article['url']}")
         print(f"  Matched classes : {sorted(matched_classes)}")
         print(f"  Supertypes      : {sorted(supertypes)}")
@@ -129,7 +166,9 @@ else:
         print(f"\n--- {text_preview}...", article.get("url"))
 
         try:
-            entities = extractor.extract(article, validate=True)
+            entities = extractor.extract(
+                article, validate=True, raise_validation_error=False,
+            )
         except Exception as e:
             print(f"  ERROR: {e}")
             continue
@@ -141,7 +180,7 @@ else:
         all_entities.extend(entities)
         for ent in entities:
             print(f"  -> [{ent.get('_supertype')}] {ent.get('event_type', '?')}: "
-                  f"{ent.get('name') or ent.get('description', '')[:60]}")
+                  f"{ent.get('name') or str(ent.get('description', ''))[:60]}")
 
     print(f"\n{'='*70}")
     print(f"Summary: {len(matched_articles)} matched, {len(all_entities)} entities extracted")

@@ -98,6 +98,22 @@ The system automatically:
 - Auto-resolves composite type dependencies
 - Validates required fields and data integrity
 
+### Validation modes
+
+`Parser.normalize_record()` accepts a `raise_validation_error` flag (default `True`) that controls how failed field validations are reported:
+
+| `raise_validation_error` | Behavior on validation failure |
+|---|---|
+| `True` (default) | Raises the underlying validator exception (e.g. `ValueError("Missing required field: event_type")`) — the record is rejected. |
+| `False` | Prints a `WARNING: schema validation issue for <Type>.<field>: <message>` line to stderr and continues; the record is still returned with whatever fields were parsed. All fields are checked (one warning per failure) instead of stopping at the first failure. |
+
+```python
+parser.normalize_record(record, "News", raise_validation_error=False)
+# Bad/missing fields surface as stderr warnings, no exception raised.
+```
+
+The flag also propagates from `EntityExtractor.extract()` / `extract_supertype()` (in `src/entities/extraction/extract.py`) so PoC scripts can opt into warn-only mode without changing the schema layer call sites.
+
 ## Types
 
 Type parsers convert raw values to Python types. Each parser has `parse()` and `validate()` methods.

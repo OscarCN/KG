@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import copy
+import sys
 
+from functools import partial
 from typing import Any, Callable, Dict, List, Optional
 from .types import resolve_parser_from_spec
 from .types.registry import extract_list_object_type
@@ -165,27 +167,41 @@ class Parser:
             record: Dict[str, Any],
             type_name: str,
             full_object: Optional[Dict[str, Any]] = None,
-            context: Optional[Dict[str, Any]] = None) -> None:
+            context: Optional[Dict[str, Any]] = None,
+            raise_validation_error: bool = True) -> None:
         schema = self.object_schemas[type_name]
         context = context or {}
         for field_name, spec in schema.items():
             value = record[field_name]
             parser = resolve_parser_from_spec(spec)
-            if parser:
+            if not parser:
+                continue
+            try:
                 parser.validate(value, spec, field_name, full_object=full_object, context=context)
+            except Exception as e:
+                if raise_validation_error:
+                    raise
+                print(
+                    f"WARNING: schema validation issue for {type_name}.{field_name}: {e}",
+                    file=sys.stderr,
+                )
 
     def normalize_record(
         self,
         record: Dict[str, Any],
         type_name: str,
         context: Optional[Dict[str, Any]] = None,
+        raise_validation_error: bool = True,
     ) -> Dict[str, Any]:
 
         structured = self.parse_object_structure(record, type_name)
         typed = self.traverse_nested(self.parse_object_types, structured, type_name, structured, context)
         with_defaults = self.traverse_nested(self._apply_defaults, typed, type_name, typed, context)
 
-        self.traverse_nested(self._validate, with_defaults, type_name, with_defaults, context)
+        self.traverse_nested(
+            partial(self._validate, raise_validation_error=raise_validation_error),
+            with_defaults, type_name, with_defaults, context,
+        )
 
         return with_defaults
 

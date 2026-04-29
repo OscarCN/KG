@@ -49,6 +49,7 @@ src/
     events.py       # Event extraction from news via GPT-4o (batch + sync)
     event_linking.py# Event deduplication and merging across sources
     newsfeed.py     # News relevance classification and structured extraction
+    get_data.py     # Fetch ES hits via elastic_client → data/<subdir>/*.json
     run_extraction.py# Step-by-step IPython script for the extraction pipeline
     sentence_pairs_model.py  # Sentence-pair similarity model (PyTorch)
 resources/          # Input data files (Excel, prompt contexts)

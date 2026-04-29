@@ -460,15 +460,20 @@ def _parse_llm_response(raw: str) -> List[Dict[str, Any]]:
 def _validate_entity(
     entity: Dict[str, Any],
     supertype: str,
+    raise_validation_error: bool = True,
 ) -> Dict[str, Any]:
     """Run an entity dict through the schema parser for type coercion and validation.
 
-    Returns the normalized entity. Raises on validation failure.
+    Returns the normalized entity. When ``raise_validation_error`` is True
+    (default), validation failures raise. When False, validation issues
+    are emitted as warnings to stderr and the entity is returned anyway.
     """
     loaded = _get_schema(supertype)
     schema_key = _snake_to_pascal(supertype)
     parser = Parser(loaded["schemas"])
-    return parser.normalize_record(entity, schema_key)
+    return parser.normalize_record(
+        entity, schema_key, raise_validation_error=raise_validation_error,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -673,6 +678,7 @@ class EntityExtractor:
         supertype: str,
         event_type: Optional[str] = None,
         validate: bool = True,
+        raise_validation_error: bool = True,
     ) -> List[Dict[str, Any]]:
         """Run extraction for a single supertype against an article.
 
@@ -683,6 +689,9 @@ class EntityExtractor:
                 of this specific ontology class. When None, extracts all types
                 within the supertype (legacy behavior).
             validate: if True, run results through schema validation.
+            raise_validation_error: if True (default), validation failures
+                raise. If False, validation issues are emitted as warnings
+                and the entity is kept.
 
         Returns:
             List of extracted entity dicts.
@@ -726,7 +735,25 @@ class EntityExtractor:
                     "_source_id": entity.pop("_source_id", None),
                     "_supertype": entity.pop("_supertype", None),
                 }
-                normalized = _validate_entity(entity, supertype)
+                try:
+                    normalized = _validate_entity(
+                        entity, supertype,
+                        raise_validation_error=raise_validation_error,
+                    )
+                except Exception as e:
+                    entity_with_meta = {**entity, **meta}
+                    pretty = json.dumps(
+                        entity_with_meta, ensure_ascii=False, indent=2, default=str,
+                    )
+                    logger.error(
+                        "Validation failed for supertype=%s (%s): %s\nFull entity:\n%s",
+                        supertype, type(e).__name__, e, pretty,
+                    )
+                    print(
+                        f"  Validation failed for supertype={supertype} "
+                        f"({type(e).__name__}): {e}\n  Full entity:\n{pretty}"
+                    )
+                    raise
                 normalized.update(meta)
                 validated.append(normalized)
             return validated
@@ -737,6 +764,7 @@ class EntityExtractor:
         self,
         article: Dict[str, Any],
         validate: bool = True,
+        raise_validation_error: bool = True,
     ) -> List[Dict[str, Any]]:
         """Full extraction pipeline for an article.
 
@@ -749,6 +777,9 @@ class EntityExtractor:
             article: dict with "text" (required), and optionally
                      "title", "date", "categories", "id"/"url".
             validate: if True, run results through schema validation.
+            raise_validation_error: if True (default), validation failures
+                raise. If False, validation issues are emitted as warnings
+                and entities are kept.
 
         Returns:
             List of extracted entity dicts across all confirmed classes.
@@ -802,6 +833,7 @@ class EntityExtractor:
 
             entities = self.extract_supertype(
                 article, supertype, event_type=event_type, validate=validate,
+                raise_validation_error=raise_validation_error,
             )
 
             # Write to cache
