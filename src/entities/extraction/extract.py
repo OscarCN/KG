@@ -44,6 +44,23 @@ def _snake_to_pascal(name: str) -> str:
     return "".join(word.capitalize() for word in name.split("_"))
 
 
+def _coerce_publication_date(article: Dict[str, Any]) -> Optional[str]:
+    """Pull a publication date out of the article using common field names.
+
+    Returns an ISO-string when found, else None. Used to attach a
+    `date_created` provenance field to each extracted entity so the
+    linker can fall back to it when no date_range is extracted.
+    """
+    for key in (
+        "date_created", "publication_date", "article_date",
+        "date", "created_time", "timestamp",
+    ):
+        v = article.get(key)
+        if v:
+            return str(v)
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Text normalization helpers
 # ---------------------------------------------------------------------------
@@ -428,6 +445,32 @@ def call_llm(messages: List[Dict[str, str]]) -> str:
     )
 
 
+_LLM_MAX_ATTEMPTS = 3
+
+
+def _call_llm_with_retry(messages: List[Dict[str, str]]) -> str:
+    """Call ``call_llm`` up to ``_LLM_MAX_ATTEMPTS`` times.
+
+    Retries on empty/None responses and on transport/SDK errors. Raises the
+    last exception after exhausting attempts.
+    """
+    last_exc: Optional[BaseException] = None
+    for attempt in range(1, _LLM_MAX_ATTEMPTS + 1):
+        try:
+            raw = call_llm(messages)
+            if raw is None or not str(raw).strip():
+                raise ValueError("LLM returned empty response")
+            return raw
+        except Exception as exc:
+            last_exc = exc
+            logger.warning(
+                "LLM call attempt %d/%d failed: %s",
+                attempt, _LLM_MAX_ATTEMPTS, exc,
+            )
+    assert last_exc is not None
+    raise last_exc
+
+
 # ---------------------------------------------------------------------------
 # Response parsing
 # ---------------------------------------------------------------------------
@@ -640,7 +683,7 @@ class EntityExtractor:
             },
         ]
 
-        raw = call_llm(messages)
+        raw = _call_llm_with_retry(messages)
         text = raw.strip()
         # Strip markdown code fences the LLM sometimes wraps around JSON
         if text.startswith("```"):
@@ -718,15 +761,18 @@ class EntityExtractor:
             # Insert focus instruction before the last USER message (the article)
             messages.insert(-1, focus_msg)
 
-        raw_response = call_llm(messages)
+        raw_response = _call_llm_with_retry(messages)
 
         entities = _parse_llm_response(raw_response)
 
         # Tag each entity with source metadata
         article_id = article.get("id") or article.get("url")
+        publication_date = _coerce_publication_date(article)
         for entity in entities:
             entity["_source_id"] = article_id
             entity["_supertype"] = supertype
+            if publication_date:
+                entity["date_created"] = publication_date
 
         if validate:
             validated = []
@@ -734,6 +780,7 @@ class EntityExtractor:
                 meta = {
                     "_source_id": entity.pop("_source_id", None),
                     "_supertype": entity.pop("_supertype", None),
+                    "date_created": entity.pop("date_created", None),
                 }
                 try:
                     normalized = _validate_entity(
@@ -814,6 +861,7 @@ class EntityExtractor:
 
         # Step 3: Extract per supertype (with cache)
         article_url = article.get("url") or article.get("id") or ""
+        publication_date = _coerce_publication_date(article)
         all_entities: List[Dict[str, Any]] = []
         for supertype, classes in supertype_to_classes.items():
             # Single class → focused extraction; multiple → unfocused (all types)
@@ -841,5 +889,12 @@ class EntityExtractor:
                 _cache_write(article_url, cache_key_class, entities)
 
             all_entities.extend(entities)
+
+        # Backfill `date_created` on every entity, including those that came
+        # from older caches that predated this provenance field.
+        if publication_date:
+            for entity in all_entities:
+                if not entity.get("date_created"):
+                    entity["date_created"] = publication_date
 
         return all_entities

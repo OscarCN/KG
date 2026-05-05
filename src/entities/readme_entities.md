@@ -35,7 +35,11 @@ entities/
       classes/            # Generated extraction prompts (one per supertype, .txt)
     extract.py            # Extraction pipeline: matching, LLM calls, parsing
     prompt_generator.py   # Schema → LLM prompt auto-generation
-  linking/                # (future) Entity linking/deduplication
+  linking/                # Event linking/deduplication via LLM disambiguation
+    geocode.py            # Geocoder wrapper (structured Location → level_2_id, coords, geoid)
+    link_llm.py           # LLM disambiguator (gemini-2.5-flash-lite) with file cache
+    link.py               # EntityLinker: candidate filter + LLM call (events only)
+    run_linking.py        # IPython runner
   readme_entities.md      # This file
 ```
 
@@ -90,7 +94,7 @@ Each class maps to exactly one **supertype** (superclass). The supertype determi
 |---|---|---|
 | `paid_mass_event` | concert, festival, party, fair, inauguration, sports_event, religious_event, cultural_event, congress, exposition, conference, convention | `paid_mass_event.json` |
 | `robbery_assault_event` | robbery, assault, kidnapping, security_event | `robbery_assault_event.json` |
-| `public_works_event` | pothole, street_lighting, paving, public_transport, infrastructure, trash_complaint, water_issue, sinkhole, public_road | `public_works_event.json` |
+| `public_works_event` | pothole, street_lighting, paving, public_transport, infrastructure, trash_complaint, sinkhole, public_road | `public_works_event.json` |
 | `violence_event` | shooting, attack, homicide, confrontation | `violence_event.json` |
 | `closures_interruptions_event` | blockade, closure, suspension_of_operations | `closures_interruptions_event.json` |
 | `emergency_event` | fire, crash, explosion, flood, accident, pedestrian_hit, emergency_general | `emergency_event.json` |
@@ -102,7 +106,7 @@ Each class maps to exactly one **supertype** (superclass). The supertype determi
 | Supertype | Theme types | Schema |
 |---|---|---|
 | `security` | crime_trends, law_enforcement, public_safety, security_policy | `security.json` |
-| `public_infrastructure` | infrastructure_conditions, urban_services, water_management, waste_management, transportation_infrastructure, urban_planning | `public_infrastructure.json` |
+| `public_infrastructure` | infrastructure_conditions, urban_services, water_management, water_issue, waste_management, transportation_infrastructure, urban_planning | `public_infrastructure.json` |
 | `civil_protection` | emergency_preparedness, disaster_trends, accident_statistics, risk_assessment, civil_protection_policy | `civil_protection.json` |
 | `mobility` | transit_disruptions, road_conditions, transportation_planning, traffic_patterns, public_transit | `mobility.json` |
 | `culture` | cultural_life, arts_scene, festival_landscape, heritage, cultural_policy | `culture.json` |
@@ -423,6 +427,138 @@ Schema descriptions are used by the prompt generator to craft extraction instruc
 - **`event_type.description`**: always include "Choose the single most specific category that matches."
 - **`date_range.description`**: always specify what dates the field refers to (e.g. "when the incident occurred", "when the works are scheduled").
 - **`meta.example` composite type completeness**: every composite type in the example must include ALL subfields from the type definition, with null for absent values. Omitting fields (e.g. showing only `country`, `state`, `city` for Location instead of all 8 fields) causes the generated prompt to miss those fields, and the extraction LLM will not extract them.
+
+## Linking Pipeline (`linking/`)
+
+The linker takes the output of `extract.py` (a flat list of records, each tagged with `_source_id` and `_supertype`) and folds duplicates that refer to the same real-world event into a single canonical record. The canonical record carries a `source_ids: List[str]` field listing every document that mentions it.
+
+**Scope: events only.** Records whose schema `meta.category != "event"` (themes, entities/concepts) are skipped by this version of the linker — they're tallied under `linker.dropped["skipped_category:..."]` and can be revisited later.
+
+```
+new event → schema parse → geocode location → candidate filter
+                                              (event_type ∧
+                                               date overlap ∧
+                                               same level_2_id)
+          → LLM disambiguation (gemini-2.5-flash-lite)
+          → match-id ? merge : create new
+```
+
+### Candidate filter
+
+For each incoming event, candidates are the already-linked events sharing **all three** of:
+
+- same `event_type`
+- same geocoded `level_2_id` (state). Events that geocode to no `level_2_id` are bucketed together under the empty-string key.
+- date-range overlap with **slack** applied symmetrically:
+  - **±1 day** when the incoming event has an extracted `date_range`. So two extracted-dated events match in the date dimension when their day windows are at most 2 days apart.
+  - **±2 days** when the incoming event has no extracted date and falls back to its `_publication_date`. So two publication-only events match when their publication dates are at most 4 days apart.
+
+Each linked event is registered in the candidate index under both its extracted-date window (when present, with extracted slack) and its publication-date window (when present, with publication slack). That way the next incoming event finds it regardless of which date source it carries.
+
+The filter is intentionally broad — the LLM does the actual same-vs-different judgment.
+
+### Date sources
+
+Each extracted record may carry two date provenance fields:
+
+| Field | Source | Used when |
+|---|---|---|
+| `date_range.date_range.{start,end}` | LLM-extracted from the article body | The article explicitly mentions when the event happened |
+| `date_created` | Article publication timestamp, attached by `extract.py` (and copyable from ES via `src/PoC/enrich_extracted_raw.py`) | Falls back to this when no date is extracted |
+
+Records with neither are dropped (`linker.dropped["event_no_date_no_pub"]`). When both are present, the extracted date_range wins for candidate-window resolution; the publication date is still kept for index registration so future publication-only records can find this event.
+
+The linked record carries `publication_date` (the **earliest** publication date seen across merged sources) — useful as a stable temporal anchor when the extracted date_range is missing or imprecise.
+
+### LLM disambiguation (`link_llm.py`)
+
+A single LLM call decides whether the incoming event matches any candidate. The model is `google/gemini-2.5-flash-lite` (override via `OPENROUTER_LINKER_MODEL`). The payload sent to the LLM contains, for the incoming event and each candidate, ONLY:
+
+| Field | Source |
+|---|---|
+| `name` | record `name` |
+| `description` | record `description` |
+| `address` | the structured `location` dict (country, state, city, neighborhood, zone, street, number, place_name) — **not** the whole event record |
+| `date` | `{start, end}` from `record.date_range.date_range`, ISO-formatted (may both be null) |
+| `publication_date` | ISO-formatted publication timestamp (when present); used by the LLM as a fallback temporal anchor |
+
+Candidates additionally carry their `id`. The LLM is instructed to return either `{"match_id": "<one of the candidate ids>"}` or `{"match_id": null}`. Any id not present in the candidate list is treated defensively as `null`. Empty candidate lists short-circuit to `null` without an LLM call.
+
+Responses are cached as `cache/link_llm/<sha256>.json`, keyed by `sha256(canonical(payload))`. Re-runs hit the cache and produce identical decisions without re-billing.
+
+### Merge behavior
+
+When the LLM picks a match, the linker:
+
+- appends the new record's `_source_id` to the canonical event's `source_ids` (de-duped),
+- fills nulls on `name`, `description`, `context`, `status` from the new record,
+- widens `date_range.date_range` (`start = min`, `end = max`) and re-registers the event in the candidate index for any new day-keys the widened range introduced,
+- promotes the canonical record's `location` to the new one when it has more populated subfields **and** belongs to the same `level_2_id`.
+
+When no match is found, a new linked event is minted with id `{YYYYMMDD}_{level_2_id_or_noloc}_{rand}`.
+
+### Drop reasons
+
+| Bucket | Why |
+|---|---|
+| `skipped_category:<theme\|entity\|...>` | Record's schema is not an event — out of scope for this version |
+| `event_no_type` | Record has no `event_type` |
+| `event_no_date_no_pub` | Record has neither a parseable `date_range.date_range.{start,end}` nor a `date_created` |
+| `no_supertype` | Record is missing the `_supertype` provenance field |
+| `error` | Unhandled exception (logged with traceback) |
+
+### Geocoder integration (`geocode.py`)
+
+`geocode_location(loc)` consumes a structured `Location` dict (parsed `country, state, city, neighborhood, zone, street, number, place_name`) and feeds it to the apify_client geocoder via the structured-input path of `format_mentions` (which short-circuits the NLP step when its `main` argument is already a dict).
+
+| Location field | Geocoder level key | Level # |
+|---|---|---|
+| `country` | `PAIS` | 1 |
+| `state` | `EST` | 2 |
+| `city` | `MUN` | 3 |
+| `neighborhood`, `zone` | `COL` | 5 |
+| `street` (+ `number`) | `CALLE` | 6 |
+| `place_name` | `LUG` | 7 |
+
+The geocoder lives at `/Users/oscarcuellar/ocn/media/apify_client/src/helpers/geocode.py` and requires `NLP_URL` and `GEOCODING_URL` env vars pointing at the deepriver NLP and geocoding microservices. The wrapper picks the highest-precision match from context group `'1'` of the response and exposes `geoid`, `precision_level` (int 1–7), `formatted_name`, `level_2/3/5/7`, `matched_lat`, `matched_lon`. Results are cached as JSON under `cache/geocode/<sha256>.json` keyed by the canonicalized Location dict, so re-runs avoid hitting the geocoding service.
+
+Override the apify_client path with the `APIFY_CLIENT_SRC` env var (default `/Users/oscarcuellar/ocn/media/apify_client/src`).
+
+### Output record shape
+
+Each linked event extends the original schema with these link-level fields:
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | str | Minted linked id (`{YYYYMMDD}_{level_2_id_or_noloc}_{rand}`) |
+| `source_ids` | List[str] | `_source_id`s of every document that mentions this event |
+| `publication_date` | str | Earliest publication timestamp across the merged sources (when any source had one) |
+
+Linked events also carry the merged `date_range` (widened on each overlap), the most-populated `location` fields seen across sources within the same `level_2_id`, and the `_geo` block from the geocoder.
+
+### Running
+
+`run_linking.py` is a step-by-step IPython script (mirrors `src/PoC/run_extraction.py`). Edit the `INPUT`, `OUTPUT`, and `GEOCODE` constants at the top of the file, then:
+
+```bash
+ipython src/entities/linking/run_linking.py
+# or from a Jupyter/IPython session:
+%run src/entities/linking/run_linking.py
+```
+
+After it finishes, the following names are bound for inspection:
+
+| Name | What it holds |
+|---|---|
+| `records` | Raw extracted records loaded from `INPUT` |
+| `linker` | The `EntityLinker` instance (with `linker.dropped`, `linker.events`, ...) |
+| `linked` | Dict with an `events` list (themes/entities are skipped) |
+
+The script loads the extracted JSON (with a robust record-boundary fallback for malformed files), parses every record through its supertype schema, runs the linker, and writes the result as a JSON dict with an `events` list. It prints counts of input records, linked events, drop reasons, and how many events were merged from multiple sources. Set `GEOCODE = False` at the top to skip geocoding (events with no resolvable state will fall into the empty-prefix bucket).
+
+### Required environment
+
+The linker reads `OPENROUTER_API_KEY` (loaded from `kg/.env.local` automatically by `run_linking.py`) and the geocoding microservice URLs (`NLP_URL`, `GEOCODING_URL`) — set the latter via the apify_client `.env` or your shell. Override the linker model via `OPENROUTER_LINKER_MODEL` (default `google/gemini-2.5-flash-lite`).
 
 ### Designing composite types
 

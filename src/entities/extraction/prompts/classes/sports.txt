@@ -89,6 +89,13 @@ Por ejemplo:
 
 Llena solo los campos mencionados explícitamente en la nota; los demás déjalos como `null`. En el campo `"place_name"` escribe el nombre propio del lugar, solo si es un lugar geográfico identificable en un mapa (estadio, arena, centro deportivo, parque, etc.). Solo escribe nombres propios de lugares; no agregues referencias espaciales ni descripciones genéricas. Ejemplos de valores INCORRECTOS: "distintas canchas de la ciudad", "gimnasio del barrio", "instalaciones deportivas locales". Si no se menciona el nombre propio del lugar, deja el valor `null`.
 
+**Distinción entre `neighborhood`, `zone` y `place_name` (mutuamente excluyentes — un mismo nombre nunca debe aparecer en dos campos):**
+- `neighborhood`: cualquier área residencial con nombre propio — colonia, fraccionamiento, barrio, unidad habitacional o distrito residencial con nombre (p.ej. "Centro", "Centro Histórico", "El Campanario", "Polanco", "Jurica", "Juriquilla", "Roma Norte"). Si la nota menciona una colonia, fraccionamiento o distrito residencial con nombre, va AQUÍ — nunca en `place_name` ni en `zone`.
+- `zone`: SOLO zona direccional o funcional genérica de la ciudad, sin nombre propio residencial (p.ej. "zona norte", "zona sur", "zona poniente", "zona industrial", "zona metropolitana", "distrito financiero"). No uses `zone` para distritos residenciales con nombre propio (esos van en `neighborhood`).
+- `place_name`: SOLO un punto identificable y discreto en el mapa — recinto (estadio, teatro, museo, hospital con nombre), hito (monumento, plaza, parque, puente), punto de transporte (estación, terminal, aeropuerto), edificio o negocio con nombre propio (centro comercial, mercado, hotel), glorieta o intersección con nombre. Ejemplos correctos: "Estadio Corregidora", "Plaza de Armas", "Parque Querétaro 2000".
+
+NUNCA pongas una colonia, fraccionamiento o distrito residencial en `place_name`. "El Campanario" o "Centro Histórico" van en `neighborhood`. "zona industrial" o "zona sur" van en `zone`.
+
 
 
 9. **Subtemas relacionados** (`related_subtopics`): subtemas específicos discutidos en el artículo en relación con el deporte. Escríbelos en inglés como identificadores descriptivos. Si no hay subtemas, usa `[]`.

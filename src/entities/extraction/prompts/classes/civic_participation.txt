@@ -74,6 +74,13 @@ Por ejemplo:
 
 8. **Ubicación** (location): si el tema de participación ciudadana se refiere a un área geográfica específica, extrae los datos de ubicación de manera estructurada. Llena solo los campos mencionados explícitamente en la nota; omite los campos sin información (no los incluyas con valor null). En el campo `place_name` escribe únicamente el nombre propio de un lugar geográfico identificable en un mapa (plaza, parque, palacio de gobierno, etc.). No agregues referencias espaciales ni descripciones genéricas. Ejemplos de valores INCORRECTOS: "diversas colonias de la ciudad", "calles del centro", "comunidades rurales". Si no se menciona un nombre propio de lugar, no incluyas el campo.
 
+**Distinción entre `neighborhood`, `zone` y `place_name` (mutuamente excluyentes — un mismo nombre nunca debe aparecer en dos campos):**
+- `neighborhood`: cualquier área residencial con nombre propio — colonia, fraccionamiento, barrio, unidad habitacional o distrito residencial con nombre (p.ej. "Centro", "Centro Histórico", "El Campanario", "Polanco", "Jurica", "Juriquilla", "Roma Norte"). Si la nota menciona una colonia, fraccionamiento o distrito residencial con nombre, va AQUÍ — nunca en `place_name` ni en `zone`.
+- `zone`: SOLO zona direccional o funcional genérica de la ciudad, sin nombre propio residencial (p.ej. "zona norte", "zona sur", "zona poniente", "zona industrial", "zona metropolitana", "distrito financiero"). No uses `zone` para distritos residenciales con nombre propio (esos van en `neighborhood`).
+- `place_name`: SOLO un punto identificable y discreto en el mapa — recinto (estadio, teatro, museo, hospital con nombre), hito (monumento, plaza, parque, puente), punto de transporte (estación, terminal, aeropuerto), edificio o negocio con nombre propio (centro comercial, mercado, hotel), glorieta o intersección con nombre. Ejemplos correctos: "Estadio Corregidora", "Plaza de Armas", "Parque Querétaro 2000".
+
+NUNCA pongas una colonia, fraccionamiento o distrito residencial en `place_name`. "El Campanario" o "Centro Histórico" van en `neighborhood`. "zona industrial" o "zona sur" van en `zone`.
+
 Formato:
 
 "location": {

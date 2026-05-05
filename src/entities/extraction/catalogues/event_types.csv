@@ -21,7 +21,6 @@ paving,public_works_event,Pavimentacion,Paving
 public_transport,public_works_event,Transporte publico,Public transport
 infrastructure,public_works_event,Infraestructura,Infrastructure
 trash_complaint,public_works_event,Problema de basura,Trash complaint
-water_issue,public_works_event,Problema de agua,Water issue
 sinkhole,public_works_event,Socavon,Sinkhole
 public_road,public_works_event,Via publica,Public road
 shooting,violence_event,Balacera,Shooting
@@ -51,6 +50,7 @@ water_management,public_infrastructure,Gestion del agua,Water management
 waste_management,public_infrastructure,Gestion de residuos,Waste management
 transportation_infrastructure,public_infrastructure,Infraestructura de transporte,Transportation infrastructure
 urban_planning,public_infrastructure,Planificacion urbana,Urban planning
+water_issue,public_infrastructure,Problema de agua,Water issue
 emergency_preparedness,civil_protection,Preparacion ante emergencias,Emergency preparedness
 disaster_trends,civil_protection,Tendencias de desastres,Disaster trends
 accident_statistics,civil_protection,Estadisticas de accidentes,Accident statistics

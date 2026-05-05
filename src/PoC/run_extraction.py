@@ -79,6 +79,7 @@ def _record_to_article(record: dict) -> dict:
         title = msg.get("title", "") or ""
         url = msg.get("url", "") or ""
         doc_type = (record.get("type") or msg.get("type") or "").lower()
+        publication_date = msg.get("timestamp") or msg.get("created_time")
 
         categories: list[str] = []
         cat = msg.get("source_category")
@@ -95,6 +96,12 @@ def _record_to_article(record: dict) -> dict:
         if not isinstance(doc_type, str):
             doc_type = str(doc_type)
         doc_type = doc_type.lower()
+        publication_date = (
+            record.get("article_date")
+            or record.get("date_created")
+            or record.get("date")
+            or record.get("published_at")
+        )
 
         categories = []
         custom = record.get("custom_categories") or {}
@@ -111,6 +118,7 @@ def _record_to_article(record: dict) -> dict:
         "url": url,
         "categories": categories,
         "document_type": doc_type,
+        "publication_date": publication_date,
     }
 
 # ── Init extractor ────────────────────────────────────────────────────────────
@@ -171,7 +179,8 @@ else:
             )
         except Exception as e:
             print(f"  ERROR: {e}")
-            continue
+            raise e
+            #continue
 
         if not entities:
             print("  No entities extracted (LLM filtered all classes)")
@@ -179,7 +188,7 @@ else:
 
         all_entities.extend(entities)
         for ent in entities:
-            print(f"  -> [{ent.get('_supertype')}] {ent.get('event_type', '?')}: "
+            print(f"  -> [{ent.get('_supertype')}] {ent.get('event_type', ent.get('entity_type', ent.get('theme_type', '?')))}: "
                   f"{ent.get('name') or str(ent.get('description', ''))[:60]}")
 
     print(f"\n{'='*70}")

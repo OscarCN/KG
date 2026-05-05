@@ -42,7 +42,11 @@ src/
       prompts/classes/ # Generated LLM extraction prompts (one per supertype)
       extract.py    # Extraction pipeline
       prompt_generator.py # Schema → LLM prompt auto-generation
-    linking/        # (future) Entity linking/deduplication
+    linking/        # Event linking/deduplication via LLM disambiguation
+      geocode.py    # Wrapper around the apify_client geocoder (structured-input)
+      link_llm.py   # LLM disambiguator (gemini-2.5-flash-lite) with file cache
+      link.py       # EntityLinker: candidate filter + LLM call (events only)
+      run_linking.py# IPython runner: extracted_raw/*.json → linked/*.json
   llm/              # LLM provider clients
     openrouter/     # OpenRouter API client (OpenAI-compatible)
   PoC/              # Proof-of-concept implementations (legacy)
@@ -64,13 +68,24 @@ Declarative schema definitions in JSON with a Python normalization pipeline. See
 - Reusable composite types (e.g. `DateRangeFromUnstructured`, `DateFromUnstructured`, `Location`, `PriceRange`, `CasualtyCount`) auto-resolved across schemas, including inside lists (e.g. `List[DateRangeFromUnstructured]`)
 - Parser pipeline: structure mapping → type parsing → defaults → validation
 
+### Entity Linking (`src/entities/linking/`)
+
+Deduplicates and merges extracted **events** (the output of `src/entities/extraction/`) into canonical event records, each carrying a `source_ids` list of every document that mentions it. The flow:
+
+1. **Geocode** the structured `Location` via the apify_client geocoder to obtain `level_2_id` (state) and basic coords.
+2. **Candidate filter** — events that share `event_type`, have date-range overlap, and same `level_2_id`.
+3. **LLM disambiguation** — a single call to `google/gemini-2.5-flash-lite` (via OpenRouter) given the incoming event's `name`, `description`, structured address, and `date`, plus those same fields for each candidate. The LLM returns the matching candidate id or `null`.
+4. **Merge or create** based on the LLM's answer.
+
+Both geocode and LLM responses are cached on disk (`cache/geocode/`, `cache/link_llm/`), keyed by sha256 of the canonical input — re-runs avoid re-billing. Themes and entities are not linked yet (skipped). See [`src/entities/readme_entities.md`](src/entities/readme_entities.md#linking-pipeline-linking) for full documentation.
+
 ### Entity Extraction (`src/entities/`)
 
 LLM-based structured extraction from unstructured text (news articles, social media). See [`src/entities/readme_entities.md`](src/entities/readme_entities.md) for full documentation.
 
 - **Ontology**: three-level hierarchy (matching rule → class → supertype → schema) with rules in Excel (`keywords.xlsx`) and type mapping in CSV (`event_types.csv`). Each schema declares its category (`event`, `theme`, or `entity`) via `meta.category`
 - **16 supertypes** — 8 events + 7 themes + 1 entity/concept:
-  - **Events** (identifiable single occurrences with location and datetime): paid_mass_event, robbery_assault_event (incl. kidnapping), public_works_event (incl. trash, water, sinkhole, public road), violence_event, closures_interruptions_event, emergency_event (incl. pedestrian hit), protest_event, arrest_event
+  - **Events** (identifiable single occurrences with location and datetime): paid_mass_event, robbery_assault_event (incl. kidnapping), public_works_event (incl. trash, sinkhole, public road, water-system works), violence_event, closures_interruptions_event, emergency_event (incl. pedestrian hit), protest_event, arrest_event
   - **Themes** (topical classifiers, no required datetime): security, public_infrastructure, civil_protection, mobility, culture, sports, civic_participation
   - **Entities/Concepts** (specific, identifiable things that are not events): legislative_initiative (incl. law initiative, reform, decree, regulation, legislative agreement, ratification)
 - **Three-step extraction flow**: keyword matching → LLM classification (filters candidate classes to those actually discussed, with per-category selection criteria for events, themes, and entities/concepts) → per-class LLM extraction (one call per confirmed class, scoped to that class)

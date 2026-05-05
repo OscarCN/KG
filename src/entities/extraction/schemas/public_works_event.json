@@ -2,7 +2,7 @@
     "PublicWorksEvent": {
         "meta": {
             "category": "event",
-            "description": "An identifiable single public infrastructure issue or works project. Includes potholes, street lighting issues, paving, public transport problems, and general infrastructure. Each issue is a specific occurrence distinguishable by its location and date — not a general overview of infrastructure conditions or policy. Extracted from news articles and social media.",
+            "description": "An identifiable single public infrastructure issue or works project. Includes potholes, street lighting issues, paving, public transport problems, sinkholes, public-road works, and works on the water/sewer system (pipe breaks, leaks, sewer collapses, repair projects). Each issue is a specific occurrence distinguishable by its location and date — not a general overview of infrastructure conditions or policy. General water-supply or water-management issues (shortages, service-quality complaints, illegal extraction) belong to the public_infrastructure theme (theme_type='water_issue'), not this schema. Extracted from news articles and social media.",
             "example": {
                 "event_type": "pothole",
                 "event_subtype": "road_damage",
@@ -63,14 +63,13 @@
                     "public_transport",
                     "infrastructure",
                     "trash_complaint",
-                    "water_issue",
                     "sinkhole",
                     "public_road"
                 ]
             },
             "event_subtype": {
                 "type": "str",
-                "description": "More specific subtype, e.g. 'road_damage', 'water_pipe_break', 'bus_route_change', 'bridge_repair', 'sewer_collapse', 'trash_odor', 'illegal_dumping', 'water_shortage', 'illegal_water_extraction', 'water_leak', 'sewage_overflow', 'road_sinkhole'."
+                "description": "More specific subtype, e.g. 'road_damage', 'water_pipe_break', 'bus_route_change', 'bridge_repair', 'sewer_collapse', 'trash_odor', 'illegal_dumping', 'water_pipe_replacement', 'water_leak_repair', 'sewage_overflow_works', 'road_sinkhole'. For specific water-system works (pipe breaks, leaks, sewer collapses, sewage overflows that prompt repair) use this schema; for general water-supply or water-management issues (shortages, illegal extraction, service-quality complaints) use the public_infrastructure theme with theme_type='water_issue'."
             },
             "status": {
                 "type": "EnumStr",

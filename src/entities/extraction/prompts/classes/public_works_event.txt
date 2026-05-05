@@ -9,7 +9,9 @@ La variable {source_type} indica el tipo de fuente (por ejemplo: "noticia", "pub
 
 USER:
 
-Buscamos problemas específicos de infraestructura pública o proyectos de obra pública identificables individualmente, descritos en un artículo de noticias o publicación de red social. Incluye baches, problemas de alumbrado público, pavimentación, problemas de transporte público, quejas por basura, problemas de agua, socavones, vialidades y obras de infraestructura en general.
+Buscamos problemas específicos de infraestructura pública o proyectos de obra pública identificables individualmente, descritos en un artículo de noticias o publicación de red social. Incluye baches, problemas de alumbrado público, pavimentación, problemas de transporte público, quejas por basura, socavones, vialidades, obras sobre el sistema hidráulico (rotura de tuberías, fugas, colapsos de drenaje, reparaciones del sistema de agua/alcantarillado) y obras de infraestructura en general.
+
+NO uses este esquema para problemas generales de suministro o gestión del agua (desabasto, quejas sobre la calidad del servicio, extracción ilegal). Esos casos se extraen como tema de infraestructura pública (`public_infrastructure`, `theme_type="water_issue"`), no como evento de obra pública.
 
 Cada problema u obra debe ser una ocurrencia concreta y distinguible por su ubicación y/o fecha. No extraigas descripciones generales de condiciones de infraestructura ni de políticas públicas.
 
@@ -36,13 +38,12 @@ Los campos `event_type`, `event_subtype` y `status` siempre van en inglés segú
 "public_transport" — Transporte público: problemas con rutas de camión, paradas, unidades de transporte público
 "infrastructure" — Infraestructura: obra o problema de infraestructura general que no encaja en las categorías anteriores (puentes, pasos a desnivel, edificios públicos, etc.)
 "trash_complaint" — Queja por basura: acumulación de basura, tiraderos clandestinos, malos olores por residuos
-"water_issue" — Problema de agua: fugas de agua, desabasto, rotura de tuberías, desbordamiento de drenaje, extracción ilegal
 "sinkhole" — Socavón: hundimiento o colapso del suelo en vía pública o terreno
 "public_road" — Vialidad pública: problemas o proyectos relacionados con calles, avenidas, bulevares, señalización vial
 
 
 
-2. Subtipo de problema u obra (event_subtype): propón un subtipo más específico dado el contexto. Por ejemplo: "road_damage", "water_pipe_break", "bus_route_change", "bridge_repair", "sewer_collapse", "trash_odor", "illegal_dumping", "water_shortage", "illegal_water_extraction", "water_leak", "sewage_overflow", "road_sinkhole", entre otros. Si no es claro, deja el valor null.
+2. Subtipo de problema u obra (event_subtype): propón un subtipo más específico dado el contexto. Por ejemplo: "road_damage", "water_pipe_break", "bus_route_change", "bridge_repair", "sewer_collapse", "trash_odor", "illegal_dumping", "water_pipe_replacement", "water_leak_repair", "sewage_overflow_works", "road_sinkhole", entre otros. Para obras concretas sobre el sistema hidráulico (rotura, fuga, colapso, reparación) usa este esquema; para problemas generales de suministro o gestión del agua (desabasto, extracción ilegal, quejas sobre la calidad del servicio) usa el tema `public_infrastructure` con `theme_type="water_issue"`. Si no es claro, deja el valor null.
 
 
 
@@ -133,6 +134,13 @@ Como contexto, la fecha de hoy es {date_now}. El tipo de fuente es {source_type}
 }
 
 En el campo "place_name" escribe el nombre propio del lugar, solo si es un lugar geográfico identificable en un mapa (puente, plaza, parque, estación de transporte, etc.). Solo escribe nombres propios de lugares; no agregues referencias espaciales ni descripciones genéricas. Ejemplos de valores INCORRECTOS: "frente a la escuela", "cerca del mercado", "varias calles de la colonia". Si no se menciona el nombre propio del lugar, deja el valor null.
+
+**Distinción entre `neighborhood`, `zone` y `place_name` (mutuamente excluyentes — un mismo nombre nunca debe aparecer en dos campos):**
+- `neighborhood`: cualquier área residencial con nombre propio — colonia, fraccionamiento, barrio, unidad habitacional o distrito residencial con nombre (p.ej. "Centro", "Centro Histórico", "El Campanario", "Polanco", "Jurica", "Juriquilla", "Roma Norte"). Si la nota menciona una colonia, fraccionamiento o distrito residencial con nombre, va AQUÍ — nunca en `place_name` ni en `zone`.
+- `zone`: SOLO zona direccional o funcional genérica de la ciudad, sin nombre propio residencial (p.ej. "zona norte", "zona sur", "zona poniente", "zona industrial", "zona metropolitana", "distrito financiero"). No uses `zone` para distritos residenciales con nombre propio (esos van en `neighborhood`).
+- `place_name`: SOLO un punto identificable y discreto en el mapa — recinto (estadio, teatro, museo, hospital con nombre), hito (monumento, plaza, parque, puente), punto de transporte (estación, terminal, aeropuerto), edificio o negocio con nombre propio (centro comercial, mercado, hotel), glorieta o intersección con nombre. Ejemplos correctos: "Estadio Corregidora", "Plaza de Armas", "Parque Querétaro 2000".
+
+NUNCA pongas una colonia, fraccionamiento o distrito residencial en `place_name`. "El Campanario" o "Centro Histórico" van en `neighborhood`. "zona industrial" o "zona sur" van en `zone`.
 
 Extrae una sola ubicación por evento. Si el problema u obra se describe con una ubicación principal, usa esa.
 

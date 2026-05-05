@@ -25,13 +25,14 @@ Para cada tema de infraestructura pública distinguible en la nota, extrae los c
 - `"infrastructure_conditions"` — Condiciones de infraestructura: estado físico de calles, puentes, edificios públicos, banquetas, etc.
 - `"urban_services"` — Servicios urbanos: alumbrado público, suministro de agua, drenaje, alcantarillado y otros servicios municipales
 - `"water_management"` — Gestión del agua: políticas, proyectos y problemáticas relacionadas con el suministro, distribución y tratamiento de agua
+- `"water_issue"` — Problema de agua: desabasto, fallas en el servicio, quejas ciudadanas sobre la calidad o disponibilidad del agua, extracción ilegal y otras problemáticas generales del suministro hídrico (no obras puntuales de reparación, que pertenecen a `public_works_event`)
 - `"waste_management"` — Gestión de residuos: recolección de basura, reciclaje, manejo de residuos sólidos, rellenos sanitarios
 - `"transportation_infrastructure"` — Infraestructura de transporte: carreteras, transporte público, ciclovías, semáforos, señalización vial
 - `"urban_planning"` — Planeación urbana: desarrollo urbano, ordenamiento territorial, zonificación, proyectos de construcción y regulación urbana
 
 
 
-2. **Subtipo de tema** (`theme_subtype`): propón un subtipo breve y conservador en inglés, basado únicamente en lo explícito del texto. Ejemplos: `"water_service_quality"`, `"road_network_conditions"`, `"trash_collection_issues"`, `"sewage_infrastructure"`, `"urban_development_plan"`, `"pothole_complaints"`, `"street_lighting_failures"`, `"public_transit_expansion"`. Si no es posible determinarlo, deja `null`.
+2. **Subtipo de tema** (`theme_subtype`): propón un subtipo breve y conservador en inglés, basado únicamente en lo explícito del texto. Ejemplos: `"water_service_quality"`, `"water_shortage"`, `"illegal_water_extraction"`, `"road_network_conditions"`, `"trash_collection_issues"`, `"sewage_infrastructure"`, `"urban_development_plan"`, `"pothole_complaints"`, `"street_lighting_failures"`, `"public_transit_expansion"`. Si no es posible determinarlo, deja `null`.
 
 
 
@@ -69,6 +70,13 @@ Ejemplo: `["baches", "vialidades", "quejas_ciudadanas", "obras_publicas", "centr
 
 
 8. **Ubicación** (`location`): si el tema de infraestructura se refiere a un área geográfica específica mencionada en el texto, extrae los datos de ubicación de manera estructurada. Llena solo los campos mencionados explícitamente en la nota. En el campo `place_name` escribe el nombre propio del lugar, sólo si es un lugar geográfico identificable en un mapa (plaza, parque, puente, estación, etc.). Sólo escribe nombres propios de lugares, no agregues referencias espaciales ni descripciones genéricas. Si no se menciona el nombre propio del lugar, deja el valor `null`.
+
+**Distinción entre `neighborhood`, `zone` y `place_name` (mutuamente excluyentes — un mismo nombre nunca debe aparecer en dos campos):**
+- `neighborhood`: cualquier área residencial con nombre propio — colonia, fraccionamiento, barrio, unidad habitacional o distrito residencial con nombre (p.ej. "Centro", "Centro Histórico", "El Campanario", "Polanco", "Jurica", "Juriquilla", "Roma Norte"). Si la nota menciona una colonia, fraccionamiento o distrito residencial con nombre, va AQUÍ — nunca en `place_name` ni en `zone`.
+- `zone`: SOLO zona direccional o funcional genérica de la ciudad, sin nombre propio residencial (p.ej. "zona norte", "zona sur", "zona poniente", "zona industrial", "zona metropolitana", "distrito financiero"). No uses `zone` para distritos residenciales con nombre propio (esos van en `neighborhood`).
+- `place_name`: SOLO un punto identificable y discreto en el mapa — recinto (estadio, teatro, museo, hospital con nombre), hito (monumento, plaza, parque, puente), punto de transporte (estación, terminal, aeropuerto), edificio o negocio con nombre propio (centro comercial, mercado, hotel), glorieta o intersección con nombre. Ejemplos correctos: "Estadio Corregidora", "Plaza de Armas", "Parque Querétaro 2000".
+
+NUNCA pongas una colonia, fraccionamiento o distrito residencial en `place_name`. "El Campanario" o "Centro Histórico" van en `neighborhood`. "zona industrial" o "zona sur" van en `zone`.
 
 Convención para `location`:
 - Si hay **una sola ubicación**, usa un objeto `Location`.
@@ -178,7 +186,7 @@ Responde con una lista en formato JSON, donde cada elemento representa un tema d
 ```json
 [
   {
-    "theme_type": "urban_services",
+    "theme_type": "water_issue",
     "theme_subtype": "water_service_quality",
     "description": "Vecinos de varias colonias de Querétaro denuncian falta de agua recurrente y exigen mejoras en la red de distribución.",
     "tags": ["agua", "servicios_publicos", "queretaro", "infraestructura"],

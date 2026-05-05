@@ -49,17 +49,17 @@
     },
     "Location": {
         "meta": {
-            "description": "Structured location extracted from text, with hierarchical geographic fields and an optional named place. Each field should only be filled if explicitly mentioned in the source text."
+            "description": "Structured location extracted from text, with hierarchical geographic fields and an optional named place. Each field should only be filled if explicitly mentioned in the source text. The fields neighborhood / zone / place_name are MUTUALLY EXCLUSIVE — every named area or place must be classified into exactly one of them. Any residential area with a proper name (colonia, fraccionamiento, named district like 'Centro Historico' or 'Polanco') goes in `neighborhood`. A generic directional or functional zone without a residential proper name (e.g. 'zona norte', 'zona industrial') goes in `zone`. Only a point-like landmark (a single building, venue, monument, plaza, station, intersection) goes in `place_name`. Never duplicate a name across these fields and never put a residential area in `place_name`."
         },
         "schema": {
             "country":       {"type": "str", "description": "Country name, e.g. 'Mexico'"},
             "state":         {"type": "str", "description": "State or province, e.g. 'Guanajuato'"},
             "city":          {"type": "str", "description": "City or municipality, e.g. 'Leon'"},
-            "neighborhood":  {"type": "str", "description": "Neighborhood or colonia, e.g. 'Centro'"},
-            "zone":          {"type": "str", "description": "Zone or area of the city, e.g. 'zona norte'"},
+            "neighborhood":  {"type": "str", "description": "Named colonia, fraccionamiento, barrio, unidad habitacional, or any named residential district — a residential area identified by a proper name. Examples: 'Centro', 'Centro Historico', 'El Campanario', 'Polanco', 'Jurica', 'Juriquilla', 'Roma Norte', 'Lomas de Chapultepec', 'Unidad Habitacional Vicente Guerrero'. If the article names a colonia, fraccionamiento or named district, put the name HERE — not in `place_name` and not in `zone`."},
+            "zone":          {"type": "str", "description": "Generic directional or functional area of a city without a residential proper name. Examples: 'zona norte', 'zona sur', 'zona poniente', 'zona industrial', 'zona metropolitana', 'distrito financiero'. Do NOT use this for named residential districts (those go in `neighborhood`)."},
             "street":        {"type": "str", "description": "Street or avenue name"},
             "number":        {"type": "str", "description": "Street number or exterior number"},
-            "place_name":    {"type": "str", "description": "Proper name of a specific identifiable place (theater, stadium, park, etc.). Only named places that can be located on a map. Do not include generic descriptions."}
+            "place_name":    {"type": "str", "description": "Proper name of a single point-like place that occupies one discrete location on the map: a venue (stadium, theater, arena, museum, hospital, school with a proper name), a landmark (monument, plaza, park, fountain, bridge), a transit point (station, terminal, airport, toll booth), a single named building or business (mall, market, hotel, named factory or store), or a named intersection/glorieta. Examples that DO belong here: 'Estadio Corregidora', 'Plaza de Armas', 'Parque Queretaro 2000', 'Aeropuerto Internacional', 'Hospital General de Leon'. Examples that do NOT belong here (each goes elsewhere): 'El Campanario' -> neighborhood, 'Centro Historico' -> neighborhood, 'Polanco' -> neighborhood, 'zona norte' -> zone, 'zona industrial' -> zone, 'frente a la escuela' / 'cerca del mercado' -> null (generic)."}
         }
     },
     "PriceRange": {

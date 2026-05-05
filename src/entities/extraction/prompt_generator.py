@@ -260,7 +260,22 @@ and inject the context: "Como contexto, la fecha de hoy es {{date_now}}"
     * For Location: the JSON example MUST include all 8 fields (country, state, city, \
 neighborhood, zone, street, number, place_name) — use null for fields not present in the example. \
 Instruct "Llena solo los campos mencionados explícitamente en la nota", \
-and add guidance for place_name: only proper names of identifiable places, not generic descriptions.
+and add EXPLICIT disambiguation between neighborhood / zone / place_name (these three fields are \
+mutually exclusive and must never duplicate a name). The disambiguation block must include: \
+(a) `neighborhood` is for ANY named residential area — colonias, fraccionamientos, barrios, \
+unidades habitacionales, or named residential districts (give examples like "Centro", \
+"Centro Histórico", "El Campanario", "Polanco", "Jurica", "Roma Norte"); \
+(b) `zone` is ONLY for generic directional or functional zones without a residential proper name \
+(give examples like "zona norte", "zona sur", "zona industrial", "zona metropolitana", \
+"distrito financiero"). Named residential districts go in `neighborhood`, NOT in `zone`; \
+(c) `place_name` is ONLY for a single point-like landmark — a venue, monument, plaza, park, \
+station, named building, named intersection, etc. Never put a colonia, fraccionamiento or \
+named residential district in `place_name`. Include 2–3 contrast examples like \
+"'El Campanario' → neighborhood (no place_name, no zone)", \
+"'Centro Histórico' → neighborhood (no place_name, no zone)", \
+"'zona industrial' → zone", "'Estadio Corregidora' → place_name". Also include 2–3 generic \
+INCORRECT examples ("frente a la escuela", "cerca del mercado", "varias calles del centro") \
+that should be left null.
   - CRITICAL: every JSON example for a composite type must include ALL fields from that type's \
 schema definition (in the composite_types section of the schema context). Fields not applicable \
 in the example must be shown as null. Never abbreviate or truncate composite type examples — \

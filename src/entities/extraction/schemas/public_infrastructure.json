@@ -4,7 +4,7 @@
             "category": "theme",
             "description": "Public infrastructure includes any theme, event, mention, complaint, or discussion related to the condition, quality, or management of public infrastructure and urban services. It considers roads, water supply, sewage, drainage, street lighting, waste management, urban planning, and construction. An article talks about public infrastructure whenever it addresses or touches any related subject — whether reporting a specific pothole, discussing water management policy, covering a citizen complaint, or mentioning infrastructure conditions in passing. An article may match both this theme and a specific event schema (e.g. public_works_event) — both are extracted separately.",
             "example": {
-                "theme_type": "urban_services",
+                "theme_type": "water_issue",
                 "theme_subtype": "water_service_quality",
                 "description": "Vecinos de varias colonias de Queretaro denuncian falta de agua recurrente y exigen mejoras en la red de distribucion.",
                 "tags": [
@@ -63,6 +63,7 @@
                     "infrastructure_conditions",
                     "urban_services",
                     "water_management",
+                    "water_issue",
                     "waste_management",
                     "transportation_infrastructure",
                     "urban_planning"
@@ -70,7 +71,7 @@
             },
             "theme_subtype": {
                 "type": "str",
-                "description": "More specific subtype, e.g. 'water_service_quality', 'road_network_conditions', 'trash_collection_issues', 'sewage_infrastructure', 'urban_development_plan'."
+                "description": "More specific subtype, e.g. 'water_service_quality', 'water_shortage', 'illegal_water_extraction', 'road_network_conditions', 'trash_collection_issues', 'sewage_infrastructure', 'urban_development_plan'."
             },
             "description": {
                 "type": "str",
