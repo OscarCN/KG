@@ -61,6 +61,25 @@ def _coerce_publication_date(article: Dict[str, Any]) -> Optional[str]:
     return None
 
 
+def _prompt_reference_date(article: Dict[str, Any]) -> str:
+    """Anchor for the LLM's interpretation of relative dates in the article.
+
+    Returns the article's publication date formatted as `dd/mm/YYYY`
+    (so phrases like "ayer" / "el pasado X de Y" resolve relative to
+    when the article was published, not when the script runs).
+    Falls back to wall-clock `today` when the article carries no
+    publication date (best we can do).
+    """
+    pub = _coerce_publication_date(article)
+    if pub:
+        try:
+            from dateutil.parser import parse as _parse
+            return _parse(pub).strftime("%d/%m/%Y")
+        except (ValueError, TypeError):
+            pass
+    return datetime.now().strftime("%d/%m/%Y")
+
+
 # ---------------------------------------------------------------------------
 # Text normalization helpers
 # ---------------------------------------------------------------------------
@@ -478,7 +497,11 @@ def _call_llm_with_retry(messages: List[Dict[str, str]]) -> str:
 def _parse_llm_response(raw: str) -> List[Dict[str, Any]]:
     """Parse the raw LLM response string into a list of entity dicts.
 
-    Handles common LLM quirks: markdown code fences, trailing commas.
+    Handles common LLM quirks: markdown code fences, trailing commas, and
+    a single-key wrapper object whose value is the actual entity list
+    (e.g. ``{"incidents": [{...}, {...}]}``). The wrapper sneaks in when
+    the prompt's terminology (*"incidente"*, *"evento"*) primes the model
+    to label the list instead of returning a bare array.
     """
     text = raw.strip()
 
@@ -493,6 +516,16 @@ def _parse_llm_response(raw: str) -> List[Dict[str, Any]]:
     parsed = json.loads(text)
 
     if isinstance(parsed, dict):
+        # Unwrap a single-key wrapper whose value is a list of entity dicts:
+        # `{"incidents": [{...}]}` → `[{...}]`. Only triggers on a sole top-level
+        # key with a list-of-dicts value, so well-formed single-entity responses
+        # still pass through as `[parsed]`.
+        if len(parsed) == 1:
+            sole_value = next(iter(parsed.values()))
+            if isinstance(sole_value, list) and all(
+                isinstance(x, dict) for x in sole_value
+            ):
+                return sole_value
         return [parsed]
     if isinstance(parsed, list):
         return parsed
@@ -739,7 +772,11 @@ class EntityExtractor:
         Returns:
             List of extracted entity dicts.
         """
-        date_now = datetime.now().strftime("%d/%m/%Y")
+        # Anchor the LLM's interpretation of relative dates ("ayer", "el
+        # pasado 27 de abril") to the article's publication date — NOT the
+        # wall-clock date when the script runs. Falls back to wall-clock
+        # only when the article carries no publication date.
+        date_now = _prompt_reference_date(article)
         body = article.get("text", "")
         source_type = article.get("source_type", "news")
 

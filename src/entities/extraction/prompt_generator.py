@@ -227,8 +227,10 @@ The [domain in Spanish] should reflect the category — e.g. "eventos masivos" (
 "temas de seguridad" (theme), "iniciativas legislativas" (entity).
 - Add a brief note explaining that the context variable {{source_type}} indicates the source type \
 (e.g. "noticia", "publicación de Facebook", "publicación de red social"). \
-For social media posts, dates can often be inferred from the publication date ({{date_now}}) \
-if not explicitly mentioned in the text.
+The context variable {{date_now}} is the article's PUBLICATION DATE — use it as the anchor \
+for resolving relative date phrases ("ayer", "el pasado X de Y", "la semana pasada", "este martes"), \
+NOT the script's wall-clock date. For social media posts, the publication date can also be used \
+as the event date when no explicit date is mentioned in the text.
 
 ### First USER section
 - Open with a Spanish paragraph describing what to extract, derived from the schema's meta_description. \
@@ -256,7 +258,10 @@ approximate dates and precision_days (e.g. "si solo se menciona un periodo aprox
 'la semana pasada', estima una fecha de inicio y un rango de precision en dias"), \
 include 2-3 date examples with different precision levels, \
 specify the date format "YYYY-MM-DDTHH:MM:SS", \
-and inject the context: "Como contexto, la fecha de hoy es {{date_now}}"
+and inject the context: "Como contexto, la fecha de publicación de la nota es {{date_now}} \
+(úsala como referencia para resolver fechas relativas como 'ayer', 'el pasado X de Y', \
+'la semana pasada'). NO uses la fecha actual del sistema — siempre ancla las fechas \
+relativas a {{date_now}}."
     * For Location: the JSON example MUST include all 8 fields (country, state, city, \
 neighborhood, zone, street, number, place_name) — use null for fields not present in the example. \
 Instruct "Llena solo los campos mencionados explícitamente en la nota", \
@@ -326,7 +331,10 @@ Review the following generated extraction prompt. Check it against the schema an
 2. **Consistency**: Do field names, types, and enum values match the schema exactly? List mismatches.
 3. **Spanish quality**: Are instructions natural and instructional (not awkward translations)?
 4. **Format**: Does it follow the SYSTEM:/USER:/USER: pattern correctly?
-5. **Template variables**: Are {{date_now}}, {{source_type}}, and {{body}} present with single curly braces?
+5. **Template variables**: Are {{date_now}}, {{source_type}}, and {{body}} present with single curly braces? \
+Also verify that the prompt frames {{date_now}} as the article's PUBLICATION DATE (not as the current/today's date), \
+and explicitly anchors relative date phrases ("ayer", "el pasado X de Y", "la semana pasada") to it. Flag any \
+wording like "la fecha de hoy es {{date_now}}" that misleads the LLM into treating it as wall-clock time.
 6. **Example JSON**: Does the example match the schema's meta_example structure?
 7. **Composite type field completeness (CRITICAL)**: For EACH composite type used in the prompt \
 (Location, DateRangeFromUnstructured, DateFromUnstructured, PriceRange, Attendance, VenueCapacity, \
@@ -341,8 +349,10 @@ schema context). No field may be omitted — absent values must be shown as null
    - PersonReference MUST have all 3 fields: name, role, organization
    List EVERY missing field as a separate issue.
 8. **Date handling**: If the schema has a DateRangeFromUnstructured or DateFromUnstructured field, \
-are approximate date instructions and precision_days examples included? (Skip this check if the \
-schema has no date fields, which is common for entity/concept schemas.)
+are approximate date instructions and precision_days examples included? Verify the prompt explicitly \
+tells the LLM that {{date_now}} is the article's publication date and to anchor relative date phrases \
+to it (NOT to the system's wall-clock). (Skip this check if the schema has no date fields, which is \
+common for entity/concept schemas.)
 9. **Field name accuracy**: Do the field names in the JSON examples match the composite type \
 schema exactly? E.g. CountMention uses "count" (not "estimate"), Attendance uses "estimate" \
 (not "count"). Report any field name mismatches.

@@ -1,0 +1,141 @@
+{
+    "PublicInfrastructureEvent": {
+        "meta": {
+            "category": "event",
+            "description": "An identifiable single public-infrastructure event — a specific occurrence reported at a particular time and place that touches the condition, quality, or management of public infrastructure and urban services (roads, water supply, sewage, drainage, street lighting, waste management, urban planning). Examples: a wave of citizen complaints about water shortage in a colonia during a specific period, an announced urban-planning project, a public discussion or policy decision affecting waste management. For SPECIFIC physical works or single incidents (one pothole, one sinkhole, one pipe break, one repair job) use `public_works_event` instead — that schema is for the discrete works/incidents themselves; this schema is for the broader civic events around infrastructure (complaint waves, policy announcements, planning decisions) that are still anchored to a specific time and location.",
+            "example": {
+                "event_type": "water_issue",
+                "event_subtype": "water_service_quality",
+                "status": "ongoing",
+                "name": null,
+                "description": "Vecinos de varias colonias del norte de Queretaro denuncian falta de agua recurrente y exigen mejoras en la red de distribucion durante la temporada de calor 2025.",
+                "tags": [
+                    "agua",
+                    "servicios publicos",
+                    "queretaro",
+                    "infraestructura"
+                ],
+                "context": "La problematica se agrava en temporada de calor. La Comision Estatal de Aguas reconocio el problema y promete medidas en el segundo semestre.",
+                "relevance": 1,
+                "date_range": {
+                    "date_range": {
+                        "start": "2025-03-01T00:00:00",
+                        "end": "2025-06-30T23:59:59"
+                    },
+                    "timezone": null,
+                    "mention": "temporada de calor 2025",
+                    "precision_days": 120
+                },
+                "location": {
+                    "country": "Mexico",
+                    "state": "Queretaro",
+                    "city": "Queretaro",
+                    "neighborhood": null,
+                    "zone": "norte de la ciudad",
+                    "street": null,
+                    "number": null,
+                    "place_name": null
+                },
+                "responsible_authority": "Comision Estatal de Aguas",
+                "affected_area": "colonias del norte de la ciudad de Queretaro",
+                "citizen_complaints": [
+                    "Falta de agua recurrente en colonias del norte de la ciudad",
+                    "Baja presion en horario nocturno"
+                ],
+                "estimated_cost": {
+                    "mention": "200 millones de pesos para rehabilitacion de la red",
+                    "lower": 200000000,
+                    "upper": 200000000,
+                    "currency": "pesos"
+                },
+                "impact_description": "Miles de hogares sin servicio durante varias horas al dia."
+            }
+        },
+        "schema": {
+            "event_type": {
+                "type": "EnumStr",
+                "required": true,
+                "description": "Type of public-infrastructure event from the catalogue. Choose the single most specific category that matches.",
+                "enum": [
+                    "infrastructure_conditions",
+                    "urban_services",
+                    "water_management",
+                    "water_issue",
+                    "waste_management",
+                    "transportation_infrastructure",
+                    "urban_planning"
+                ]
+            },
+            "event_subtype": {
+                "type": "str",
+                "description": "More specific subtype, e.g. 'water_service_quality', 'water_shortage', 'illegal_water_extraction', 'road_network_conditions', 'trash_collection_issues', 'sewage_infrastructure', 'urban_development_plan'."
+            },
+            "status": {
+                "type": "EnumStr",
+                "description": "Current status of the event as reported.",
+                "enum": [
+                    "reported",
+                    "ongoing",
+                    "planned",
+                    "delayed",
+                    "resolved",
+                    "cancelled"
+                ]
+            },
+            "name": {
+                "type": "str",
+                "description": "Name of the event or initiative if it has one (e.g. 'Plan de Rehabilitacion Hidrica 2025'). Often null for spontaneous complaint waves."
+            },
+            "description": {
+                "type": "str",
+                "required": true,
+                "description": "Brief free-text description of the event — what was reported, who reported it, what is being demanded or announced."
+            },
+            "tags": {
+                "type": "List[str]",
+                "description": "Keywords describing the event."
+            },
+            "context": {
+                "type": "str",
+                "description": "Broader context: historical issues, policy background, related projects or investments."
+            },
+            "relevance": {
+                "type": "EnumStr",
+                "description": "Relevance within the article: 1 = main topic, 2 = secondary, 3 = implicit.",
+                "enum": [
+                    "1",
+                    "2",
+                    "3"
+                ]
+            },
+            "date_range": {
+                "type": "DateRangeFromUnstructured",
+                "description": "Date or date range when the event occurred or the discussion is anchored. Extract the start datetime and, if present, the end datetime."
+            },
+            "location": {
+                "type": "Location",
+                "description": "Location of the public-infrastructure event. Should be as specific as the article allows."
+            },
+            "responsible_authority": {
+                "type": "str",
+                "description": "Government body or agency mentioned as responsible (e.g. 'Direccion de Obras Publicas', 'CONAGUA', 'Comision Estatal de Aguas')."
+            },
+            "affected_area": {
+                "type": "str",
+                "description": "Description of the affected area — colonias, zones, stretches, or districts impacted by the event."
+            },
+            "citizen_complaints": {
+                "type": "List[str]",
+                "description": "Citizen complaints or demands regarding infrastructure raised during this event, if mentioned. Each complaint as a separate item."
+            },
+            "estimated_cost": {
+                "type": "PriceRange",
+                "description": "Budget, investment, or cost figures mentioned for related projects, with original mention, numeric bounds, and currency."
+            },
+            "impact_description": {
+                "type": "str",
+                "description": "Description of the impact on services, traffic, or citizens."
+            }
+        }
+    }
+}

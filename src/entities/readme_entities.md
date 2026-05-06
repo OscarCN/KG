@@ -62,10 +62,10 @@ The system distinguishes three broad categories of extractable content. Every su
 | **Theme** | A topical classification — any article touching the related subject matches | Optional location (city/state level), no required date — acts as a broad classifier for article content | Security (crime, violence, policing), mobility (traffic, transit), culture (arts, heritage) |
 | **Entity / Concept** | A specific, identifiable thing that is not an event | May have a name, location, or other identifying attributes; not necessarily a date | A particular real estate development, a specific technology, a chemical compound, an individual person, a law initiative |
 
-**Currently implemented**: 16 supertypes — 8 **events**, 7 **themes**, and 1 **entity/concept**.
+**Currently implemented**: 16 supertypes — 9 **events**, 6 **themes**, and 1 **entity/concept**.
 
-- **Events** (8 supertypes — identifiable single occurrences with location and date): `paid_mass_event`, `robbery_assault_event`, `public_works_event`, `violence_event`, `closures_interruptions_event`, `emergency_event`, `protest_event`, `arrest_event`. Have the `_event` suffix (except `violence_event`, which already had it).
-- **Themes** (7 supertypes — topical classifiers without required datetime): `security`, `public_infrastructure`, `civil_protection`, `mobility`, `culture`, `sports`, `civic_participation`. No suffix.
+- **Events** (9 supertypes — identifiable single occurrences with location and date): `paid_mass_event`, `robbery_assault_event`, `public_works_event`, `public_infrastructure_event`, `violence_event`, `closures_interruptions_event`, `emergency_event`, `protest_event`, `arrest_event`. Have the `_event` suffix (except `violence_event`, which already had it). `public_works_event` and `public_infrastructure_event` are sibling events — the former captures discrete physical works/incidents (one pothole, one pipe break), the latter captures broader civic events around infrastructure (complaint waves, policy announcements, planning decisions, general water-supply issues).
+- **Themes** (6 supertypes — topical classifiers without required datetime): `security`, `civil_protection`, `mobility`, `culture`, `sports`, `civic_participation`. No suffix.
 - **Entities / Concepts** (1 supertype — `legislative_initiative`): specific, identifiable things that are not events. Require a `name`, typically include a `jurisdiction` (Location), and date fields describe entity attributes (e.g. `date_introduced`) rather than an occurrence time.
 
 An article may match a theme, an event, and an entity schema simultaneously — all are extracted separately. Extraction details (matching rules, classification, schemas) live in [`extraction/readme_extraction.md`](extraction/readme_extraction.md); linking details (candidate filter, LLM disambiguation, persistence) live in [`linking/readme_linking.md`](linking/readme_linking.md).
@@ -77,7 +77,7 @@ An article may match a theme, an event, and an entity schema simultaneously — 
 Classes will support inheritance, where a more specific class inherits attributes from a broader one. The current event/theme naming convention is designed to support this:
 
 - **violence_event** inherits from **security** (theme) — a specific shooting inherits the general security topic attributes
-- **public_works_event** inherits from **public_infrastructure** (theme)
+- **public_works_event** inherits from **public_infrastructure_event** (event) — a specific physical work or single incident inherits the broader infrastructure-event attributes (event-to-event since `public_infrastructure_event` itself is now an event, not a theme)
 - **emergency_event** inherits from **civil_protection** (theme)
 - **closures_interruptions_event** inherits from **mobility** (theme)
 - **paid_mass_event** inherits from **culture** and/or **sports** (themes)

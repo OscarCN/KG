@@ -1,0 +1,244 @@
+SYSTEM:
+
+Eres un modelo para extraer información estructurada de eventos relacionados con infraestructura pública y servicios urbanos a partir de artículos de noticias y publicaciones de redes sociales.
+
+Se te presentarán instrucciones para resolver la tarea, algunos ejemplos, y posteriormente un texto fuente para que extraigas la información.
+
+La variable {source_type} indica el tipo de fuente (por ejemplo: "noticia", "publicación de Facebook", "publicación de red social"). Si se trata de una publicación de red social, la fecha de publicación ({date_now}) puede servir como referencia para inferir fechas cuando estas no se mencionan explícitamente en el texto.
+
+
+USER:
+
+Buscamos eventos identificables relacionados con la condición, calidad o gestión de la infraestructura pública y los servicios urbanos: vialidades, suministro de agua, alcantarillado, drenaje, alumbrado público, recolección de basura, planeación urbana y construcción. Cada evento debe ser una ocurrencia concreta y distinguible por su ubicación y/o un periodo temporal específico — por ejemplo, una ola de quejas ciudadanas por desabasto de agua en colonias del norte durante la temporada de calor 2025, un anuncio de un plan de desarrollo urbano, una decisión de política sobre manejo de residuos, una denuncia ciudadana sobre el servicio de recolección.
+
+NO uses este esquema para obras físicas concretas o incidentes puntuales (un bache específico, un socavón, una rotura de tubería, un trabajo de reparación o un proyecto de obra pública con inicio y fin). Esos casos pertenecen a `public_works_event`. Este esquema captura los eventos cívicos más amplios alrededor de la infraestructura: olas de quejas, anuncios de política, decisiones de planeación, problemas generales de suministro o gestión.
+
+Cada evento debe poder anclarse a un periodo y a un área geográfica. No extraigas descripciones puramente abstractas o generales sin marco temporal/espacial.
+
+Contraejemplos (NO extraer):
+- "El gobierno tiene retos de infraestructura" → demasiado abstracto, sin ancla temporal/espacial.
+- "La ciudad necesita más agua" → no es un evento concreto.
+- "Se tapó una alcantarilla en la calle X" → es una obra/incidente puntual, va en `public_works_event`.
+
+Solo extrae ocurrencias que puedan individualizarse por contexto, ubicación o periodo. Si el texto no permite distinguir un evento concreto, no lo extraigas como elemento separado.
+
+Para cada evento mencionado en la nota, extrae los siguientes campos. Si no se menciona un campo, deja su valor null. No inventes eventos ni datos; solo extrae lo que esté explícitamente mencionado en el texto.
+
+Regla de normalización textual: escribe todos los nombres propios (ciudades, estados, calles, dependencias, etc.) sin acentos ni caracteres especiales, usando ASCII simple. Por ejemplo: "Mexico" en vez de "México", "Queretaro" en vez de "Querétaro", "Comision Estatal de Aguas" en vez de "Comisión Estatal de Aguas".
+
+Los campos `event_type`, `event_subtype` y `status` siempre van en inglés según los catálogos indicados. Los campos `description`, `context`, `impact_description`, `tags`, `affected_area`, `name` y los elementos de `citizen_complaints` deben redactarse en español.
+
+
+
+1. Tipo de evento (event_type): elige la categoría más específica del siguiente catálogo:
+
+"infrastructure_conditions" — Condiciones de infraestructura: estado físico de la red vial, puentes, edificios públicos, banquetas o equipamiento urbano, discutido como condición general (no como un incidente puntual).
+"urban_services" — Servicios urbanos: discusión, anuncio, queja o falla a nivel de servicio sobre alumbrado público, suministro de agua, drenaje, alcantarillado u otros servicios municipales.
+"water_management" — Gestión del agua: políticas, proyectos o decisiones sobre suministro, distribución y tratamiento del agua a nivel sistémico.
+"water_issue" — Problema de agua: desabasto, fallas en el servicio, quejas ciudadanas sobre la calidad o disponibilidad del agua, extracción ilegal — problemáticas generales del suministro hídrico (no obras puntuales de reparación, que pertenecen a `public_works_event`).
+"waste_management" — Gestión de residuos: recolección de basura, reciclaje, manejo de residuos sólidos, rellenos sanitarios — discusión, queja o anuncio a nivel sistémico.
+"transportation_infrastructure" — Infraestructura de transporte: discusión, anuncio o queja a nivel sistémico sobre carreteras, transporte público, ciclovías, semáforos o señalización vial (no incidentes ni obras puntuales).
+"urban_planning" — Planeación urbana: desarrollo urbano, ordenamiento territorial, zonificación, regulación o anuncio de proyectos de planeación urbana.
+
+
+
+2. Subtipo del evento (event_subtype): propón un subtipo más específico dado el contexto. Por ejemplo: "water_service_quality", "water_shortage", "illegal_water_extraction", "road_network_conditions", "trash_collection_issues", "sewage_infrastructure", "urban_development_plan", "public_transit_expansion", "street_lighting_complaints". Si no es claro, deja el valor null.
+
+
+
+3. Estatus del evento (status): el estatus actual que se describe en la nota, del siguiente catálogo:
+
+"reported" — Reportado: el evento o problema ha sido reportado o denunciado.
+"ongoing" — En curso: el evento o discusión sigue activo al momento de la nota.
+"planned" — Planeado: se trata de un anuncio, plan o proyecto programado pero aún no iniciado.
+"delayed" — Retrasado: el evento, plan o respuesta presenta retrasos respecto al calendario original.
+"resolved" — Resuelto: el problema o discusión ya se resolvió o concluyó.
+"cancelled" — Cancelado: el plan, proyecto o iniciativa fue cancelado.
+
+
+
+4. Nombre del evento o iniciativa (name): si el evento o iniciativa tiene un nombre formal explícitamente mencionado en el texto, escríbelo. Por ejemplo: "Plan de Rehabilitacion Hidrica 2025", "Programa Municipal de Reciclaje". Para olas espontáneas de quejas o discusiones generales, suele dejarse null. No inventes nombres.
+
+
+
+5. Descripción (description): redacta en español un texto breve describiendo el evento — qué se reportó, quién lo reportó, qué se está exigiendo o anunciando.
+
+
+
+6. Etiquetas (tags): palabras clave en español que describan el evento. Las etiquetas deben derivarse del contenido del texto y del tipo/subtipo del evento. Puedes normalizar las etiquetas (por ejemplo, snake_case o abreviaturas), pero no agregues conceptos sin sustento en la nota.
+
+Por ejemplo:
+
+"tags": ["agua", "servicios_publicos", "queretaro", "infraestructura"]
+
+
+
+7. Contexto (context): si la información existe en el texto, escribe en español un resumen del contexto general: antecedentes históricos, política relacionada, proyectos o inversiones previas, contexto político. Si no hay contexto relevante, deja null.
+
+
+
+8. Relevancia en la noticia (relevance): la relevancia que tiene el evento en la nota. Devuelve el valor como cadena de texto (string), eligiendo entre:
+
+"1" — Si el evento es el tema principal de la nota
+"2" — Si se menciona secundariamente
+"3" — Si sólo se menciona implícitamente o de forma incidental
+
+
+
+9. Fecha o periodo del evento (date_range): extrae la fecha o rango de fechas asociado al evento, solo si existe una referencia temporal explícita en el texto o anclable al contexto de publicación (en caso de redes sociales).
+
+- Para olas de quejas o discusiones: el periodo durante el cual se desarrollan.
+- Para anuncios o planes: la fecha del anuncio o el periodo planificado.
+- Para problemas en curso: el periodo en que el problema se está manifestando.
+
+Si no existe ninguna referencia temporal en el texto, deja el valor null.
+
+Responde con la siguiente estructura:
+
+"date_range": {
+    "date_range": {
+        "start": "YYYY-MM-DDTHH:MM:SS",
+        "end": "YYYY-MM-DDTHH:MM:SS o null"
+    },
+    "timezone": "zona horaria si se menciona, o null",
+    "mention": "texto tal cual aparece en la nota",
+    "precision_days": null
+}
+
+Si solo se menciona un periodo aproximado (por ejemplo, "durante la temporada de calor", "este sexenio", "los últimos meses"), interpreta un periodo estimado razonable y escribe la fecha inicial junto con un rango de precisión en días en el que muy probablemente se encuentre el periodo real. Si la fecha es exacta, `precision_days` debe ser null.
+
+Ejemplos:
+
+"date_range": { "date_range": {"start": "2025-03-01T00:00:00", "end": "2025-06-30T23:59:59"}, "timezone": null, "mention": "temporada de calor 2025", "precision_days": 120 }
+
+"date_range": { "date_range": {"start": "2025-09-15T00:00:00", "end": null}, "timezone": null, "mention": "el pasado 15 de septiembre", "precision_days": null }
+
+"date_range": { "date_range": {"start": "2024-12-01T00:00:00", "end": null}, "timezone": null, "mention": "desde hace varios meses", "precision_days": 90 }
+
+Usa el formato estandarizado de fechas "YYYY-MM-DDTHH:MM:SS".
+Como contexto, la fecha de publicación de la nota es {date_now} (úsala como referencia para resolver fechas relativas como "ayer", "el pasado X de Y", "la semana pasada"). El tipo de fuente es {source_type}.
+
+
+
+10. Ubicación (location): extrae los datos de ubicación del evento de manera estructurada, con la mayor especificidad que permita la nota. Llena solo los campos mencionados explícitamente:
+
+"location": {
+    "country": "Mexico",
+    "state": "Queretaro",
+    "city": "Queretaro",
+    "neighborhood": null,
+    "zone": "norte de la ciudad",
+    "street": null,
+    "number": null,
+    "place_name": null
+}
+
+En el campo "place_name" escribe el nombre propio del lugar, solo si es un lugar geográfico identificable en un mapa (puente, plaza, parque, estación de transporte, etc.). Solo escribe nombres propios; no agregues referencias espaciales ni descripciones genéricas. Si no se menciona el nombre propio del lugar, deja el valor null.
+
+**Distinción entre `neighborhood`, `zone` y `place_name` (mutuamente excluyentes — un mismo nombre nunca debe aparecer en dos campos):**
+- `neighborhood`: cualquier área residencial con nombre propio — colonia, fraccionamiento, barrio, unidad habitacional o distrito residencial con nombre (p.ej. "Centro", "Centro Historico", "El Campanario", "Polanco", "Jurica", "Juriquilla", "Roma Norte"). Si la nota menciona una colonia, fraccionamiento o distrito residencial con nombre, va AQUI — nunca en `place_name` ni en `zone`.
+- `zone`: SOLO zona direccional o funcional genérica de la ciudad, sin nombre propio residencial (p.ej. "zona norte", "zona sur", "zona poniente", "zona industrial", "zona metropolitana", "distrito financiero"). No uses `zone` para distritos residenciales con nombre propio.
+- `place_name`: SOLO un punto identificable y discreto en el mapa — recinto, hito, punto de transporte, edificio o negocio con nombre propio, glorieta o intersección con nombre.
+
+NUNCA pongas una colonia o fraccionamiento en `place_name`. "El Campanario" o "Centro Historico" van en `neighborhood`. "zona norte" o "zona industrial" van en `zone`.
+
+Extrae una sola ubicación por evento.
+
+
+
+11. Autoridad responsable (responsible_authority): nombre de la dependencia gubernamental, autoridad o entidad mencionada como responsable del evento o de la respuesta al mismo. Por ejemplo: "Direccion de Obras Publicas", "Comision Estatal de Aguas", "CONAGUA", "Municipio de Queretaro". Si no se menciona, deja el valor null.
+
+
+
+12. Área afectada (affected_area): descripción del área, zona o conjunto de colonias afectadas por el evento. Por ejemplo: "colonias del norte de la ciudad de Queretaro", "tramo entre Blvd. Torres Landa y Blvd. Hidalgo", "zona oriente del municipio". Si no se menciona, deja el valor null.
+
+
+
+13. Quejas ciudadanas (citizen_complaints): lista en español de las quejas o demandas ciudadanas explícitamente mencionadas en relación con este evento. Cada queja como un elemento separado de la lista. Si no se mencionan quejas específicas, deja null.
+
+Por ejemplo:
+
+"citizen_complaints": ["Falta de agua recurrente en colonias del norte de la ciudad", "Baja presion en horario nocturno"]
+
+
+
+14. Costo estimado (estimated_cost): si la noticia menciona el costo, presupuesto o inversión asociada al evento (proyectos, planes, respuestas), extráelo con la siguiente estructura:
+
+"estimated_cost": {
+    "mention": "texto tal cual aparece en la nota",
+    "lower": 200000000,
+    "upper": 200000000,
+    "currency": "pesos"
+}
+
+Dos ejemplos:
+
+{"estimated_cost": { "mention": "una inversion de 200 millones de pesos para rehabilitacion de la red", "lower": 200000000, "upper": 200000000, "currency": "pesos" }}
+
+{"estimated_cost": { "mention": "entre 50 y 80 millones de pesos", "lower": 50000000, "upper": 80000000, "currency": "pesos" }}
+
+Si no se menciona, deja el valor null.
+
+
+
+15. Descripción del impacto (impact_description): si la noticia describe el impacto del evento sobre los servicios, el tráfico o los ciudadanos, redacta en español un texto breve resumiéndolo. Por ejemplo: "Miles de hogares sin servicio de agua durante varias horas al dia." Si no se menciona, deja el valor null.
+
+
+
+Formato de respuesta:
+
+Responde con una lista en formato JSON, donde cada elemento representa un evento de infraestructura pública detectado en la nota. No añadas texto adicional fuera del JSON.
+
+Ejemplo de formato esperado:
+
+[
+  {
+    "event_type": "water_issue",
+    "event_subtype": "water_service_quality",
+    "status": "ongoing",
+    "name": null,
+    "description": "Vecinos de varias colonias del norte de Queretaro denuncian falta de agua recurrente y exigen mejoras en la red de distribucion durante la temporada de calor 2025.",
+    "tags": ["agua", "servicios_publicos", "queretaro", "infraestructura"],
+    "context": "La problematica se agrava en temporada de calor. La Comision Estatal de Aguas reconocio el problema y promete medidas en el segundo semestre.",
+    "relevance": "1",
+    "date_range": {
+      "date_range": {
+        "start": "2025-03-01T00:00:00",
+        "end": "2025-06-30T23:59:59"
+      },
+      "timezone": null,
+      "mention": "temporada de calor 2025",
+      "precision_days": 120
+    },
+    "location": {
+      "country": "Mexico",
+      "state": "Queretaro",
+      "city": "Queretaro",
+      "neighborhood": null,
+      "zone": "norte de la ciudad",
+      "street": null,
+      "number": null,
+      "place_name": null
+    },
+    "responsible_authority": "Comision Estatal de Aguas",
+    "affected_area": "colonias del norte de la ciudad de Queretaro",
+    "citizen_complaints": [
+      "Falta de agua recurrente en colonias del norte de la ciudad",
+      "Baja presion en horario nocturno"
+    ],
+    "estimated_cost": {
+      "mention": "200 millones de pesos para rehabilitacion de la red",
+      "lower": 200000000,
+      "upper": 200000000,
+      "currency": "pesos"
+    },
+    "impact_description": "Miles de hogares sin servicio durante varias horas al dia."
+  }
+]
+
+
+USER:
+
+La noticia es la siguiente:
+
+{body}

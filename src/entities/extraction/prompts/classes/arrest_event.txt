@@ -90,7 +90,7 @@ Ejemplos:
 
 Usa el formato estandarizado "YYYY-MM-DDTHH:MM:SS".
 
-La fecha de hoy es {date_now}. El tipo de fuente es {source_type}. Si es una publicación de red social y el texto describe claramente un arresto contemporáneo sin mencionar una fecha específica, puedes usar la fecha de publicación ({date_now}) como referencia para start, indicando precision_days: 1 (o un valor razonable según el contexto). No asumas fechas sin base textual.
+La fecha de publicación de la nota es {date_now} (úsala como referencia para resolver fechas relativas como "ayer", "el pasado X de Y", "la semana pasada"). El tipo de fuente es {source_type}. Si es una publicación de red social y el texto describe claramente un arresto contemporáneo sin mencionar una fecha específica, puedes usar la fecha de publicación ({date_now}) como referencia para start, indicando precision_days: 1 (o un valor razonable según el contexto). No asumas fechas sin base textual.
 
 
 

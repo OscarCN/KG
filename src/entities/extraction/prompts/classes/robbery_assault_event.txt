@@ -76,7 +76,7 @@ Tres ejemplos:
 "date_range": { "mention": "la semana pasada", "date_range": { "start": "2025-09-08T00:00:00", "end": "2025-09-14T23:59:00" }, "precision_days": 7 }
 
 Usa el formato estandarizado de fechas "YYYY-MM-DDTHH:MM:SS"
-Como contexto, la fecha de hoy es {date_now}
+Como contexto, la fecha de publicación de la nota es {date_now} (úsala como referencia para resolver fechas relativas como "ayer", "el pasado X de Y", "la semana pasada").
 
 
 

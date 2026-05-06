@@ -11,7 +11,7 @@ USER:
 
 Buscamos problemas específicos de infraestructura pública o proyectos de obra pública identificables individualmente, descritos en un artículo de noticias o publicación de red social. Incluye baches, problemas de alumbrado público, pavimentación, problemas de transporte público, quejas por basura, socavones, vialidades, obras sobre el sistema hidráulico (rotura de tuberías, fugas, colapsos de drenaje, reparaciones del sistema de agua/alcantarillado) y obras de infraestructura en general.
 
-NO uses este esquema para problemas generales de suministro o gestión del agua (desabasto, quejas sobre la calidad del servicio, extracción ilegal). Esos casos se extraen como tema de infraestructura pública (`public_infrastructure`, `theme_type="water_issue"`), no como evento de obra pública.
+NO uses este esquema para problemas generales de suministro o gestión del agua (desabasto, quejas sobre la calidad del servicio, extracción ilegal). Esos casos se extraen como evento de infraestructura pública (`public_infrastructure_event`, `event_type="water_issue"`), no como evento de obra pública.
 
 Cada problema u obra debe ser una ocurrencia concreta y distinguible por su ubicación y/o fecha. No extraigas descripciones generales de condiciones de infraestructura ni de políticas públicas.
 
@@ -43,7 +43,7 @@ Los campos `event_type`, `event_subtype` y `status` siempre van en inglés segú
 
 
 
-2. Subtipo de problema u obra (event_subtype): propón un subtipo más específico dado el contexto. Por ejemplo: "road_damage", "water_pipe_break", "bus_route_change", "bridge_repair", "sewer_collapse", "trash_odor", "illegal_dumping", "water_pipe_replacement", "water_leak_repair", "sewage_overflow_works", "road_sinkhole", entre otros. Para obras concretas sobre el sistema hidráulico (rotura, fuga, colapso, reparación) usa este esquema; para problemas generales de suministro o gestión del agua (desabasto, extracción ilegal, quejas sobre la calidad del servicio) usa el tema `public_infrastructure` con `theme_type="water_issue"`. Si no es claro, deja el valor null.
+2. Subtipo de problema u obra (event_subtype): propón un subtipo más específico dado el contexto. Por ejemplo: "road_damage", "water_pipe_break", "bus_route_change", "bridge_repair", "sewer_collapse", "trash_odor", "illegal_dumping", "water_pipe_replacement", "water_leak_repair", "sewage_overflow_works", "road_sinkhole", entre otros. Para obras concretas sobre el sistema hidráulico (rotura, fuga, colapso, reparación) usa este esquema; para problemas generales de suministro o gestión del agua (desabasto, extracción ilegal, quejas sobre la calidad del servicio) usa el evento `public_infrastructure_event` con `event_type="water_issue"`. Si no es claro, deja el valor null.
 
 
 
@@ -116,7 +116,7 @@ Ejemplos:
 "date_range": { "date_range": {"start": "2025-06-02T00:00:00", "end": null}, "timezone": "CST", "mention": "el pasado lunes 2 de junio", "precision_days": null }
 
 Usa el formato estandarizado de fechas "YYYY-MM-DDTHH:MM:SS".
-Como contexto, la fecha de hoy es {date_now}. El tipo de fuente es {source_type}.
+Como contexto, la fecha de publicación de la nota es {date_now} (úsala como referencia para resolver fechas relativas como "ayer", "el pasado X de Y", "la semana pasada"). El tipo de fuente es {source_type}.
 
 
 

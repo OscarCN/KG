@@ -189,7 +189,8 @@ NEWS_FIELDS = [
     "fb_likes",
     "custom_categories",
     "locations_mentioned",
-    "comments"
+    "comments",
+    "news_type"
 ]
 
 

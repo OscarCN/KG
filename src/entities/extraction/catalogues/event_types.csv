@@ -44,13 +44,13 @@ crime_trends,security,Tendencias de criminalidad,Crime trends
 law_enforcement,security,Fuerzas del orden,Law enforcement
 public_safety,security,Seguridad publica,Public safety
 security_policy,security,Politica de seguridad,Security policy
-infrastructure_conditions,public_infrastructure,Condiciones de infraestructura,Infrastructure conditions
-urban_services,public_infrastructure,Servicios urbanos,Urban services
-water_management,public_infrastructure,Gestion del agua,Water management
-waste_management,public_infrastructure,Gestion de residuos,Waste management
-transportation_infrastructure,public_infrastructure,Infraestructura de transporte,Transportation infrastructure
-urban_planning,public_infrastructure,Planificacion urbana,Urban planning
-water_issue,public_infrastructure,Problema de agua,Water issue
+infrastructure_conditions,public_infrastructure_event,Condiciones de infraestructura,Infrastructure conditions
+urban_services,public_infrastructure_event,Servicios urbanos,Urban services
+water_management,public_infrastructure_event,Gestion del agua,Water management
+waste_management,public_infrastructure_event,Gestion de residuos,Waste management
+transportation_infrastructure,public_infrastructure_event,Infraestructura de transporte,Transportation infrastructure
+urban_planning,public_infrastructure_event,Planificacion urbana,Urban planning
+water_issue,public_infrastructure_event,Problema de agua,Water issue
 emergency_preparedness,civil_protection,Preparacion ante emergencias,Emergency preparedness
 disaster_trends,civil_protection,Tendencias de desastres,Disaster trends
 accident_statistics,civil_protection,Estadisticas de accidentes,Accident statistics

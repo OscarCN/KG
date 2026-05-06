@@ -91,7 +91,7 @@ Si la publicación dice "hoy cerramos operaciones" y la fecha de publicación es
 "date_range": { "mention": "hoy", "date_range": {"start": "2025-07-15T00:00:00", "end": null}, "timezone": null, "precision_days": null }
 
 Usa el formato estandarizado de fechas "YYYY-MM-DDTHH:MM:SS".
-Como contexto, la fecha de hoy es {date_now}. El tipo de fuente es {source_type}; si es una publicación en redes sociales, la fecha de publicación puede servir como referencia cuando no se menciona una fecha explícita.
+Como contexto, la fecha de publicación de la nota es {date_now} (úsala como referencia para resolver fechas relativas como "ayer", "el pasado X de Y", "la semana pasada"). El tipo de fuente es {source_type}; si es una publicación en redes sociales, la fecha de publicación puede servir como referencia cuando no se menciona una fecha explícita.
 
 
 

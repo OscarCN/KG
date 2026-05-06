@@ -86,7 +86,7 @@ Cuatro ejemplos:
 "date_range": { "mention": "julio del 2026", "date_range": { "start": "2026-07-01T00:00:00", "end": null }, "precision_days": 30 }
 
 Usa el formato estandarizado de fechas "YYYY-MM-DDTHH:MM:SS"
-Como contexto, la fecha de hoy es {date_now}. El tipo de fuente es {source_type}; si es una publicación de red social, la fecha de publicación puede servir como referencia cuando no se menciona una fecha explícita.
+Como contexto, la fecha de publicación de la nota es {date_now} (úsala como referencia para resolver fechas relativas como "ayer", "el pasado X de Y", "la semana pasada"). El tipo de fuente es {source_type}; si es una publicación de red social, la fecha de publicación puede servir como referencia cuando no se menciona una fecha explícita.
 
 
 

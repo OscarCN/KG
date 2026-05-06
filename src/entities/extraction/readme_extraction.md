@@ -13,6 +13,7 @@ extraction/
     paid_mass_event.json
     robbery_assault_event.json
     public_works_event.json
+    public_infrastructure_event.json
     violence_event.json
     closures_interruptions_event.json
     emergency_event.json
@@ -20,7 +21,6 @@ extraction/
     arrest_event.json
     # Themes
     security.json
-    public_infrastructure.json
     civil_protection.json
     mobility.json
     culture.json
@@ -58,6 +58,7 @@ Each class maps to exactly one **supertype** (superclass). The supertype determi
 | `paid_mass_event` | concert, festival, party, fair, inauguration, sports_event, religious_event, cultural_event, congress, exposition, conference, convention | `paid_mass_event.json` |
 | `robbery_assault_event` | robbery, assault, kidnapping, security_event | `robbery_assault_event.json` |
 | `public_works_event` | pothole, street_lighting, paving, public_transport, infrastructure, trash_complaint, sinkhole, public_road | `public_works_event.json` |
+| `public_infrastructure_event` | infrastructure_conditions, urban_services, water_management, water_issue, waste_management, transportation_infrastructure, urban_planning | `public_infrastructure_event.json` |
 | `violence_event` | shooting, attack, homicide, confrontation | `violence_event.json` |
 | `closures_interruptions_event` | blockade, closure, suspension_of_operations | `closures_interruptions_event.json` |
 | `emergency_event` | fire, crash, explosion, flood, accident, pedestrian_hit, emergency_general | `emergency_event.json` |
@@ -69,7 +70,6 @@ Each class maps to exactly one **supertype** (superclass). The supertype determi
 | Supertype | Theme types | Schema |
 |---|---|---|
 | `security` | crime_trends, law_enforcement, public_safety, security_policy | `security.json` |
-| `public_infrastructure` | infrastructure_conditions, urban_services, water_management, water_issue, waste_management, transportation_infrastructure, urban_planning | `public_infrastructure.json` |
 | `civil_protection` | emergency_preparedness, disaster_trends, accident_statistics, risk_assessment, civil_protection_policy | `civil_protection.json` |
 | `mobility` | transit_disruptions, road_conditions, transportation_planning, traffic_patterns, public_transit | `mobility.json` |
 | `culture` | cultural_life, arts_scene, festival_landscape, heritage, cultural_policy | `culture.json` |

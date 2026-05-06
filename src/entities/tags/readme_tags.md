@@ -91,6 +91,15 @@ When a new event is created mid-article, an extra block is printed:
                   [old imp=2 n=2] <canonical>
 ```
 
+### Final-summary blocks (stdout)
+
+After the streaming loop finishes, the runner prints two extra blocks before exiting:
+
+- **Sample source items (N tagged)** — picks a few articles / posts / comments that received both a stance assignment and a claim assignment (falls back to stance-only or claim-only when fewer than N carry both), and prints each one with the assigned stance label, the tagger's `reason`, and every claim cluster it was folded into (verbatim + canonical + importance score).
+- **Top events (N of total)** — ranks linked events by tagging activity (cluster count, then total claim members, then source count), and for each event prints: event id + type + name + description, the per-event stance aggregate (top labels by count), the per-event claim catalog summary (`[NEW|old imp=N n=M]` per cluster), and a sample of source items tied to the event with their stances/claims annotated.
+
+These blocks are produced by `print_sample_source_items` and `print_top_events` in `src/entities/tags/stats.py` — call them from any other script that has a `(StanceCatalog, ClaimCatalogRegistry, items_seen)` triple.
+
 ### `data/tags/<customer_slug>/run_<ts>.json`
 
 Two top-level keys:

@@ -196,6 +196,10 @@ else:
 
 # ── Inspect results ────────────────────────────────────────────────────────────
 
+# SAVE
+#with open('/Users/oscarcuellar/ocn/media/kg/kg/data/extracted_raw/ayuntamiento_tst.json', 'w', encoding='utf-8') as f:
+#    json.dump(all_entities, f, ensure_ascii=False, indent=2)
+
 # After running, `all_entities` holds all validated entity dicts.
 # Example inspection:
 #
