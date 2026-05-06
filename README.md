@@ -35,18 +35,21 @@ src/
     schemas/        # Pipeline schema definitions (JSON + Python)
     types/          # Type parsers, composite types, registry
     parse_object.py # Core Parser class
-  entities/         # Entity extraction and mapping
+  entities/         # Entity extraction and linking
     extraction/     # LLM-based structured extraction from text
       schemas/      # Entity schemas (one per supertype, JSON)
       catalogues/   # Ontology catalogues (event types CSV, keywords Excel)
       prompts/classes/ # Generated LLM extraction prompts (one per supertype)
       extract.py    # Extraction pipeline
       prompt_generator.py # Schema → LLM prompt auto-generation
-    linking/        # Event linking/deduplication via LLM disambiguation
-      geocode.py    # Wrapper around the apify_client geocoder (structured-input)
+      readme_extraction.md # Extraction subsystem docs
+    linking/        # Event linking/deduplication and KG database persistence
+      geocode.py    # Thin client for deepriver's geocoder microservice (structured-input)
       link_llm.py   # LLM disambiguator (gemini-2.5-flash-lite) with file cache
       link.py       # EntityLinker: candidate filter + LLM call (events only)
       run_linking.py# IPython runner: extracted_raw/*.json → linked/*.json
+      readme_linking.md # Linking subsystem docs (incl. KG database persistence)
+    readme_entities.md # Overview, ontology categories, links to subsystem docs
   llm/              # LLM provider clients
     openrouter/     # OpenRouter API client (OpenAI-compatible)
   PoC/              # Proof-of-concept implementations (legacy)
@@ -72,16 +75,17 @@ Declarative schema definitions in JSON with a Python normalization pipeline. See
 
 Deduplicates and merges extracted **events** (the output of `src/entities/extraction/`) into canonical event records, each carrying a `source_ids` list of every document that mentions it. The flow:
 
-1. **Geocode** the structured `Location` via the apify_client geocoder to obtain `level_2_id` (state) and basic coords.
+1. **Geocode** the structured `Location` via deepriver's geocoder microservice to obtain `level_2_id` (state) and basic coords.
 2. **Candidate filter** — events that share `event_type`, have date-range overlap, and same `level_2_id`.
 3. **LLM disambiguation** — a single call to `google/gemini-2.5-flash-lite` (via OpenRouter) given the incoming event's `name`, `description`, structured address, and `date`, plus those same fields for each candidate. The LLM returns the matching candidate id or `null`.
 4. **Merge or create** based on the LLM's answer.
+5. *(Planned)* **Persist** the linked record into the unified `kgdb` Postgres database (canonical `entities` row + supertype/child `entity_types` + geocoded `entity_locations` + event lookup `event_properties` + per-source `entities_documents`). **Not implemented yet** — the linker's output is currently an in-memory / JSON record; the kgdb persistence model exists to guide architecture decisions while we iterate on linking approaches.
 
-Both geocode and LLM responses are cached on disk (`cache/geocode/`, `cache/link_llm/`), keyed by sha256 of the canonical input — re-runs avoid re-billing. Themes and entities are not linked yet (skipped). See [`src/entities/readme_entities.md`](src/entities/readme_entities.md#linking-pipeline-linking) for full documentation.
+Both geocode and LLM responses are cached on disk (`cache/geocode/`, `cache/link_llm/`), keyed by sha256 of the canonical input — re-runs avoid re-billing. Themes and entities are not linked yet (skipped). See [`src/entities/linking/readme_linking.md`](src/entities/linking/readme_linking.md) for the linking pipeline and the [KG Database Persistence](src/entities/linking/readme_linking.md#kg-database-persistence) section for the (target) kgdb write model. Full kgdb schema and cross-database conventions live in [`media-backend-paid/docs/DATABASE_POSTGRES.md`](../../media-backend-paid/docs/DATABASE_POSTGRES.md).
 
-### Entity Extraction (`src/entities/`)
+### Entity Extraction (`src/entities/extraction/`)
 
-LLM-based structured extraction from unstructured text (news articles, social media). See [`src/entities/readme_entities.md`](src/entities/readme_entities.md) for full documentation.
+LLM-based structured extraction from unstructured text (news articles, social media). See [`src/entities/extraction/readme_extraction.md`](src/entities/extraction/readme_extraction.md) for full documentation, and [`src/entities/readme_entities.md`](src/entities/readme_entities.md) for the broader pipeline overview.
 
 - **Ontology**: three-level hierarchy (matching rule → class → supertype → schema) with rules in Excel (`keywords.xlsx`) and type mapping in CSV (`event_types.csv`). Each schema declares its category (`event`, `theme`, or `entity`) via `meta.category`
 - **16 supertypes** — 8 events + 7 themes + 1 entity/concept:
@@ -94,7 +98,7 @@ LLM-based structured extraction from unstructured text (news articles, social me
 
 ### Ontology Categories
 
-The system classifies content into four broad ontology categories, each with different identifying characteristics:
+The system classifies content into three broad ontology categories, each with different identifying characteristics:
 
 | Category | Description | Identifying features | Examples |
 |----------|-------------|---------------------|----------|

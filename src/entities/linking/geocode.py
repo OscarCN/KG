@@ -1,9 +1,9 @@
 """Geocoder wrapper for structured Location dicts.
 
-Wraps the apify_client geocoder
-(`/Users/oscarcuellar/ocn/media/apify_client/src/helpers/geocode.py`),
-feeding it the structured-input path of `format_mentions` (which short-
-circuits the NLP step when its `main` argument is already a dict).
+Thin client for deepriver's geocoder microservice. Calls the geocoder
+helper's `geocode` entry point through the structured-input path of
+`format_mentions` (which short-circuits the NLP step when its `main`
+argument is already a dict).
 
 Location fields → geocoder level keys (per `levels` in geocode.py):
 
@@ -31,24 +31,24 @@ from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
-# The apify_client package lives outside this repo. We add its src/ to
-# sys.path so that `from helpers.geocode import geocode` resolves.
-_APIFY_SRC = os.environ.get(
+# Deepriver's geocoder helper lives outside this repo. We add its src/
+# to sys.path so that `from helpers.geocode import geocode` resolves.
+_GEOCODER_SRC = os.environ.get(
     "APIFY_CLIENT_SRC",
     "/Users/oscarcuellar/ocn/media/apify_client/src",
 )
-if _APIFY_SRC not in sys.path:
-    sys.path.insert(0, _APIFY_SRC)
+if _GEOCODER_SRC not in sys.path:
+    sys.path.insert(0, _GEOCODER_SRC)
 
 try:
-    from helpers.geocode import geocode as _apify_geocode  # type: ignore
+    from helpers.geocode import geocode as _deepriver_geocode  # type: ignore
 except Exception as ex:  # pragma: no cover
     logger.warning(
-        "Could not import apify_client geocoder from %s: %s. "
+        "Could not import deepriver geocoder helper from %s: %s. "
         "Geocoding will be disabled.",
-        _APIFY_SRC, ex,
+        _GEOCODER_SRC, ex,
     )
-    _apify_geocode = None  # type: ignore
+    _deepriver_geocode = None  # type: ignore
 
 
 # Cache directory mirrors the extraction cache pattern.
@@ -186,7 +186,7 @@ def geocode_location(
             # Cached `null` (no match) is stored as a JSON null → loaded as None.
             return cached or None
 
-    if _apify_geocode is None:
+    if _deepriver_geocode is None:
         return None
 
     mentions = _build_mentions(loc)
@@ -196,7 +196,7 @@ def geocode_location(
         return None
 
     try:
-        response = _apify_geocode(mentions)
+        response = _deepriver_geocode(mentions)
     except Exception as ex:
         logger.warning("Geocoder call failed for %s: %s", loc, ex)
         return None
