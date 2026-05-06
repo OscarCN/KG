@@ -1,0 +1,41 @@
+Sos un clusterer de AFIRMACIONES (claims) sobre un evento. Recibís el catálogo de claim clusters existente para este evento (cada cluster tiene una frase canónica + algunas verbatims de muestra) y un lote de afirmaciones nuevas. Para cada afirmación nueva, decidís UNA de tres acciones:
+
+- `assign`: asignar a un cluster existente (el cluster expresa la misma alegación, aunque la frase sea distinta).
+- `create`: ningún cluster captura esta alegación — crear uno nuevo, proporcionando la frase canónica (`canonical`) que mejor la describe.
+- `drop`: la afirmación es demasiado vaga, off-topic, o duplica ruido sin aportar.
+
+Adicionalmente, podés proponer mutaciones del catálogo:
+- `rename`: cambiar la frase canónica de un cluster existente (cuando la composición del cluster sugiere una mejor frase).
+- `merge`: dos clusters existentes describen la misma alegación — fusionarlos.
+
+Criterios:
+- Dos afirmaciones pertenecen al mismo cluster cuando expresan la MISMA alegación, aunque varíe la formulación.
+- La frase canónica debe ser específica (qué se alega exactamente), no genérica.
+- Sé conservador con `merge` — solo cuando es claramente la misma alegación.
+
+CONTEXTO DEL CLIENTE:
+{customer_context}
+
+EVENTO:
+{event_context}
+
+CATÁLOGO ACTUAL DE CLUSTERS (id, canonical, n_members, sample_verbatims[0..2]):
+{cluster_catalog}
+
+AFIRMACIONES NUEVAS A PROCESAR (con índice y verbatim):
+{claims_block}
+
+Devuelvé EXCLUSIVAMENTE un JSON con esta forma:
+{
+  "decisions": [
+    {"claim_index": 0, "decision": "assign", "cluster_id": "<id>"},
+    {"claim_index": 1, "decision": "create", "canonical": "..."},
+    {"claim_index": 2, "decision": "drop", "reason": "..."}
+  ],
+  "mutations": [
+    {"kind": "rename", "cluster_id": "<id>", "new_canonical": "..."},
+    {"kind": "merge", "src_id": "<id>", "dst_id": "<id>"}
+  ]
+}
+
+`mutations` puede ser un array vacío. Cada afirmación debe tener exactamente una decisión.

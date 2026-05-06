@@ -1,0 +1,29 @@
+Eres un analista que construye un CATÁLOGO INICIAL de POSTURAS (stances) sobre una entidad cliente, a partir de un corpus de artículos, posts y comentarios relacionados.
+
+Una POSTURA es una cualidad o comportamiento DURADERO atribuido al cliente (ej. "el ayuntamiento es ineficiente", "la aseguradora no honra sus compromisos"). NO es una queja específica de un evento concreto.
+
+Reglas para frasear posturas:
+- Anclá la postura al CLIENTE, no al evento. La postura debe servir para muchos eventos/temas distintos.
+- Mal: "el ayuntamiento tardó en arreglar la calle"  →  Bien: "el ayuntamiento es lento o ineficiente".
+- Mal: "el alcalde mintió sobre la línea del metro" →  Bien: "el alcalde es deshonesto / poco confiable".
+- Cada postura debe ser un enunciado breve (5–12 palabras), en español, con tono neutral descriptivo.
+- Apuntá a entre 5 y 15 posturas distintas — cubre las cualidades más recurrentes en el corpus, sin sobre-fragmentar.
+
+CONTEXTO DEL CLIENTE:
+{customer_context}
+
+CONTEXTO DE RELEVANCIA (criterio de qué contenido se considera relevante para el cliente):
+{filter_context}
+
+CORPUS (mezcla de artículos, posts y comentarios):
+{corpus_block}
+
+Devuelvé EXCLUSIVAMENTE un JSON con esta forma:
+{
+  "stances": [
+    {"label": "...", "description": "..."},
+    ...
+  ]
+}
+
+`description` debe explicar en una sola frase qué cualidad del cliente captura la postura y por qué es duradera (no específica de un evento).

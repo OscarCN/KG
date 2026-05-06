@@ -46,9 +46,15 @@ src/
     linking/        # Event linking/deduplication and KG database persistence
       geocode.py    # Thin client for deepriver's geocoder microservice (structured-input)
       link_llm.py   # LLM disambiguator (gemini-2.5-flash-lite) with file cache
-      link.py       # EntityLinker: candidate filter + LLM call (events only)
-      run_linking.py# IPython runner: extracted_raw/*.json → linked/*.json
+      link.py       # EntityLinker: candidate filter + LLM call (events only). Exposes link_one(raw) → LinkResult for streaming callers.
+      run_linking.py# IPython runner: streams extracted_raw/*.json → linked/*.json + (optional) tags pipeline
       readme_linking.md # Linking subsystem docs (incl. KG database persistence)
+    tags/           # Customer-anchored stances + per-event claim clusters (Stage 1, in-memory)
+      models/       # Pure data structures: customer.py, source_item.py, stance_catalog.py, claim_catalog.py
+      bootstrap.py / tagging.py / stance_adjudicator.py / claim_clusterer.py / apply.py
+      retrieval.py / persistence.py / stats.py
+      prompts/      # Spanish prompts for the four LLM phases
+      tags_overview.md / tags_impl_plan.md / readme_tags.md
     readme_entities.md # Overview, ontology categories, links to subsystem docs
   llm/              # LLM provider clients
     openrouter/     # OpenRouter API client (OpenAI-compatible)
@@ -60,7 +66,15 @@ src/
     run_extraction.py# Step-by-step IPython script for the extraction pipeline
     sentence_pairs_model.py  # Sentence-pair similarity model (PyTorch)
 resources/          # Input data files (Excel, prompt contexts)
-cache/              # Extraction result cache (per article+class, auto-generated)
+data/
+  extracted_raw/    # Output of the extraction pipeline
+  linked/           # Output of the linking pipeline
+  tags/
+    customer_<entity_id>.json   # Stage-1 customer fixture (mirrors kgdb columns)
+    customer_<entity_id>/run_<ts>.json  # Per-run snapshot of the stance + claim catalogs
+scripts/
+  build_customer_fixture.py  # Materialises a customer fixture from kgdb (Stage-1 stand-in)
+cache/              # Extraction + linking + tags LLM-call cache (sha256-keyed, auto-generated)
 ```
 
 ### Schema System (`src/schema/`)
@@ -82,6 +96,17 @@ Deduplicates and merges extracted **events** (the output of `src/entities/extrac
 5. *(Planned)* **Persist** the linked record into the unified `kgdb` Postgres database (canonical `entities` row + supertype/child `entity_types` + geocoded `entity_locations` + event lookup `event_properties` + per-source `entities_documents`). **Not implemented yet** — the linker's output is currently an in-memory / JSON record; the kgdb persistence model exists to guide architecture decisions while we iterate on linking approaches.
 
 Both geocode and LLM responses are cached on disk (`cache/geocode/`, `cache/link_llm/`), keyed by sha256 of the canonical input — re-runs avoid re-billing. Themes and entities are not linked yet (skipped). See [`src/entities/linking/readme_linking.md`](src/entities/linking/readme_linking.md) for the linking pipeline and the [KG Database Persistence](src/entities/linking/readme_linking.md#kg-database-persistence) section for the (target) kgdb write model. Full kgdb schema and cross-database conventions live in [`media-backend-paid/docs/DATABASE_POSTGRES.md`](../../media-backend-paid/docs/DATABASE_POSTGRES.md).
+
+The runner streams articles through the linker one at a time and (when `TAGS_ENABLED=True`, default) routes each newly-linked event into the [tags subsystem](src/entities/tags/readme_tags.md) for stance + claim extraction.
+
+### Tags (`src/entities/tags/`)
+
+Two complementary tag types extracted from articles, posts, and comments tied to a single **customer entity**:
+
+- **Stances** — durable attitudes/qualities expressed about the customer (cross-event, per-customer catalog).
+- **Claims** — specific factual assertions about events affecting the customer (per-event clusters with `is_new` freshness flag and `importance` score).
+
+Five-phase pipeline: bootstrap (one-shot per customer) → tag (Phase 2 — single LLM call producing both stance assignments and structured claims) → adjudicate stance catalog mutations (Phase 3) → cluster claims (Phase 4) → apply (Phase 5). Stage 1 today is **in-memory only** — no Postgres writes; the snapshot file is a debug artefact. Stage 2 will swap `load_customer_from_json` for `load_customer_from_db` in `run_linking.py` and add a `Persistence` Postgres impl alongside `InMemoryPersistence`. See [`src/entities/tags/tags_overview.md`](src/entities/tags/tags_overview.md) for the design, [`src/entities/tags/tags_impl_plan.md`](src/entities/tags/tags_impl_plan.md) for the architecture, [`src/entities/tags/readme_tags.md`](src/entities/tags/readme_tags.md) for usage.
 
 ### Entity Extraction (`src/entities/extraction/`)
 
@@ -122,6 +147,8 @@ Classes will support inheritance, where a more specific class inherits attribute
 
 This allows shared attributes and behavior to be defined once at the parent level and specialized at the child level.
 
+A related future direction is **multi-class entities** — a single entity instantiating more than one ontology class simultaneously (e.g. an `arrest_event` that is also a `violence_event`, or an entity acting as a theme anchor at the same time). The `entity_types` table on the kgdb side is already a many-to-many and supports it on the schema side. The open questions are at the validation layer (which class's schema does `entities.metadata` conform to when an entity carries several?) and at the linker (does multi-class membership widen the candidate filter?). We'll address it alongside inheritance — until then, the working assumption is one supertype per entity.
+
 ## Infrastructure
 
 | Service | Purpose |
@@ -130,7 +157,7 @@ This allows shared attributes and behavior to be defined once at the parent leve
 | Redis | LSH cache for fuzzy name matching |
 | Elasticsearch | News article indexing and retrieval |
 | MongoDB | Crawler/source metadata |
-| OpenRouter | LLM calls for extraction (`OPENROUTER_MODEL`), prompt generation (`OPENROUTER_GENERATION_MODEL`), and prompt feedback (`OPENROUTER_FEEDBACK_MODEL`) |
+| OpenRouter | LLM calls for extraction (`OPENROUTER_MODEL`), prompt generation (`OPENROUTER_GENERATION_MODEL`), prompt feedback (`OPENROUTER_FEEDBACK_MODEL`), event linking (`OPENROUTER_LINKER_MODEL`), tags bootstrap / tagger / adjudicator / clusterer (`OPENROUTER_BOOTSTRAP_MODEL`, `OPENROUTER_TAGGER_MODEL`, `OPENROUTER_ADJUDICATOR_MODEL`, `OPENROUTER_CLUSTERER_MODEL`) |
 | OpenAI API | Embeddings |
 
 ## Key Dependencies

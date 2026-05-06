@@ -10,10 +10,12 @@ For an overview of the broader pipeline and ontology categories, see [`../readme
 linking/
   geocode.py              # Geocoder wrapper (structured Location → level_2_id, coords, geoid)
   link_llm.py             # LLM disambiguator (gemini-2.5-flash-lite) with file cache
-  link.py                 # EntityLinker: candidate filter + LLM call (events only)
-  run_linking.py          # IPython runner
+  link.py                 # EntityLinker: candidate filter + LLM call (events only). Exposes link_one(raw) → LinkResult for streaming callers.
+  run_linking.py          # IPython runner — streams articles through the linker and (optionally) the tags pipeline.
   readme_linking.md       # This file
 ```
+
+The runner streams extracted records grouped by `_source_id`, fetches each article's comments from the ES `news` index (or a local file in test mode), invokes `EntityLinker.link_one(raw)` per record, and — when [`TAGS_ENABLED`](#tagging-integration) — hands the `(linked event, article, comments)` triple to the tagging pipeline. See [`../tags/readme_tags.md`](../tags/readme_tags.md) for the tagging side.
 
 ## Linking Pipeline
 
@@ -136,6 +138,22 @@ After it finishes, the following names are bound for inspection:
 | `records` | Raw extracted records loaded from `INPUT` |
 | `linker` | The `EntityLinker` instance (with `linker.dropped`, `linker.events`, ...) |
 | `linked` | Dict with an `events` list (themes/entities are skipped) |
+| `stance_catalog` | (only when `TAGS_ENABLED`) The customer's `StanceCatalog` after the run |
+| `claim_catalogs` | (only when `TAGS_ENABLED`) `ClaimCatalogRegistry` keyed on `(customer_id, event_id)` |
+| `stats` | (only when `TAGS_ENABLED`) `StreamingStats` with the full per-phase counters |
+
+## Tagging integration
+
+When `TAGS_ENABLED = True` (default), the runner additionally drives the [tags subsystem](../tags/readme_tags.md): customer-anchored stances + per-event claim clusters. The flow per article is:
+
+1. Fetch `(article, comments)` via `Retrieval.get_article_with_comments(_source_id)` (ES `news` index, or `LocalFileRetrieval` against a local file in test mode).
+2. Stream each extracted record through `EntityLinker.link_one(raw)` — returns a `LinkResult(status, event_id, record, reason)`. `status` is `created` / `merged` / `skipped` / `dropped` / `error`.
+3. For each `LinkResult` with `status ∈ {"created","merged"}`: tag the article + comments via Phase 2 (`TaggingOrchestrator.tag_batch`), adjudicate stance proposals if any (Phase 3), cluster claims if any (Phase 4), apply via `tags.apply` (Phase 5).
+4. Print a per-article snapshot (top-N stances + new-cluster count) and an extra block whenever a new event is created.
+
+After the run, in addition to `data/linked/<input>.json`, the runner writes `data/tags/<customer_slug>/run_<ts>.json` — a snapshot of the stance catalog (entries + assignments) and the per-event claim catalogs (clusters + assignments + `is_new` flags + importance roll-ups). See [`../tags/readme_tags.md`](../tags/readme_tags.md) for outputs and the design / class spec.
+
+Set `TAGS_ENABLED = False` near the top of `run_linking.py` to bypass the tagging pipeline and reproduce the original linker-only behaviour (same OUTPUT shape).
 
 The script loads the extracted JSON (with a robust record-boundary fallback for malformed files), parses every record through its supertype schema, runs the linker, and writes the result as a JSON dict with an `events` list. It prints counts of input records, linked events, drop reasons, and how many events were merged from multiple sources. Set `GEOCODE = False` at the top to skip geocoding (events with no resolvable state will fall into the empty-prefix bucket).
 
@@ -189,6 +207,8 @@ Every linked output of the pipeline becomes one row in `entities`:
   - theme supertypes: `theme_type`, optional `location`, plus per-article fields (see *Themes* below)
 
 The entity is associated with its supertype (and, when known, the child type) via `entity_types` rows pointing at `entity_types_kinds_available.entity_type_id`. `entity_types.entity_id` references `entities_alias.original_entity_id`, so entity merges remain stable across the indirection layer.
+
+> **Future: multi-class entities.** Today the linker writes one supertype (+ optional child type) per entity, but `entity_types` is already a many-to-many — a single `entity_id` can carry multiple `entity_type_id` rows. An entity instantiating more than one ontology class simultaneously (e.g. an event that's both a `paid_mass_event` and a `protest_event`, or a `legislative_initiative` that also acts as a `security` theme anchor) is a real possibility we'll address when inheritance work properly lands. The schema accommodates it; the open questions are at the validation layer (which class's schema does `entities.metadata` conform to?) and at the linker (does multi-class change the candidate filter?). Until inheritance is tackled, treat one supertype per entity as the working assumption.
 
 ### Themes are degenerate single entities
 

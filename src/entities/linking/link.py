@@ -20,15 +20,38 @@ import copy
 import logging
 import random
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
+from typing import Any, Dict, Iterable, List, Literal, Optional, Set, Tuple
 
 from src.schema.parse_object import Parser
 from src.schema.schemas.read_schema import load_schema
 
 from .geocode import geocode_location
 from .link_llm import disambiguate
+
+
+LinkStatus = Literal["created", "merged", "skipped", "dropped", "error"]
+
+
+@dataclass
+class LinkResult:
+    """Outcome of `EntityLinker.link_one(raw)`.
+
+    `status`:
+      - `"created"` — a new canonical event was minted (`event_id` set).
+      - `"merged"`  — incoming record folded into existing event (`event_id` set).
+      - `"skipped"` — record's category isn't linked yet (theme/entity); no event_id.
+      - `"dropped"` — couldn't link (missing supertype, type, or date); no event_id.
+      - `"error"`   — exception during processing.
+    `record` is the canonical post-link record when a link succeeded.
+    """
+
+    status: LinkStatus
+    event_id: Optional[str] = None
+    record: Optional[Dict[str, Any]] = None
+    reason: Optional[str] = None
 
 logger = logging.getLogger(__name__)
 
@@ -199,11 +222,7 @@ class EntityLinker:
         records = list(records)
         logger.debug("Starting link_all over %d records", len(records))
         for raw in records:
-            try:
-                self._process(raw)
-            except Exception as ex:
-                logger.exception("Failed to link record (%s): %s", raw.get("_supertype"), ex)
-                self.dropped["error"] += 1
+            self.link_one(raw)
         events = list(self.events.values())
         logger.debug(
             "link_all done — %d linked events, dropped=%s",
@@ -223,16 +242,31 @@ class EntityLinker:
 
     # -- Per-record processing ----------------------------------------
 
-    def _process(self, raw: Dict[str, Any]) -> None:
+    def link_one(self, raw: Dict[str, Any]) -> LinkResult:
+        """Link a single extracted record. Used by the streaming runner.
+
+        Wraps `_process` with a try/except so the streaming caller doesn't
+        have to handle exceptions itself.
+        """
+        try:
+            return self._process(raw)
+        except Exception as ex:
+            logger.exception(
+                "Failed to link record (%s): %s", raw.get("_supertype"), ex
+            )
+            self.dropped["error"] += 1
+            return LinkResult(status="error", reason=str(ex))
+
+    def _process(self, raw: Dict[str, Any]) -> LinkResult:
         supertype = raw.get("_supertype")
         if not supertype:
             self.dropped["no_supertype"] += 1
-            return
+            return LinkResult(status="dropped", reason="no_supertype")
 
         category = _category_for(supertype)
         if category != "event":
             self.dropped[f"skipped_category:{category}"] += 1
-            return
+            return LinkResult(status="skipped", reason=f"category:{category}")
 
         meta = {
             "_source_id": raw.get("_source_id"),
@@ -252,7 +286,7 @@ class EntityLinker:
         if geo:
             record["_geo"] = geo
 
-        self._link_event(record)
+        return self._link_event(record)
 
     def _parse_with_schema(self, raw: Dict[str, Any], supertype: str) -> Dict[str, Any]:
         loaded = _get_schema(supertype)
@@ -268,16 +302,16 @@ class EntityLinker:
 
     # -- Event linking -------------------------------------------------
 
-    def _link_event(self, record: Dict[str, Any]) -> None:
+    def _link_event(self, record: Dict[str, Any]) -> LinkResult:
         event_type = record.get("event_type")
         if not event_type:
             self.dropped["event_no_type"] += 1
-            return
+            return LinkResult(status="dropped", reason="event_no_type")
 
         start_dt, end_dt, slack_days, date_source = _resolve_window(record)
         if date_source == "missing":
             self.dropped["event_no_date_no_pub"] += 1
-            return
+            return LinkResult(status="dropped", reason="event_no_date_no_pub")
 
         level_2_id = ((record.get("_geo") or {}).get("level_2_id") or "")
         # Candidate filter: event_type ∧ same level_2_id ∧ slack-expanded date overlap.
@@ -310,6 +344,7 @@ class EntityLinker:
                 (base.get("description") or "")[:140],
             )
             self._merge_event(base, record, start_dt, end_dt, slack_days, date_source)
+            return LinkResult(status="merged", event_id=match_id, record=base)
         else:
             logger.debug(
                 "CREATE — event_type=%s level_2_id=%r date_source=%s "
@@ -324,7 +359,8 @@ class EntityLinker:
                 (record.get("description") or "")[:140],
                 len(candidate_records),
             )
-            self._create_event(record, start_dt, end_dt, slack_days, level_2_id, date_source)
+            new_id = self._create_event(record, start_dt, end_dt, slack_days, level_2_id, date_source)
+            return LinkResult(status="created", event_id=new_id, record=self.events[new_id])
 
     def _create_event(
         self,
@@ -334,7 +370,7 @@ class EntityLinker:
         slack_days: int,
         level_2_id: str,
         date_source: str,
-    ) -> None:
+    ) -> str:
         ref_dt = start_dt or end_dt
         slug = level_2_id or "noloc"
         eid = f"{ref_dt.strftime('%Y%m%d')}_{slug}_{random.randint(100000, 999999)}"
@@ -368,6 +404,7 @@ class EntityLinker:
         if pub_dt:
             for dk in _date_keys(pub_dt, pub_dt, PUBLICATION_DATE_SLACK_DAYS):
                 self._event_index[(event_type, level_2_id, dk)].add(eid)
+        return eid
 
     def _merge_event(
         self,
