@@ -90,6 +90,7 @@ Matching rules are defined in an Excel file with the same layout as `resources/k
 |---|---|---|
 | `section`, `subsection`, `tag` | Labeling only — not used in matching | — |
 | `class` | Ontology class assigned on match (e.g. `street_lighting`, `concert`) | — |
+| `enabled` | TRUE/FALSE — gates the rule at load time. Rows with `enabled = FALSE` are skipped, so the class is never matched, classified or extracted. Missing column or missing value is treated as TRUE (backward compatible). Use it to temporarily turn off entire categories (e.g. set every `theme` row to FALSE) without deleting their matching rules. | — |
 | `kw` | Quoted comma-separated keywords (e.g. `"robo","robar"`) — matched with **stemming** (word-level) | OR (any stemmed kw in text) |
 | `phrase` | Quoted comma-separated phrases (e.g. `"evento deportivo"`) — matched **exactly** (no stemming, substring) | OR (any phrase in text) |
 | `not` | Quoted comma-separated exclusion keywords — matched exactly (no stemming) | NOT (text must not contain any) |
@@ -100,7 +101,7 @@ Matching rules are defined in an Excel file with the same layout as `resources/k
 | `period` | History search period (`d`, `w`, `m`, `y`) | Not used currently |
 | `bbox` | Bounding box for geocoded content | Not used currently |
 
-**Matching logic per row**: `(has any kw OR has any phrase) AND (has no 'not' kw) AND (has any category) AND (has no dismiss_category) AND (doc type matches)`. Empty columns are skipped (always pass). `kw` and `phrase` within the same row are OR'd — matching either satisfies the text condition. `kw` uses the NLTK Spanish Snowball stemmer for word-level matching (e.g. "robaron" matches kw "robo"); `phrase` uses exact normalized substring matching (e.g. "cierre de calle" matches only that exact phrase).
+**Matching logic per row**: `enabled = TRUE AND (has any kw OR has any phrase) AND (has no 'not' kw) AND (has any category) AND (has no dismiss_category) AND (doc type matches)`. Empty columns are skipped (always pass). `kw` and `phrase` within the same row are OR'd — matching either satisfies the text condition. `kw` uses the NLTK Spanish Snowball stemmer for word-level matching (e.g. "robaron" matches kw "robo"); `phrase` uses exact normalized substring matching (e.g. "cierre de calle" matches only that exact phrase).
 
 Multiple keywords can map to the same ontology class across different rows with different filter combinations. An article matching rules from different supertypes will be sent to multiple extraction schemas.
 

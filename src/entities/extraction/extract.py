@@ -114,6 +114,10 @@ class Ontology:
 
     Columns used for matching:
         - class: ontology class (event_type) assigned when the row matches
+        - enabled: TRUE/FALSE flag. Rows with `enabled = FALSE` are skipped at
+          load time, so the corresponding ontology class never gets matched
+          nor sent through classification/extraction. Missing column is treated
+          as TRUE for backward compatibility.
         - kw: quoted comma-separated keywords (OR) — matched with stemming
         - phrase: quoted comma-separated phrases (OR) — matched exactly (no stemming)
         - not: quoted comma-separated keywords (OR) — text must NOT contain any
@@ -145,9 +149,19 @@ class Ontology:
         # Load matching rules from Excel
         df = pd.read_excel(keywords_path)
         self.rules: List[Dict[str, Any]] = []
+        n_disabled = 0
         for _, row in df.iterrows():
             rule: Dict[str, Any] = {}
             rule["ontology_class"] = str(row["class"]).strip() if pd.notna(row.get("class")) else None
+            if not rule["ontology_class"]:
+                continue
+            # `enabled` column gates whether the rule is active. Missing column
+            # or missing value → treated as enabled (backward compatible).
+            if "enabled" in df.columns:
+                enabled_raw = row.get("enabled")
+                if pd.notna(enabled_raw) and not bool(enabled_raw):
+                    n_disabled += 1
+                    continue
             rule["kw"] = _parse_quoted_list(row.get("kw"))
             rule["kw_stemmed"] = [_stem_text(kw) for kw in rule["kw"]]
             rule["phrase"] = _parse_quoted_list(row.get("phrase"))
@@ -155,8 +169,17 @@ class Ontology:
             rule["categories"] = _parse_pipe_list(row.get("categories"))
             rule["dismiss_categories"] = _parse_pipe_list(row.get("dismiss_categories"))
             rule["document_type"] = _parse_comma_list(row.get("document_type"))
-            if rule["ontology_class"]:
-                self.rules.append(rule)
+            self.rules.append(rule)
+        # Restrict downstream lookups to classes that survived the enabled filter.
+        self.enabled_classes: Set[str] = {r["ontology_class"] for r in self.rules}
+        if n_disabled:
+            logger.info(
+                "Ontology: %d rules disabled via `enabled` column; %d rules active "
+                "(%d distinct classes).",
+                n_disabled,
+                len(self.rules),
+                len(self.enabled_classes),
+            )
 
     def match(
         self,
