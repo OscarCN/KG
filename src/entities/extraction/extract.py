@@ -489,6 +489,49 @@ def call_llm(messages: List[Dict[str, str]]) -> str:
 
 _LLM_MAX_ATTEMPTS = 3
 
+# Total attempts for `extract_supertype` (1 initial + up to 2 retries).
+# Retries kick in when the LLM returns unparseable JSON, an entity missing
+# its typing field (`event_type` / `theme_type` / `entity_type`), or a
+# response that fails schema validation.
+_EXTRACTION_MAX_ATTEMPTS = 3
+
+# Recognised typing fields across all supertype categories. An entity is
+# considered "untyped" if none of these fields holds a non-empty string.
+_ENTITY_TYPE_FIELDS = ("event_type", "theme_type", "entity_type")
+
+
+def _entity_has_type(entity: Dict[str, Any]) -> bool:
+    """True if the entity declares a non-empty value in any typing field."""
+    for f in _ENTITY_TYPE_FIELDS:
+        v = entity.get(f)
+        if isinstance(v, str) and v.strip():
+            return True
+    return False
+
+
+class _RetryableExtractionError(Exception):
+    """Raised by `_attempt_extract` when a single extraction attempt fails
+    in a retryable way. Carries a Spanish hint that's fed back to the LLM
+    on the next attempt, plus the underlying exception (preserved so the
+    final attempt can surface the original error type)."""
+
+    def __init__(self, hint: str, original: Optional[BaseException] = None):
+        super().__init__(hint)
+        self.hint = hint
+        self.original = original
+
+
+def _retry_hint_message(hint: str) -> Dict[str, str]:
+    """Build the corrective `user` message appended on retry."""
+    return {
+        "role": "user",
+        "content": (
+            f"NOTA: el intento anterior tuvo este problema: {hint}. "
+            "Corrige ese problema y devuelve nuevamente el JSON solicitado, "
+            "respetando el formato y los campos requeridos por el esquema."
+        ),
+    }
+
 
 def _call_llm_with_retry(messages: List[Dict[str, str]]) -> str:
     """Call ``call_llm`` up to ``_LLM_MAX_ATTEMPTS`` times.
@@ -520,11 +563,18 @@ def _call_llm_with_retry(messages: List[Dict[str, str]]) -> str:
 def _parse_llm_response(raw: str) -> List[Dict[str, Any]]:
     """Parse the raw LLM response string into a list of entity dicts.
 
-    Handles common LLM quirks: markdown code fences, trailing commas, and
-    a single-key wrapper object whose value is the actual entity list
-    (e.g. ``{"incidents": [{...}, {...}]}``). The wrapper sneaks in when
-    the prompt's terminology (*"incidente"*, *"evento"*) primes the model
-    to label the list instead of returning a bare array.
+    Handles common LLM quirks:
+    - markdown code fences,
+    - trailing commas before `}` or `]`,
+    - single-key wrapper objects whose value is the actual entity list
+      (e.g. ``{"incidents": [{...}, {...}]}``),
+    - nested single-key wrappers (e.g. ``{"results": {"events": [...]}}``),
+    - multi-key wrappers where exactly one value is a list of entity-shaped
+      dicts (e.g. ``{"summary": "...", "events": [{...}]}``).
+
+    The wrapper sneaks in when the prompt's terminology (*"incidente"*,
+    *"evento"*) primes the model to label the list instead of returning a
+    bare array.
     """
     text = raw.strip()
 
@@ -536,24 +586,68 @@ def _parse_llm_response(raw: str) -> List[Dict[str, Any]]:
     # Remove trailing commas before } or ] (common LLM mistake)
     text = re.sub(r",\s*([}\]])", r"\1", text)
 
-    parsed = json.loads(text)
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError as ex:
+        # Surface a helpful hint when the response was truncated mid-stream
+        # (token-limit cutoff manifests as invalid JSON near the end).
+        logger.warning(
+            "LLM response is not valid JSON (%s, pos %d/%d). Likely a "
+            "truncation/token-limit cutoff. Snippet near error: %r",
+            ex.msg, ex.pos, len(text), text[max(0, ex.pos - 60):ex.pos + 60],
+        )
+        raise
 
-    if isinstance(parsed, dict):
-        # Unwrap a single-key wrapper whose value is a list of entity dicts:
-        # `{"incidents": [{...}]}` → `[{...}]`. Only triggers on a sole top-level
-        # key with a list-of-dicts value, so well-formed single-entity responses
-        # still pass through as `[parsed]`.
-        if len(parsed) == 1:
-            sole_value = next(iter(parsed.values()))
-            if isinstance(sole_value, list) and all(
-                isinstance(x, dict) for x in sole_value
-            ):
-                return sole_value
-        return [parsed]
+    return _coerce_to_entity_list(parsed)
+
+
+def _coerce_to_entity_list(parsed: Any, _depth: int = 0) -> List[Dict[str, Any]]:
+    """Reduce a parsed JSON value to a list of entity dicts.
+
+    Iteratively unwraps single-key wrappers and falls back to several
+    multi-key heuristics. Bounded depth (5) protects against pathological
+    nesting.
+    """
+    if _depth > 5:
+        if isinstance(parsed, list):
+            return [x for x in parsed if isinstance(x, dict)]
+        if isinstance(parsed, dict):
+            return [parsed]
+        raise ValueError(
+            f"Could not coerce LLM response to entity list (depth limit hit)"
+        )
+
     if isinstance(parsed, list):
-        return parsed
+        # Filter stray scalars defensively (LLMs occasionally include nulls /
+        # strings alongside dicts).
+        return [x for x in parsed if isinstance(x, dict)]
 
-    raise ValueError(f"Expected list or dict from LLM, got {type(parsed).__name__}")
+    if not isinstance(parsed, dict):
+        raise ValueError(
+            f"Expected list or dict from LLM, got {type(parsed).__name__}"
+        )
+
+    # Single-key wrapper — recurse into the value.
+    if len(parsed) == 1:
+        sole_value = next(iter(parsed.values()))
+        if isinstance(sole_value, list):
+            return [x for x in sole_value if isinstance(x, dict)]
+        if isinstance(sole_value, dict):
+            return _coerce_to_entity_list(sole_value, _depth + 1)
+        # Sole value is a scalar — treat the wrapper as the entity itself.
+        return [parsed]
+
+    # Multi-key dict. If exactly one value is a list of dicts, that's almost
+    # certainly the entity list and the other keys are metadata/noise.
+    list_of_dicts_values = [
+        v for v in parsed.values()
+        if isinstance(v, list) and v and all(isinstance(x, dict) for x in v)
+    ]
+    if len(list_of_dicts_values) == 1:
+        return list_of_dicts_values[0]
+
+    # Nothing list-shaped — treat the multi-key dict as a single entity.
+    return [parsed]
 
 
 def _validate_entity(
@@ -573,6 +667,134 @@ def _validate_entity(
     return parser.normalize_record(
         entity, schema_key, raise_validation_error=raise_validation_error,
     )
+
+
+# ---------------------------------------------------------------------------
+# Extraction attempt helpers
+# ---------------------------------------------------------------------------
+
+
+def _build_extraction_messages(
+    article: Dict[str, Any],
+    ontology: "Ontology",
+    supertype: str,
+    event_type: Optional[str],
+) -> List[Dict[str, str]]:
+    """Build the base prompt messages for one (article, supertype) extraction.
+
+    Resolves `{date_now}` to the article's publication date (falls back to
+    wall-clock only when missing) and prepends a focus instruction when
+    extraction is scoped to a specific class.
+    """
+    context = {
+        "date_now": _prompt_reference_date(article),
+        "body": article.get("text", ""),
+        "source_type": article.get("source_type", "news"),
+    }
+    messages = _load_prompt(supertype, context)
+
+    if event_type:
+        labels = ontology.type_labels.get(event_type, {})
+        label_es = labels.get("label_es", event_type)
+        focus = {
+            "role": "user",
+            "content": (
+                f'IMPORTANTE: Para este artículo, extrae únicamente entradas '
+                f'de tipo "{event_type}" ({label_es}). '
+                f"Ignora cualquier otro tipo que pueda aparecer en la nota."
+            ),
+        }
+        messages.insert(-1, focus)
+    return messages
+
+
+def _validate_all_entities(
+    entities: List[Dict[str, Any]],
+    supertype: str,
+    raise_validation_error: bool,
+) -> List[Dict[str, Any]]:
+    """Run schema validation on every entity, preserving the `_source_id` /
+    `_supertype` / `date_created` provenance fields."""
+    validated: List[Dict[str, Any]] = []
+    for entity in entities:
+        meta = {
+            "_source_id": entity.pop("_source_id", None),
+            "_supertype": entity.pop("_supertype", None),
+            "date_created": entity.pop("date_created", None),
+        }
+        try:
+            normalized = _validate_entity(
+                entity, supertype, raise_validation_error=raise_validation_error,
+            )
+        except Exception as e:
+            pretty = json.dumps(
+                {**entity, **meta}, ensure_ascii=False, indent=2, default=str,
+            )
+            logger.error(
+                "Validation failed for supertype=%s (%s): %s\nFull entity:\n%s",
+                supertype, type(e).__name__, e, pretty,
+            )
+            raise
+        normalized.update(meta)
+        validated.append(normalized)
+    return validated
+
+
+def _attempt_extract(
+    messages: List[Dict[str, str]],
+    supertype: str,
+    article_id: Any,
+    publication_date: Optional[str],
+    *,
+    validate: bool,
+    raise_validation_error: bool,
+) -> List[Dict[str, Any]]:
+    """One extraction attempt: call → parse → type-check → tag → validate.
+
+    Raises `_RetryableExtractionError` on any failure mode worth retrying
+    (transport, JSON parse, missing typing field, validation). The caller
+    decides whether to retry or surface the underlying exception.
+    """
+    try:
+        raw = _call_llm_with_retry(messages)
+    except Exception as ex:
+        raise _RetryableExtractionError(f"error de transporte/LLM: {ex}", ex) from ex
+
+    try:
+        entities = _parse_llm_response(raw)
+    except (json.JSONDecodeError, ValueError) as ex:
+        raise _RetryableExtractionError(
+            f"el JSON no se pudo parsear ({ex}). Asegúrate de devolver JSON "
+            f"válido y completo (sin texto adicional ni truncamientos).",
+            ex,
+        ) from ex
+
+    untyped = sum(1 for e in entities if not _entity_has_type(e))
+    if untyped:
+        raise _RetryableExtractionError(
+            f"{untyped} de {len(entities)} entradas vinieron sin el campo de "
+            f"tipo (`event_type`, `theme_type` o `entity_type`) o con valor "
+            f"null. CADA entrada DEBE incluir su tipo correcto según el "
+            f"catálogo del esquema."
+        )
+
+    for e in entities:
+        e["_source_id"] = article_id
+        e["_supertype"] = supertype
+        if publication_date:
+            e["date_created"] = publication_date
+
+    if not validate:
+        return entities
+
+    try:
+        return _validate_all_entities(entities, supertype, raise_validation_error)
+    except Exception as ex:
+        raise _RetryableExtractionError(
+            f"validación de esquema falló: {ex}. Revisa el formato y los "
+            f"tipos de cada campo en el esquema.",
+            ex,
+        ) from ex
 
 
 # ---------------------------------------------------------------------------
@@ -781,91 +1003,47 @@ class EntityExtractor:
     ) -> List[Dict[str, Any]]:
         """Run extraction for a single supertype against an article.
 
-        Args:
-            article: dict with at least "text" key, optionally "title", "date".
-            supertype: which supertype schema/prompt to use.
-            event_type: if provided, instruct the LLM to extract only events
-                of this specific ontology class. When None, extracts all types
-                within the supertype (legacy behavior).
-            validate: if True, run results through schema validation.
-            raise_validation_error: if True (default), validation failures
-                raise. If False, validation issues are emitted as warnings
-                and the entity is kept.
-
-        Returns:
-            List of extracted entity dicts.
+        Up to ``_EXTRACTION_MAX_ATTEMPTS`` total attempts are made. A retry
+        kicks in when an attempt returns unparseable JSON, an entity missing
+        its `event_type` / `theme_type` / `entity_type`, or a response that
+        fails schema validation. Each retry appends a corrective user message
+        describing the prior failure so the LLM can fix the specific issue.
         """
-        # Anchor the LLM's interpretation of relative dates ("ayer", "el
-        # pasado 27 de abril") to the article's publication date — NOT the
-        # wall-clock date when the script runs. Falls back to wall-clock
-        # only when the article carries no publication date.
-        date_now = _prompt_reference_date(article)
-        body = article.get("text", "")
-        source_type = article.get("source_type", "news")
-
-        context = {"date_now": date_now, "body": body, "source_type": source_type}
-        messages = _load_prompt(supertype, context)
-
-        # Inject a focus instruction when extracting for a specific class
-        if event_type:
-            labels = self.ontology.type_labels.get(event_type, {})
-            label_es = labels.get("label_es", event_type)
-            focus_msg = {
-                "role": "user",
-                "content": (
-                    f"IMPORTANTE: Para este artículo, extrae únicamente entradas "
-                    f'de tipo "{event_type}" ({label_es}). '
-                    f"Ignora cualquier otro tipo que pueda aparecer en la nota."
-                ),
-            }
-            # Insert focus instruction before the last USER message (the article)
-            messages.insert(-1, focus_msg)
-
-        raw_response = _call_llm_with_retry(messages)
-
-        entities = _parse_llm_response(raw_response)
-
-        # Tag each entity with source metadata
+        base_messages = _build_extraction_messages(
+            article, self.ontology, supertype, event_type,
+        )
         article_id = article.get("id") or article.get("url")
         publication_date = _coerce_publication_date(article)
-        for entity in entities:
-            entity["_source_id"] = article_id
-            entity["_supertype"] = supertype
-            if publication_date:
-                entity["date_created"] = publication_date
 
-        if validate:
-            validated = []
-            for entity in entities:
-                meta = {
-                    "_source_id": entity.pop("_source_id", None),
-                    "_supertype": entity.pop("_supertype", None),
-                    "date_created": entity.pop("date_created", None),
-                }
-                try:
-                    normalized = _validate_entity(
-                        entity, supertype,
-                        raise_validation_error=raise_validation_error,
-                    )
-                except Exception as e:
-                    entity_with_meta = {**entity, **meta}
-                    pretty = json.dumps(
-                        entity_with_meta, ensure_ascii=False, indent=2, default=str,
-                    )
-                    logger.error(
-                        "Validation failed for supertype=%s (%s): %s\nFull entity:\n%s",
-                        supertype, type(e).__name__, e, pretty,
-                    )
-                    print(
-                        f"  Validation failed for supertype={supertype} "
-                        f"({type(e).__name__}): {e}\n  Full entity:\n{pretty}"
-                    )
-                    raise
-                normalized.update(meta)
-                validated.append(normalized)
-            return validated
+        last_err: Optional[_RetryableExtractionError] = None
+        for attempt in range(1, _EXTRACTION_MAX_ATTEMPTS + 1):
+            is_final = attempt == _EXTRACTION_MAX_ATTEMPTS
+            messages = base_messages if last_err is None else (
+                base_messages + [_retry_hint_message(last_err.hint)]
+            )
+            try:
+                return _attempt_extract(
+                    messages, supertype, article_id, publication_date,
+                    validate=validate,
+                    # On non-final attempts we always want validation to raise so
+                    # the retry can fire; only the final attempt respects the
+                    # caller's `raise_validation_error` setting.
+                    raise_validation_error=raise_validation_error if is_final else True,
+                )
+            except _RetryableExtractionError as err:
+                logger.warning(
+                    "extract_supertype %s attempt %d/%d failed: %s",
+                    supertype, attempt, _EXTRACTION_MAX_ATTEMPTS, err.hint,
+                )
+                last_err = err
+                if is_final:
+                    raise (err.original or err) from err
 
-        return entities
+        # Unreachable — the final attempt either returns or raises above.
+        raise RuntimeError(
+            f"extract_supertype exhausted {_EXTRACTION_MAX_ATTEMPTS} attempts "
+            f"for supertype={supertype}"
+        )
 
     def extract(
         self,

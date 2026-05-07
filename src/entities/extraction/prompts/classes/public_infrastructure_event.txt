@@ -35,7 +35,7 @@ Los campos `event_type`, `event_subtype` y `status` siempre van en inglés segú
 "infrastructure_conditions" — Condiciones de infraestructura: estado físico de la red vial, puentes, edificios públicos, banquetas o equipamiento urbano, discutido como condición general (no como un incidente puntual).
 "urban_services" — Servicios urbanos: discusión, anuncio, queja o falla a nivel de servicio sobre alumbrado público, suministro de agua, drenaje, alcantarillado u otros servicios municipales.
 "water_management" — Gestión del agua: políticas, proyectos o decisiones sobre suministro, distribución y tratamiento del agua a nivel sistémico.
-"water_issue" — Problema de agua: desabasto, fallas en el servicio, quejas ciudadanas sobre la calidad o disponibilidad del agua, extracción ilegal — problemáticas generales del suministro hídrico (no obras puntuales de reparación, que pertenecen a `public_works_event`).
+"water_issue" — Problema de agua: desabasto, fallas o suspensiones en el servicio, quejas ciudadanas sobre la calidad o disponibilidad del agua, extracción ilegal — problemáticas generales del suministro hídrico (no obras puntuales de reparación, que pertenecen a `public_works_event`).
 "waste_management" — Gestión de residuos: recolección de basura, reciclaje, manejo de residuos sólidos, rellenos sanitarios — discusión, queja o anuncio a nivel sistémico.
 "transportation_infrastructure" — Infraestructura de transporte: discusión, anuncio o queja a nivel sistémico sobre carreteras, transporte público, ciclovías, semáforos o señalización vial (no incidentes ni obras puntuales).
 "urban_planning" — Planeación urbana: desarrollo urbano, ordenamiento territorial, zonificación, regulación o anuncio de proyectos de planeación urbana.
