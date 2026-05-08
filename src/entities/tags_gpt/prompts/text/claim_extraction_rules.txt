@@ -1,0 +1,10 @@
+Una claim es una aseveración FÁCTICA específica sobre el evento que afecta al cliente.
+Incluye una claim solo si:
+- Enuncia un hecho concreto, no una opinión ni una generalidad.
+- Aplica al evento filtrado.
+- Afecta al cliente; affected_entity_ids debe incluir el entity_id del cliente.
+- Tiene una frase textual representativa en verbatim, copiada desde la fuente.
+
+$source_rule
+Descarta opiniones, afirmaciones vagas, sarcasmo, ironía, trolling, ruido y hechos que no afecten al cliente.
+importance es 1=baja, 2=media, 3=alta según qué tan importante es que el cliente esté al tanto dentro del evento.

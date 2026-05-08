@@ -1,0 +1,5 @@
+`question`: pregunta abierta dirigida al cliente o sobre el cliente.
+Label de catálogo: tema tipo FAQ, como "pago del predial" o "horarios de atención".
+Ejemplos:
+- "¿dónde puedo pagar mi predial?" -> "pago del predial"
+- "¿qué documentos necesito?" -> "requisitos para el trámite"

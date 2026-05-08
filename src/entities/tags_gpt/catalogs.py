@@ -14,8 +14,11 @@ from src.entities.tags_gpt.models import (
     ClaimCluster,
     LinkedEvent,
     RawClaim,
+    STANCE_BEARING_TYPES,
+    TAG_ONLY_TYPES,
     StanceAssignment,
     StanceEntry,
+    StanceType,
     slugify,
 )
 
@@ -42,13 +45,34 @@ class StanceCatalog:
     def __init__(self, customer_id: int):
         self.customer_id = customer_id
         self.entries: dict[str, StanceEntry] = {}
+        self.retired_entries: dict[str, StanceEntry] = {}
         self.assignments: list[StanceAssignment] = []
 
-    def add(self, label: str, description: str = "", entry_id: Optional[str] = None) -> StanceEntry:
+    @classmethod
+    def from_dict(cls, data: dict) -> "StanceCatalog":
+        catalog = cls(int(data["customer_id"]))
+        for raw in data.get("entries") or []:
+            entry = StanceEntry.from_dict(raw)
+            catalog.entries[entry.id] = entry
+        for raw in data.get("retired_entries") or []:
+            entry = StanceEntry.from_dict(raw)
+            catalog.retired_entries[entry.id] = entry
+        for raw in data.get("assignments") or []:
+            catalog.assignments.append(StanceAssignment.from_dict(raw))
+        return catalog
+
+    def add(
+        self,
+        label: str,
+        description: str = "",
+        entry_id: Optional[str] = None,
+        *,
+        primary_type: StanceType = "entity_stance",
+    ) -> StanceEntry:
         stance_id = entry_id or self._unique_id(label)
         if stance_id in self.entries:
             return self.entries[stance_id]
-        entry = StanceEntry.new(label, description, entry_id=stance_id)
+        entry = StanceEntry.new(label, description, entry_id=stance_id, primary_type=primary_type)
         self.entries[entry.id] = entry
         return entry
 
@@ -59,7 +83,21 @@ class StanceCatalog:
         return entry
 
     def assign(self, assignment: StanceAssignment) -> bool:
-        if assignment.stance_id not in self.entries:
+        if assignment.stance_type in TAG_ONLY_TYPES:
+            if assignment.stance_id is not None:
+                return False
+            self.assignments.append(assignment)
+            return True
+
+        if assignment.stance_type not in STANCE_BEARING_TYPES:
+            return False
+
+        if assignment.stance_id is None:
+            self.assignments.append(assignment)
+            return True
+
+        entry = self.entries.get(assignment.stance_id)
+        if entry is None or entry.primary_type != assignment.stance_type:
             return False
         self.assignments.append(assignment)
         return True
@@ -81,6 +119,8 @@ class StanceCatalog:
         dst = self.entries.get(dst_id)
         if not src or not dst:
             return False
+        if src.primary_type != dst.primary_type:
+            return False
         dst.aliases.append(src.label)
         dst.aliases.extend(src.aliases)
         for assignment in self.assignments:
@@ -97,28 +137,74 @@ class StanceCatalog:
         self.assignments = [x for x in self.assignments if x.stance_id != stance_id]
         return before - len(self.assignments)
 
-    def summary(self, *, event_id: Optional[str] = None, top_n: Optional[int] = None) -> list[tuple[str, int]]:
+    def retire(self, stance_id: str) -> bool:
+        entry = self.entries.pop(stance_id, None)
+        if not entry:
+            return False
+        self.retired_entries[stance_id] = entry
+        return True
+
+    def reroute(self, from_id: str, to_id: str) -> int:
+        src = self.entries.get(from_id)
+        dst = self.entries.get(to_id)
+        if not src or not dst or src.primary_type != dst.primary_type:
+            return 0
+        count = 0
+        for assignment in self.assignments:
+            if assignment.stance_id == from_id:
+                assignment.stance_id = to_id
+                count += 1
+        return count
+
+    def summary(
+        self,
+        *,
+        event_id: Optional[str] = None,
+        top_n: Optional[int] = None,
+        types: Optional[set[StanceType]] = None,
+    ) -> list[tuple[str, int]]:
         counts: Counter[str] = Counter()
         for assignment in self.assignments:
             if event_id and assignment.event_id != event_id:
                 continue
-            entry = self.entries.get(assignment.stance_id)
-            counts[entry.label if entry else assignment.stance_id] += 1
+            if types and assignment.stance_type not in types:
+                continue
+            entry = self.entries.get(assignment.stance_id or "")
+            retired = self.retired_entries.get(assignment.stance_id or "")
+            if entry:
+                label = entry.label
+            elif retired:
+                label = f"{retired.label} [retired]"
+            else:
+                label = f"<unmapped:{assignment.stance_type}>"
+            counts[label] += 1
         rows = counts.most_common(top_n)
         if not rows and not event_id:
-            rows = [(entry.label, 0) for entry in self.entries.values()]
+            rows = [(entry.label, 0) for entry in self.iter_entries(types=types)]
         return rows
 
-    def snapshot(self) -> list[dict]:
+    def iter_entries(self, *, types: Optional[set[StanceType]] = None) -> Iterable[StanceEntry]:
+        for entry in self.entries.values():
+            if types and entry.primary_type not in types:
+                continue
+            yield entry
+
+    def snapshot(self, *, types: Optional[set[StanceType]] = None) -> list[dict]:
         return [
-            {"id": entry.id, "label": entry.label, "description": entry.description}
-            for entry in self.entries.values()
+            {
+                "id": entry.id,
+                "label": entry.label,
+                "description": entry.description,
+                "primary_type": entry.primary_type,
+            }
+            for entry in self.iter_entries(types=types)
         ]
 
     def to_dict(self) -> dict:
         return {
             "customer_id": self.customer_id,
             "entries": [x.to_dict() for x in self.entries.values()],
+            "retired_entries": [x.to_dict() for x in self.retired_entries.values()],
             "assignments": [x.to_dict() for x in self.assignments],
         }
 

@@ -1,0 +1,14 @@
+Un buen cluster agrupa claims que expresan la MISMA alegación sobre el evento aunque usen palabras distintas.
+La frase canonical debe decir qué se alega, con sujeto y predicado; no debe ser vaga ni sobre-especificada con detalles irrelevantes.
+
+Decisiones por claim:
+- assign: un cluster existente expresa la misma alegación. Si resumir la claim con la canonical del cluster no pierde información esencial, asigna.
+- create: ningún cluster la cubre y la claim es sustantiva; crea una canonical específica.
+- drop: la claim es vaga, fuera de tema, opinión, sarcasmo, ruido, trolling o duplicado puro dentro del lote.
+
+Prioridad cuando dudes: assign > create > drop.
+No crees un cluster nuevo si uno existente cubre razonablemente la claim. No descartes una claim sustantiva solo porque no encaja perfecto; crea un cluster.
+
+Mutations opcionales:
+- rename: mejora la canonical de un cluster existente considerando sus citas.
+- merge: fusiona dos clusters solo si describen la misma alegación. Sé conservador; temas parecidos con alegaciones distintas deben coexistir.

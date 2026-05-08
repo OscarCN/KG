@@ -1,0 +1,6 @@
+`gratefulness`: reconocimiento positivo sobre una acción o servicio.
+Label de catálogo: "agradecimiento por X" o "reconocimiento a X".
+Ejemplos:
+- "gracias por arreglar la calle" -> "agradecimiento por mantenimiento vial"
+- "felicidades a los policías por el operativo" -> "reconocimiento a la labor policial"
+Sentiment default: positive.

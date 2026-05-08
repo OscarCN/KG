@@ -49,11 +49,11 @@ entities/
     catalogs.py              # In-memory EventStore, StanceCatalog, ClaimCatalogStore
     extraction.py            # Adapter for extracted_raw records → streamable SourceBatch values
     retrieval.py             # Local JSON / ES content retrieval step
-    candidates.py            # Event candidate retrieval
-    linking.py               # Streaming event linking step with injectable decider
+    consistency.py           # Periodic typed stance catalog consistency pass
     tagging.py               # Separate stance tag/update and claim tag/update steps
     streaming.py             # Thin coordinator that calls each step in order
     runner.py                # Convenience local runner with injectable dependencies
+    prompts/                 # Prompt builders plus text templates
     readme_tags_gpt.md       # Rationale and usage
   readme_entities.md         # This file (overview)
 ```

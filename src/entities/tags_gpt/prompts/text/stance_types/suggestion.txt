@@ -1,0 +1,5 @@
+`suggestion`: propuesta de acción pública o general dirigida al cliente.
+Label de catálogo: "petición de X", "ampliación de Y", "modernización de Z".
+Ejemplos:
+- "deberían poner topes" -> "petición de medidas de seguridad vial"
+- "podrían ampliar el horario" -> "petición de horarios extendidos"

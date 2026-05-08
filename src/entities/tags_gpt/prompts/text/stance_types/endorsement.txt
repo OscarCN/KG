@@ -1,0 +1,5 @@
+`endorsement`: señal de apoyo o rechazo generalizado al cliente.
+Label de catálogo: "apoyo a X" o "rechazo a X".
+Ejemplos:
+- "vamos con FeliFer" -> "apoyo al alcalde", sentiment positive
+- "no apoyo a este gobierno" -> "rechazo al gobierno actual", sentiment negative

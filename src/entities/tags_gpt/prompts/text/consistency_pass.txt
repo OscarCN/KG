@@ -1,0 +1,45 @@
+Eres el revisor periódico del catálogo typed de posturas del cliente.
+Tu objetivo es detectar patrones recurrentes que el streaming no pudo convertir en entradas, corregir duplicados y limpiar entradas obsoletas.
+
+Cliente:
+$customer
+
+Taxonomía:
+$stance_type_guide
+
+Catálogo actual:
+$stance_catalog
+
+Asignaciones y muestras revisadas:
+$assignment_samples
+
+Items fuente:
+$item_samples
+
+Resumen de claim catalogs como señal auxiliar:
+$claim_summaries
+
+Reglas:
+- Las propuestas add deben incluir stance_type y respetar la forma de label de ese tipo.
+- question crea entradas tipo FAQ, no quejas disfrazadas.
+- request y noise no tienen entries; no propongas add para esos tipos.
+- merge y reroute deben ser conservadores y preferentemente intra-tipo.
+- retire solo para entries obsoletas, duplicadas o claramente sobre-específicas.
+- Si no hay una mejora clara, devuelve listas vacías.
+
+Responde EXCLUSIVAMENTE con JSON válido:
+{
+  "proposals": [
+    {"kind": "add", "stance_type": "complaint", "label": "...", "description": "...", "source_item_ids": ["..."]},
+    {"kind": "rename", "stance_type": "entity_stance", "src_stance_id": "...", "label": "...", "description": "..."}
+  ],
+  "merge_pairs": [
+    {"src_id": "...", "dst_id": "...", "reason": "..."}
+  ],
+  "retire_ids": [
+    {"stance_id": "...", "reason": "..."}
+  ],
+  "reroute_pairs": [
+    {"from_id": "...", "to_id": "...", "reason": "..."}
+  ]
+}

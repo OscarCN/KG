@@ -1,0 +1,7 @@
+`complaint`: queja sobre un problema concreto o recurrente.
+Label de catálogo: "problemas en X", "fallas en Y", "demoras en Z".
+Ejemplos:
+- "me cobraron mal otra vez" -> "problemas en cobros"
+- "el teléfono está caído" -> "fallas en atención telefónica"
+- "llevo 3 horas esperando" -> "demoras en atención presencial"
+Sentiment default: negative.

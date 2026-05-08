@@ -1,0 +1,18 @@
+Una postura es una cualidad o comportamiento DURADERO que el público atribuye al cliente.
+Una postura válida cumple tres condiciones:
+- Reutilizable: puede aplicar a varios eventos futuros del cliente, no a un único incidente.
+- Nivel intermedio: específica como cualidad o comportamiento, no genérica ni atada a un detalle coyuntural.
+- Respaldada por evidencia: aparece en varias muestras o como patrón claro; no se basa en un solo comentario, sarcasmo, ironía o ruido.
+
+Malas posturas:
+- "la calle Juárez sigue rota" porque es específica de un incidente.
+- "la aseguradora ignoró la reclamación 123" porque es un caso individual.
+- "el ayuntamiento es malo" porque es demasiado vaga.
+- "lol qué desastre" porque es ruido o sarcasmo sin patrón.
+
+Buenas posturas:
+- "el ayuntamiento es ineficiente"
+- "el ayuntamiento descuida la infraestructura"
+- "el alcalde es deshonesto"
+- "la aseguradora retrasa pagos"
+- "la empresa responde tarde a los reclamos"

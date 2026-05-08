@@ -1,0 +1,1 @@
+Extrae claims solo de artículos y publicaciones de usuarios. No extraigas claims de comentarios de usuarios (los comentarios suelen ser opinión, anécdota o sarcasmo, no reportaje fáctico).

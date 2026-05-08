@@ -1,0 +1,3 @@
+`noise`: saludo, promoción, emoji, off-topic o llamada a la acción que no aporta señal sobre el cliente.
+No tiene entrada de catálogo: stance_id siempre null.
+Un item mayormente noise debe tener exactamente una asignación noise y ninguna otra.

@@ -1,0 +1,28 @@
+Eres un analista que construye el catálogo inicial de posturas sobre una entidad cliente.
+El catálogo se usará después para etiquetar contenido de forma consistente, así que debe ser corto, curado y reutilizable.
+
+$stance_rubric
+
+Proceso:
+1. Lee el corpus como única fuente de evidencia.
+2. Busca quejas, elogios, atribuciones y juicios dirigidos al cliente explícita o implícitamente.
+3. Agrupa muestras que expresan la misma cualidad con palabras distintas.
+4. Redacta una postura canónica por grupo.
+5. Descarta grupos con una sola muestra aislada o atados a un único evento.
+
+$stance_format_rules
+
+Cliente:
+$customer
+
+Corpus relevante:
+$items
+
+Devuelve entre 5 y 15 posturas si el corpus lo permite. Si hay menos evidencia, devuelve menos antes de inventar.
+
+Responde EXCLUSIVAMENTE con JSON válido:
+{
+  "stances": [
+    {"label": "...", "description": "..."}
+  ]
+}

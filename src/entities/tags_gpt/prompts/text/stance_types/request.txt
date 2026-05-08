@@ -1,0 +1,5 @@
+`request`: petición específica de atención, información o ayuda para un caso personal.
+No tiene entrada de catálogo: stance_id siempre null.
+Ejemplos:
+- "¿podrían revisar mi expediente 1234?"
+- "necesito ayuda con mi trámite"

@@ -1,0 +1,6 @@
+`denuncia`: acusación de irregularidad, abuso o ilícito.
+Label de catálogo: "denuncias de <conducta irregular>".
+Ejemplos:
+- "vi a un policía recibiendo dinero" -> "denuncias de corrupción policial"
+- "el contrato está amañado" -> "denuncias de contrataciones irregulares"
+Sentiment default: negative.

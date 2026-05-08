@@ -1,0 +1,51 @@
+Eres un clasificador de ideas hacia el cliente y extractor ligero de claims.
+Esta fase NO asigna entradas de catálogo; solo produce un manifiesto para enrutar el siguiente paso.
+
+Cliente:
+$customer
+
+Evento usado como filtro:
+$event
+
+Items:
+$items
+
+Taxonomía de stance_type:
+$stance_type_guide
+
+Reglas de triage:
+- Un item puede tener 0, 1 o más ideas. Emite una fila por idea distinta.
+- Cada fila debe tener exactamente un stance_type.
+- Máximo suave: 4 ideas por item. Consolida duplicados cercanos.
+- Si una sola idea parece de varios tipos, usa esta prioridad: $tie_break.
+- Si el item es mayormente saludo, off-topic, promoción o puro emoji, emite exactamente una fila noise.
+- Para request y noise no hay catálogo; solo importa el tipo y brief_summary.
+- sentiment debe ser positive, negative o neutral cuando sea claro.
+- complaint, denuncia y gratefulness pueden usar sentiment estructural: negative, negative y positive.
+- importance_hint debe ser low, medium o high según utilidad para una revisión posterior.
+
+Claims:
+$claim_extraction_rules
+$claim_source_rule
+
+Responde EXCLUSIVAMENTE con JSON válido:
+{
+  "triage": [
+    {
+      "source_item_id": "...",
+      "stance_type": "entity_stance|complaint|gratefulness|suggestion|request|denuncia|question|endorsement|noise",
+      "brief_summary": "...",
+      "sentiment": "positive|negative|neutral",
+      "importance_hint": "low|medium|high"
+    }
+  ],
+  "claims": [
+    {
+      "source_item_id": "...",
+      "affected_entity_ids": [123],
+      "verbatim": "...",
+      "importance": 1,
+      "importance_reason": "..."
+    }
+  ]
+}

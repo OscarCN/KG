@@ -1,0 +1,6 @@
+`entity_stance`: cualidad o comportamiento DURADERO atribuido al cliente.
+Label de catálogo: "<sujeto> es/hace <cualidad>".
+Ejemplos:
+- "el ayuntamiento siempre se tarda meses" -> "el ayuntamiento es ineficiente"
+- "no contestan nunca" -> "el ayuntamiento es inaccesible"
+- "siempre me atienden bien" -> "el ayuntamiento es eficiente y atento"

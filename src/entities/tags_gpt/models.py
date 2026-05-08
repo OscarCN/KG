@@ -16,6 +16,48 @@ from typing import Any, Literal, Optional
 
 SourceKind = Literal["article", "user_post", "user_comment"]
 LinkStatus = Literal["created", "merged", "skipped", "dropped", "error"]
+StanceType = Literal[
+    "entity_stance",
+    "complaint",
+    "gratefulness",
+    "suggestion",
+    "request",
+    "denuncia",
+    "question",
+    "endorsement",
+    "noise",
+]
+Sentiment = Literal["positive", "negative", "neutral"]
+ConsistencyRelevance = Literal["low", "medium", "high"]
+
+STANCE_TYPES: tuple[StanceType, ...] = (
+    "entity_stance",
+    "complaint",
+    "gratefulness",
+    "suggestion",
+    "request",
+    "denuncia",
+    "question",
+    "endorsement",
+    "noise",
+)
+STANCE_BEARING_TYPES: set[StanceType] = {
+    "entity_stance",
+    "complaint",
+    "gratefulness",
+    "suggestion",
+    "denuncia",
+    "endorsement",
+    "question",
+}
+STREAMING_GROWABLE_TYPES: set[StanceType] = {"entity_stance"}
+TAG_ONLY_TYPES: set[StanceType] = {"request", "noise"}
+DEFAULT_STANCE_TYPE: StanceType = "entity_stance"
+DEFAULT_STANCE_SENTIMENT: dict[StanceType, Sentiment] = {
+    "complaint": "negative",
+    "gratefulness": "positive",
+    "denuncia": "negative",
+}
 
 
 def now_iso() -> str:
@@ -357,18 +399,43 @@ class StanceEntry:
     id: str
     label: str
     description: str = ""
+    primary_type: StanceType = DEFAULT_STANCE_TYPE
     created_at: str = field(default_factory=now_iso)
     aliases: list[str] = field(default_factory=list)
 
     @classmethod
-    def new(cls, label: str, description: str = "", entry_id: Optional[str] = None) -> "StanceEntry":
-        return cls(id=entry_id or slugify(label, fallback="stance"), label=label, description=description)
+    def new(
+        cls,
+        label: str,
+        description: str = "",
+        entry_id: Optional[str] = None,
+        *,
+        primary_type: StanceType = DEFAULT_STANCE_TYPE,
+    ) -> "StanceEntry":
+        return cls(
+            id=entry_id or slugify(label, fallback="stance"),
+            label=label,
+            description=description,
+            primary_type=primary_type,
+        )
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "StanceEntry":
+        return cls(
+            id=str(data["id"]),
+            label=str(data.get("label") or ""),
+            description=str(data.get("description") or ""),
+            primary_type=data.get("primary_type") or DEFAULT_STANCE_TYPE,
+            created_at=str(data.get("created_at") or now_iso()),
+            aliases=[str(x) for x in data.get("aliases") or []],
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "label": self.label,
             "description": self.description,
+            "primary_type": self.primary_type,
             "created_at": self.created_at,
             "aliases": list(self.aliases),
         }
@@ -379,10 +446,30 @@ class StanceAssignment:
     source_item_id: str
     source_kind: SourceKind
     customer_id: int
-    stance_id: str
+    stance_id: Optional[str]
+    stance_type: StanceType = DEFAULT_STANCE_TYPE
+    sentiment: Optional[Sentiment] = None
+    consistency_relevance: Optional[ConsistencyRelevance] = None
+    consistency_used: bool = False
     event_id: Optional[str] = None
     reason: str = ""
     assigned_at: str = field(default_factory=now_iso)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "StanceAssignment":
+        return cls(
+            source_item_id=str(data["source_item_id"]),
+            source_kind=data["source_kind"],
+            customer_id=int(data["customer_id"]),
+            stance_id=data.get("stance_id"),
+            stance_type=data.get("stance_type") or DEFAULT_STANCE_TYPE,
+            sentiment=data.get("sentiment"),
+            consistency_relevance=data.get("consistency_relevance"),
+            consistency_used=bool(data.get("consistency_used", False)),
+            event_id=data.get("event_id"),
+            reason=str(data.get("reason") or ""),
+            assigned_at=str(data.get("assigned_at") or now_iso()),
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return dict(self.__dict__)
@@ -393,6 +480,7 @@ class StanceProposal:
     kind: Literal["add", "rename"]
     label: str
     description: str = ""
+    stance_type: StanceType = DEFAULT_STANCE_TYPE
     source_item_ids: list[str] = field(default_factory=list)
     src_stance_id: Optional[str] = None
 
@@ -402,6 +490,8 @@ class StanceTagging:
     assignments: list[StanceAssignment] = field(default_factory=list)
     proposals: list[StanceProposal] = field(default_factory=list)
     dropped_assignments: int = 0
+    n_assignments_by_type: dict[StanceType, int] = field(default_factory=dict)
+    n_items_tagged_no_stance: int = 0
 
 
 @dataclass
@@ -428,6 +518,39 @@ class RawClaim:
 
     def to_dict(self) -> dict[str, Any]:
         return dict(self.__dict__)
+
+
+@dataclass
+class TypeTriageItem:
+    source_item_id: str
+    source_kind: SourceKind
+    stance_type: StanceType
+    brief_summary: str
+    sentiment: Optional[Sentiment] = None
+    importance_hint: Optional[ConsistencyRelevance] = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return dict(self.__dict__)
+
+
+@dataclass
+class TypeTriageResult:
+    triaged: list[TypeTriageItem] = field(default_factory=list)
+    claims: list[RawClaim] = field(default_factory=list)
+    n_items_seen: int = 0
+    dropped_invalid: int = 0
+    dropped_claim_invalid: int = 0
+    dropped_off_customer: int = 0
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "triaged": [x.to_dict() for x in self.triaged],
+            "claims": [x.to_dict() for x in self.claims],
+            "n_items_seen": self.n_items_seen,
+            "dropped_invalid": self.dropped_invalid,
+            "dropped_claim_invalid": self.dropped_claim_invalid,
+            "dropped_off_customer": self.dropped_off_customer,
+        }
 
 
 @dataclass
@@ -508,6 +631,40 @@ class ClaimMutation:
     new_canonical: Optional[str] = None
     src_id: Optional[str] = None
     dst_id: Optional[str] = None
+
+
+@dataclass
+class ConsistencyPassResult:
+    customer_id: int
+    started_at: str
+    finished_at: str
+    sample_size: int
+    sample_strategy: dict[str, Any] = field(default_factory=dict)
+    proposals: list[StanceProposal] = field(default_factory=list)
+    merge_pairs: list[tuple[str, str]] = field(default_factory=list)
+    retire_ids: list[str] = field(default_factory=list)
+    reroute_pairs: list[tuple[str, str]] = field(default_factory=list)
+    decisions: list[StanceDecision] = field(default_factory=list)
+    summary: Optional["StepSummary"] = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "customer_id": self.customer_id,
+            "started_at": self.started_at,
+            "finished_at": self.finished_at,
+            "sample_size": self.sample_size,
+            "sample_strategy": dict(self.sample_strategy),
+            "proposals": [x.__dict__ for x in self.proposals],
+            "merge_pairs": [list(x) for x in self.merge_pairs],
+            "retire_ids": list(self.retire_ids),
+            "reroute_pairs": [list(x) for x in self.reroute_pairs],
+            "decisions": [x.__dict__ for x in self.decisions],
+            "summary": {
+                "name": self.summary.name,
+                "counts": dict(self.summary.counts),
+                "notes": list(self.summary.notes),
+            } if self.summary else None,
+        }
 
 
 @dataclass

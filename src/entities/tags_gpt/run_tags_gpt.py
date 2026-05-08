@@ -44,7 +44,7 @@ import sys
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from dotenv import load_dotenv
 
@@ -65,6 +65,7 @@ from src.entities.tags_gpt import (  # noqa: E402
     ClaimCatalogStore,
     ClaimTagger,
     ClaimUpdater,
+    ConsistencyPassStep,
     EsNewsRetriever,
     EventStore,
     LocalJsonRetriever,
@@ -73,6 +74,7 @@ from src.entities.tags_gpt import (  # noqa: E402
     StanceUpdater,
     StreamingState,
     StreamingTagsPipeline,
+    TypeTriageStep,
     default_cached_llm,
     group_by_source,
     load_content_graph,
@@ -99,6 +101,9 @@ BOOTSTRAP_CORPUS_LIMIT: int = 80
 RUN_TIMESTAMP = datetime.now().strftime("%Y%m%d_%H%M%S")
 TAGS_OUTPUT: Optional[Path] = None  # default: data/tags/<customer_slug>/tags_gpt_run_<ts>.json
 GEOCODE: bool = True
+TAGGING_STRATEGY: Literal["single_pass", "two_pass"] = "two_pass"
+RUN_CONSISTENCY_PASS: bool = False
+CONSISTENCY_SAMPLE_SIZE: int = 300
 
 # Manual-run knobs.
 LIMIT_BATCHES: Optional[int] = None
@@ -154,6 +159,7 @@ else:
 event_store = EventStore()
 claim_catalogs = ClaimCatalogStore()
 linker = TagsGptLinkingAdapter(event_store=event_store, geocode=GEOCODE)
+stance_updater = StanceUpdater(customer, llm)
 
 
 # ── 3. Bootstrap stance catalog ───────────────────────────────────────────────
@@ -176,6 +182,7 @@ state = StreamingState(
     event_store=event_store,
     stance_catalog=stance_catalog,
     claim_catalogs=claim_catalogs,
+    tagging_strategy=TAGGING_STRATEGY,
 )
 
 pipeline = StreamingTagsPipeline(
@@ -183,9 +190,10 @@ pipeline = StreamingTagsPipeline(
     retriever=retriever,
     linker=linker,
     stance_tagger=StanceTagger(customer, llm),
-    stance_updater=StanceUpdater(customer, llm),
+    stance_updater=stance_updater,
     claim_tagger=ClaimTagger(customer, llm),
     claim_updater=ClaimUpdater(customer, llm),
+    type_triage_step=TypeTriageStep(customer, llm),
 )
 
 
@@ -213,6 +221,23 @@ for i, batch in enumerate(batches, start=1):
     print(f"      link: {_short_counts(batch_status_counts)}")
     print(f"      stance_update: {_short_counts(stance_counts)}")
     print(f"      claim_update: {_short_counts(claim_counts)}")
+
+
+consistency_result = None
+if RUN_CONSISTENCY_PASS:
+    print()
+    print("Running stance consistency pass ...")
+    consistency_result = ConsistencyPassStep(
+        customer,
+        llm,
+        stance_updater,
+        sample_size=CONSISTENCY_SAMPLE_SIZE,
+    ).run(
+        stance_catalog,
+        items_seen=state.items_seen,
+        claim_catalogs=claim_catalogs,
+    )
+    print(f"  consistency: {_short_counts(Counter(consistency_result.summary.counts))}")
 
 
 # ── 6. Write outputs and print summary ────────────────────────────────────────

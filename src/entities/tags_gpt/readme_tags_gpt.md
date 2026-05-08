@@ -14,9 +14,9 @@ inside the runner and phase helpers. `tags_gpt` makes the boundaries explicit:
 2. `retrieval.py` — fetch article / post / comment source items.
 3. `src/entities/linking_gpt/` — link extracted events and entities.
 4. `linking_gpt.TagsGptLinkingAdapter` — expose linked events to the tags stream.
-5. `tagging.py:StanceTagger` — assign current stances and propose catalog changes.
-6. `tagging.py:StanceUpdater` — adjudicate/apply stance catalog changes.
-7. `tagging.py:ClaimTagger` — extract customer-affecting raw claims.
+5. `tagging.py:TypeTriageStep` — classify stance ideas by type and extract catalog-free claims.
+6. `tagging.py:StanceTagger` — assign current stances and propose catalog changes.
+7. `tagging.py:StanceUpdater` — adjudicate/apply stance catalog changes.
 8. `tagging.py:ClaimUpdater` — cluster/apply claims into per-event catalogs.
 
 `streaming.py` is intentionally thin: it calls those steps in order for one
@@ -77,6 +77,7 @@ from src.entities.tags_gpt import (
     StanceUpdater,
     StreamingState,
     StreamingTagsPipeline,
+    TypeTriageStep,
     default_cached_llm,
     group_by_source,
     load_content_graph,
@@ -106,6 +107,7 @@ pipeline = StreamingTagsPipeline(
     stance_updater=StanceUpdater(customer, llm),
     claim_tagger=ClaimTagger(customer, llm),
     claim_updater=ClaimUpdater(customer, llm),
+    type_triage_step=TypeTriageStep(customer, llm),
 )
 
 for batch in batches:
