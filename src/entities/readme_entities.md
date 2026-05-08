@@ -39,6 +39,17 @@ entities/
     tags_overview.md         # Design spec
     tags_impl_plan.md        # Architecture / class / lifecycle spec
     readme_tags.md           # User-facing how-to
+  tags_gpt/                  # Decoupled experimental tags implementation
+    models.py                # Pure dataclasses for source items, linked events, stances, claims
+    catalogs.py              # In-memory EventStore, StanceCatalog, ClaimCatalogStore
+    extraction.py            # Adapter for extracted_raw records → streamable SourceBatch values
+    retrieval.py             # Local JSON / ES content retrieval step
+    candidates.py            # Event candidate retrieval
+    linking.py               # Streaming event linking step with injectable decider
+    tagging.py               # Separate stance tag/update and claim tag/update steps
+    streaming.py             # Thin coordinator that calls each step in order
+    runner.py                # Convenience local runner with injectable dependencies
+    readme_tags_gpt.md       # Rationale and usage
   readme_entities.md         # This file (overview)
 ```
 
@@ -49,6 +60,7 @@ entities/
 | **Extraction** (`extraction/`) | News / social-media articles | A flat list of validated entity records, each tagged with `_source_id` and `_supertype` | [`extraction/readme_extraction.md`](extraction/readme_extraction.md) |
 | **Linking** (`linking/`) | Extracted records | In-memory / JSON canonical entity records (deduped, geocoded). Persistence to `kgdb` is a designed target, not yet implemented | [`linking/readme_linking.md`](linking/readme_linking.md) |
 | **Tags** (`tags/`) | Linked events + the article + its comments | In-memory `StanceCatalog` (per customer) + `ClaimCatalog` (per `(customer, event)`); JSON snapshot dump for inspection. Stage 1 only — no DB writes | [`tags/readme_tags.md`](tags/readme_tags.md), [`tags/tags_overview.md`](tags/tags_overview.md), [`tags/tags_impl_plan.md`](tags/tags_impl_plan.md) |
+| **Tags GPT** (`tags_gpt/`) | Extracted records + content items + linked events | Same in-memory stance/claim concepts as `tags/`, but split into independently testable streaming steps | [`tags_gpt/readme_tags_gpt.md`](tags_gpt/readme_tags_gpt.md) |
 
 The full kgdb schema and cross-database conventions are documented in [`media-backend-paid/docs/DATABASE_POSTGRES.md`](../../../../media-backend-paid/docs/DATABASE_POSTGRES.md). The linker's [KG Database Persistence](linking/readme_linking.md#kg-database-persistence) section captures the pieces relevant to the (eventual) write path.
 

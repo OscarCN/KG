@@ -84,6 +84,10 @@ Core design constraints:
 
 The streaming integration is driven by `src/entities/linking/run_linking.py`: extracted records are linked article by article, and linked events are passed into the tags pipeline when `TAGS_ENABLED = True`.
 
+### Tags GPT
+
+`src/entities/tags_gpt/` is the decoupled experimental implementation for the next tags iteration. Prefer it when working on the new implementation. It keeps each step separate and injectable: extraction-output adapter, content retrieval, event-candidate retrieval, event linking, stance tagging, stance updating, claim tagging, and claim updating. It is not wired into `run_linking.py` by default.
+
 ## Current Data / Output Conventions
 
 - Extraction input examples live under `data/<subdir>/`.
@@ -128,6 +132,7 @@ After any non-trivial implementation or behavioral change, update the relevant d
 - Extraction changes: `src/entities/extraction/readme_extraction.md`
 - Linking changes: `src/entities/linking/readme_linking.md`
 - Tags changes: `src/entities/tags/readme_tags.md`, `tags_overview.md`, or `tags_impl_plan.md`
+- Tags GPT changes: `src/entities/tags_gpt/readme_tags_gpt.md`
 
 Keep docs lean and consistent. Remove or revise stale claims rather than adding contradictory notes.
 

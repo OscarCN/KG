@@ -55,6 +55,7 @@ src/
       retrieval.py / persistence.py / stats.py
       prompts/      # Spanish prompts for the four LLM phases
       tags_overview.md / tags_impl_plan.md / readme_tags.md
+    tags_gpt/       # Decoupled experimental tags implementation: retrieval → linking → stance tag/update → claim tag/update
     readme_entities.md # Overview, ontology categories, links to subsystem docs
   llm/              # LLM provider clients
     openrouter/     # OpenRouter API client (OpenAI-compatible)
@@ -107,6 +108,10 @@ Two complementary tag types extracted from articles, posts, and comments tied to
 - **Claims** — specific factual assertions about events affecting the customer (per-event clusters with `is_new` freshness flag and `importance` score).
 
 Five-phase pipeline: bootstrap (one-shot per customer) → tag (Phase 2 — single LLM call producing both stance assignments and structured claims) → adjudicate stance catalog mutations (Phase 3) → cluster claims (Phase 4) → apply (Phase 5). Stage 1 today is **in-memory only** — no Postgres writes; the snapshot file is a debug artefact. Stage 2 will swap `load_customer_from_json` for `load_customer_from_db` in `run_linking.py` and add a `Persistence` Postgres impl alongside `InMemoryPersistence`. See [`src/entities/tags/tags_overview.md`](src/entities/tags/tags_overview.md) for the design, [`src/entities/tags/tags_impl_plan.md`](src/entities/tags/tags_impl_plan.md) for the architecture, [`src/entities/tags/readme_tags.md`](src/entities/tags/readme_tags.md) for usage.
+
+### Tags GPT (`src/entities/tags_gpt/`)
+
+Alternate implementation of the tags flow focused on readability and testability. It separates the streaming pipeline into explicit steps: extraction-output adapter, content retrieval, event-candidate retrieval, linking, stance tagging, stance updating, claim tagging, and claim updating. It is not wired into `run_linking.py` by default; use it as the implementation target for the next runner/service split. See [`src/entities/tags_gpt/readme_tags_gpt.md`](src/entities/tags_gpt/readme_tags_gpt.md).
 
 ### Entity Extraction (`src/entities/extraction/`)
 
