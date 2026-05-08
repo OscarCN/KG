@@ -21,6 +21,11 @@ entities/
     link.py                  # EntityLinker: candidate filter + LLM call (events only); link_one(raw) → LinkResult for streaming callers
     run_linking.py           # IPython runner — streams articles through linker + (optional) tagging
     readme_linking.md        # Linking subsystem docs (incl. KG database persistence)
+  linking_gpt/               # Generalized linker: full event behavior + entity/concept linking
+    link.py                  # EntityLinker router for event/entity/theme categories
+    entity_llm.py            # Entity LLM disambiguation (name + description)
+    tags_adapter.py          # Adapter used by tags_gpt streaming
+    readme_linking_gpt.md    # Generalized linker docs
   tags/                      # Customer-anchored stances + per-event claim clusters (Stage 1, in-memory)
     models/                  # Pure data structures (no LLMs / no IO)
       customer.py            # Customer + ContentGraphConfig (mirrors kgdb columns)
@@ -58,9 +63,10 @@ entities/
 | Subsystem | Reads | Writes | Docs |
 |---|---|---|---|
 | **Extraction** (`extraction/`) | News / social-media articles | A flat list of validated entity records, each tagged with `_source_id` and `_supertype` | [`extraction/readme_extraction.md`](extraction/readme_extraction.md) |
-| **Linking** (`linking/`) | Extracted records | In-memory / JSON canonical entity records (deduped, geocoded). Persistence to `kgdb` is a designed target, not yet implemented | [`linking/readme_linking.md`](linking/readme_linking.md) |
+| **Linking** (`linking/`) | Extracted event records | In-memory / JSON canonical event records (deduped, geocoded). Persistence to `kgdb` is a designed target, not yet implemented | [`linking/readme_linking.md`](linking/readme_linking.md) |
+| **Linking GPT** (`linking_gpt/`) | Extracted event/entity records | In-memory / JSON canonical events + entities. Events preserve `linking/` behavior; entities link by `entity_type` + name-token candidates + LLM over name/description | [`linking_gpt/readme_linking_gpt.md`](linking_gpt/readme_linking_gpt.md) |
 | **Tags** (`tags/`) | Linked events + the article + its comments | In-memory `StanceCatalog` (per customer) + `ClaimCatalog` (per `(customer, event)`); JSON snapshot dump for inspection. Stage 1 only — no DB writes | [`tags/readme_tags.md`](tags/readme_tags.md), [`tags/tags_overview.md`](tags/tags_overview.md), [`tags/tags_impl_plan.md`](tags/tags_impl_plan.md) |
-| **Tags GPT** (`tags_gpt/`) | Extracted records + content items + linked events | Same in-memory stance/claim concepts as `tags/`, but split into independently testable streaming steps | [`tags_gpt/readme_tags_gpt.md`](tags_gpt/readme_tags_gpt.md) |
+| **Tags GPT** (`tags_gpt/`) | Extracted records + content items + linked events | Same in-memory stance/claim concepts as `tags/`, but split into independently testable streaming steps; uses `linking_gpt` by default | [`tags_gpt/readme_tags_gpt.md`](tags_gpt/readme_tags_gpt.md) |
 
 The full kgdb schema and cross-database conventions are documented in [`media-backend-paid/docs/DATABASE_POSTGRES.md`](../../../../media-backend-paid/docs/DATABASE_POSTGRES.md). The linker's [KG Database Persistence](linking/readme_linking.md#kg-database-persistence) section captures the pieces relevant to the (eventual) write path.
 

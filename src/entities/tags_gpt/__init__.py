@@ -45,7 +45,6 @@ from src.entities.tags_gpt.models import (
 )
 from src.entities.tags_gpt.persistence import load_content_graph, save_snapshot
 from src.entities.tags_gpt.retrieval import ContentRetriever, EsNewsRetriever, LocalJsonRetriever
-from src.entities.tags_gpt.runner import LocalRunConfig, LocalRunResult, run_local_stream
 from src.entities.tags_gpt.streaming import StreamingState, StreamingTagsPipeline
 from src.entities.tags_gpt.tagging import ClaimTagger, ClaimUpdater, StanceTagger, StanceUpdater
 
@@ -75,12 +74,9 @@ __all__ = [
     "load_content_graph",
     "load_extracted_records",
     "LocalJsonRetriever",
-    "LocalRunConfig",
-    "LocalRunResult",
     "NoMatchDecider",
     "OpenRouterJsonLlm",
     "RawClaim",
-    "run_local_stream",
     "save_snapshot",
     "ScriptedJsonLlm",
     "sort_batches_by_publication",

@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Protocol
 
 from src.entities.tags_gpt.catalogs import ClaimCatalogStore, EventStore, StanceCatalog
-from src.entities.tags_gpt.linking import EventLinkingStep
 from src.entities.tags_gpt.models import (
     ArticleBundle,
     ArticleProcessResult,
@@ -15,7 +15,16 @@ from src.entities.tags_gpt.models import (
     StepSummary,
 )
 from src.entities.tags_gpt.retrieval import ContentRetriever
-from src.entities.tags_gpt.tagging import ClaimTagger, ClaimUpdater, StanceTagger, StanceUpdater
+from src.entities.tags_gpt.tagging import (
+    ClaimTagger,
+    ClaimUpdater,
+    StanceTagger,
+    StanceUpdater,
+)
+
+
+class LinkerStep(Protocol):
+    def link_record(self, record: dict): ...
 
 
 @dataclass
@@ -39,7 +48,7 @@ class StreamingTagsPipeline:
         *,
         state: StreamingState,
         retriever: ContentRetriever,
-        linker: EventLinkingStep,
+        linker: LinkerStep,
         stance_tagger: StanceTagger,
         stance_updater: StanceUpdater,
         claim_tagger: ClaimTagger,
@@ -67,7 +76,8 @@ class StreamingTagsPipeline:
                 stance_tagging,
                 sample_items=bundle.items,
             )
-            claim_tagging = self.claim_tagger.tag(event, bundle.items)
+            claim_items = [item for item in bundle.items if item.kind in self.claim_tagger.source_kinds]
+            claim_tagging = self.claim_tagger.tag(event, claim_items)
             claim_summary = self.claim_updater.update(
                 self.state.claim_catalogs,
                 event,

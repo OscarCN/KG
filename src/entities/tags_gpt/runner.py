@@ -6,10 +6,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+from src.entities.linking_gpt import TagsGptLinkingAdapter
 from src.entities.tags_gpt.bootstrap import StanceBootstrapStep
 from src.entities.tags_gpt.catalogs import ClaimCatalogStore, EventStore
 from src.entities.tags_gpt.extraction import group_by_source, load_extracted_records, sort_batches_by_publication
-from src.entities.tags_gpt.linking import EventLinkingStep, LinkDecider, LlmLinkDecider
 from src.entities.tags_gpt.llm import JsonLlm, default_cached_llm
 from src.entities.tags_gpt.persistence import load_content_graph, save_snapshot
 from src.entities.tags_gpt.retrieval import ContentRetriever, EsNewsRetriever, LocalJsonRetriever
@@ -24,12 +24,14 @@ class LocalRunConfig:
     news_json_path: Optional[Path] = None
     snapshot_path: Optional[Path] = None
     bootstrap_corpus_limit: int = 80
+    geocode: bool = True
 
 
 @dataclass
 class LocalRunResult:
     state: StreamingState
     article_results: list
+    linker: TagsGptLinkingAdapter
 
 
 def run_local_stream(
@@ -37,7 +39,6 @@ def run_local_stream(
     *,
     llm: Optional[JsonLlm] = None,
     retriever: Optional[ContentRetriever] = None,
-    link_decider: Optional[LinkDecider] = None,
 ) -> LocalRunResult:
     """Run the decoupled pipeline over local extracted records.
 
@@ -63,10 +64,7 @@ def run_local_stream(
         stance_catalog=stance_catalog,
         claim_catalogs=ClaimCatalogStore(),
     )
-    linker = EventLinkingStep(
-        event_store=event_store,
-        decider=link_decider or LlmLinkDecider(llm),
-    )
+    linker = TagsGptLinkingAdapter(event_store=event_store, geocode=config.geocode)
     pipeline = StreamingTagsPipeline(
         state=state,
         retriever=retriever,
@@ -85,7 +83,7 @@ def run_local_stream(
             stance_catalog=state.stance_catalog,
             claim_catalogs=state.claim_catalogs,
         )
-    return LocalRunResult(state=state, article_results=article_results)
+    return LocalRunResult(state=state, article_results=article_results, linker=linker)
 
 
 def _default_retriever(config: LocalRunConfig) -> ContentRetriever:

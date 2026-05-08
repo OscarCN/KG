@@ -64,6 +64,8 @@ Linking lives in `src/entities/linking/`.
 
 The linker currently writes in-memory / JSON output only. The kgdb persistence model in the docs is target architecture, not implemented behavior.
 
+`src/entities/linking_gpt/` is the generalized linker for new work. It preserves the current event-linking behavior and adds entity/concept linking. Entity candidates are same `entity_type` plus shared name tokens; entity LLM disambiguation uses only `name` and `description`. Themes remain skipped.
+
 ### Tags
 
 Tags live in `src/entities/tags/`.
@@ -86,7 +88,7 @@ The streaming integration is driven by `src/entities/linking/run_linking.py`: ex
 
 ### Tags GPT
 
-`src/entities/tags_gpt/` is the decoupled experimental implementation for the next tags iteration. Prefer it when working on the new implementation. It keeps each step separate and injectable: extraction-output adapter, content retrieval, event-candidate retrieval, event linking, stance tagging, stance updating, claim tagging, and claim updating. It is not wired into `run_linking.py` by default.
+`src/entities/tags_gpt/` is the decoupled experimental implementation for the next tags iteration. Prefer it when working on the new implementation. It keeps each step separate and injectable: extraction-output adapter, content retrieval, generalized linking through `linking_gpt`, stance tagging, stance updating, claim tagging, and claim updating. It is not wired into `run_linking.py` by default.
 
 ## Current Data / Output Conventions
 
@@ -133,6 +135,7 @@ After any non-trivial implementation or behavioral change, update the relevant d
 - Linking changes: `src/entities/linking/readme_linking.md`
 - Tags changes: `src/entities/tags/readme_tags.md`, `tags_overview.md`, or `tags_impl_plan.md`
 - Tags GPT changes: `src/entities/tags_gpt/readme_tags_gpt.md`
+- Generalized linking changes: `src/entities/linking_gpt/` docs or the relevant entity overview docs
 
 Keep docs lean and consistent. Remove or revise stale claims rather than adding contradictory notes.
 

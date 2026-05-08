@@ -15,7 +15,7 @@ from typing import Any, Literal, Optional
 
 
 SourceKind = Literal["article", "user_post", "user_comment"]
-LinkStatus = Literal["created", "merged", "skipped", "dropped"]
+LinkStatus = Literal["created", "merged", "skipped", "dropped", "error"]
 
 
 def now_iso() -> str:

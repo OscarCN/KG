@@ -14,6 +14,7 @@ POSTURAS — reglas:
 - Posturas opuestas pueden coexistir si reflejan percepciones reales del público.
 
 CLAIMS — reglas:
+{claims_source_rule}
 - Aseveración fáctica específica, no opinión ni generalidad.
 - `affected_entity_ids` DEBE incluir el id del cliente; si no, NO incluyas la claim.
 - `verbatim`: una frase representativa, citada textualmente desde la fuente.

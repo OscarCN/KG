@@ -49,6 +49,8 @@ src/
       link.py       # EntityLinker: candidate filter + LLM call (events only). Exposes link_one(raw) → LinkResult for streaming callers.
       run_linking.py# IPython runner: streams extracted_raw/*.json → linked/*.json + (optional) tags pipeline
       readme_linking.md # Linking subsystem docs (incl. KG database persistence)
+    linking_gpt/    # Generalized linker: full event behavior + entity/concept linking by name/description
+      readme_linking_gpt.md
     tags/           # Customer-anchored stances + per-event claim clusters (Stage 1, in-memory)
       models/       # Pure data structures: customer.py, source_item.py, stance_catalog.py, claim_catalog.py
       bootstrap.py / tagging.py / stance_adjudicator.py / claim_clusterer.py / apply.py
@@ -100,6 +102,10 @@ Both geocode and LLM responses are cached on disk (`cache/geocode/`, `cache/link
 
 The runner streams articles through the linker one at a time and (when `TAGS_ENABLED=True`, default) routes each newly-linked event into the [tags subsystem](src/entities/tags/readme_tags.md) for stance + claim extraction.
 
+### Linking GPT (`src/entities/linking_gpt/`)
+
+Generalized linker used by the decoupled tags runner. It preserves the current event-linking behavior from `src/entities/linking/` and adds entity/concept linking. Entity candidates are retrieved by same `entity_type` plus shared individual name tokens; entity LLM disambiguation uses only `name` and `description`. Themes are still skipped. `src/entities/tags_gpt/run_tags_gpt.py` uses this linker through a tags adapter and only sends linked events into stance/claim tagging. See [`src/entities/linking_gpt/readme_linking_gpt.md`](src/entities/linking_gpt/readme_linking_gpt.md).
+
 ### Tags (`src/entities/tags/`)
 
 Two complementary tag types extracted from articles, posts, and comments tied to a single **customer entity**:
@@ -111,7 +117,7 @@ Five-phase pipeline: bootstrap (one-shot per customer) → tag (Phase 2 — sing
 
 ### Tags GPT (`src/entities/tags_gpt/`)
 
-Alternate implementation of the tags flow focused on readability and testability. It separates the streaming pipeline into explicit steps: extraction-output adapter, content retrieval, event-candidate retrieval, linking, stance tagging, stance updating, claim tagging, and claim updating. It is not wired into `run_linking.py` by default; use it as the implementation target for the next runner/service split. See [`src/entities/tags_gpt/readme_tags_gpt.md`](src/entities/tags_gpt/readme_tags_gpt.md).
+Alternate implementation of the tags flow focused on readability and testability. It separates the streaming pipeline into explicit steps: extraction-output adapter, content retrieval, generalized linking through `linking_gpt`, stance tagging, stance updating, claim tagging, and claim updating. It is not wired into `run_linking.py` by default; use it as the implementation target for the next runner/service split. See [`src/entities/tags_gpt/readme_tags_gpt.md`](src/entities/tags_gpt/readme_tags_gpt.md).
 
 ### Entity Extraction (`src/entities/extraction/`)
 

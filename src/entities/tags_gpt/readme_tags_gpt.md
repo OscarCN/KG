@@ -12,8 +12,8 @@ inside the runner and phase helpers. `tags_gpt` makes the boundaries explicit:
 
 1. `extraction.py` — adapt already-extracted records into streamable batches.
 2. `retrieval.py` — fetch article / post / comment source items.
-3. `candidates.py` — retrieve plausible linked-event candidates.
-4. `linking.py` — choose merge vs create for one extracted event.
+3. `src/entities/linking_gpt/` — link extracted events and entities.
+4. `linking_gpt.TagsGptLinkingAdapter` — expose linked events to the tags stream.
 5. `tagging.py:StanceTagger` — assign current stances and propose catalog changes.
 6. `tagging.py:StanceUpdater` — adjudicate/apply stance catalog changes.
 7. `tagging.py:ClaimTagger` — extract customer-affecting raw claims.
@@ -28,7 +28,7 @@ inside the runner and phase helpers. `tags_gpt` makes the boundaries explicit:
 - Every LLM user depends on `JsonLlm`; tests can pass `ScriptedJsonLlm`.
 - Stance tagging and claim tagging are separate calls.
 - Stance updating and claim updating are separate mutation steps.
-- Linking owns event creation/merge; tags only consume linked events.
+- `linking_gpt` owns event/entity creation and merge; tags only consume linked events.
 - Snapshot writes are debug artifacts, not durable persistence.
 
 ## Minimal Usage
@@ -51,7 +51,7 @@ For local exploratory runs, use the convenience runner:
 ```python
 from pathlib import Path
 
-from src.entities.tags_gpt import LocalRunConfig, run_local_stream
+from src.entities.tags_gpt.runner import LocalRunConfig, run_local_stream
 
 result = run_local_stream(LocalRunConfig(
     extracted_records_path=Path("data/extracted_raw/ayuntamiento_tst.json"),
@@ -70,7 +70,6 @@ from src.entities.tags_gpt import (
     ClaimCatalogStore,
     ClaimTagger,
     ClaimUpdater,
-    EventLinkingStep,
     EventStore,
     LocalJsonRetriever,
     StanceCatalog,
@@ -84,6 +83,7 @@ from src.entities.tags_gpt import (
     load_extracted_records,
     sort_batches_by_publication,
 )
+from src.entities.linking_gpt import TagsGptLinkingAdapter
 
 graph = load_content_graph(Path("data/tags/customer_75.json"))
 customer = graph.customer
@@ -101,7 +101,7 @@ state = StreamingState(
 pipeline = StreamingTagsPipeline(
     state=state,
     retriever=LocalJsonRetriever(Path("data/ayuntamiento_qro/ayuntamiento_qro_20260506_015754.json")),
-    linker=EventLinkingStep(event_store=event_store),
+    linker=TagsGptLinkingAdapter(event_store=event_store),
     stance_tagger=StanceTagger(customer, llm),
     stance_updater=StanceUpdater(customer, llm),
     claim_tagger=ClaimTagger(customer, llm),
@@ -134,10 +134,13 @@ For mutation-only tests, pass `llm=None` to `StanceUpdater` or `ClaimUpdater`:
 
 ## Current Scope
 
-- Event linking is in-memory and intentionally simple.
-- Candidate retrieval covers linked events, not themes/entities yet.
-- Geocoding is not performed here; the linker uses `_geo.level_2_id` when present
-  and falls back to the structured location state/country.
+- Manual tags_gpt runs use `src/entities/linking_gpt/` by default.
+- `linking_gpt` preserves full event-linking behavior from `src/entities/linking/`
+  and adds entity/concept linking by same `entity_type` plus shared name tokens,
+  with LLM disambiguation over only `name` and `description`.
+- Themes are still skipped.
+- Tags are still applied only to linked events; linked entities are written for
+  inspection and future graph use.
 - This package is not wired into `src/entities/linking/run_linking.py` by default.
   It is meant to be the cleaner implementation target for the next runner or
   service split.

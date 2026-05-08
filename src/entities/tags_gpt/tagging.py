@@ -29,6 +29,20 @@ from src.entities.tags_gpt.prompts import (
 )
 
 
+CLAIM_SOURCE_KINDS = {"article", "user_post"}
+CLAIM_SOURCE_KINDS_WITH_COMMENTS = {"article", "user_post", "user_comment"}
+
+
+def claim_source_kinds(include_comments: bool = False) -> set[str]:
+    """Active source kinds for claim extraction.
+
+    Default (False) — claims come from articles + posts only; comments are
+    excluded because they're typically opinion / anecdote / sarcasm, not
+    factual reporting. Pass True to opt comments back in.
+    """
+    return CLAIM_SOURCE_KINDS_WITH_COMMENTS if include_comments else CLAIM_SOURCE_KINDS
+
+
 class StanceTagger:
     def __init__(self, customer: Customer, llm: JsonLlm, *, model: Optional[str] = None):
         self.customer = customer
@@ -184,6 +198,16 @@ class StanceUpdater:
     ) -> None:
         proposal = proposals[decision.proposal_index]
         if decision.action == "accept":
+            if proposal.kind == "rename":
+                if proposal.src_stance_id and catalog.rename(
+                    proposal.src_stance_id,
+                    proposal.label,
+                    proposal.description,
+                ):
+                    summary.inc("renamed")
+                else:
+                    summary.inc("rejected")
+                return
             catalog.add(proposal.label, proposal.description)
             summary.inc("accepted")
         elif decision.action == "reject":
@@ -200,23 +224,45 @@ class StanceUpdater:
 
 
 class ClaimTagger:
-    def __init__(self, customer: Customer, llm: JsonLlm, *, model: Optional[str] = None):
+    def __init__(
+        self,
+        customer: Customer,
+        llm: JsonLlm,
+        *,
+        model: Optional[str] = None,
+        include_comments: bool = False,
+    ):
+        """Per-event claim extractor.
+
+        `include_comments` controls whether `user_comment` items can be
+        sources for claims. Default (False) drops them — comments are
+        opinion-heavy and dilute the factual signal of the claim catalog.
+        """
         self.customer = customer
         self.llm = llm
         self.model = model or os.environ.get("OPENROUTER_CLAIM_TAGGER_MODEL", "openai/gpt-4o")
+        self.include_comments = include_comments
+
+    @property
+    def source_kinds(self) -> set[str]:
+        return claim_source_kinds(self.include_comments)
 
     def tag(self, event: LinkedEvent, items: list[SourceItem]) -> ClaimTagging:
+        items = [item for item in items if item.kind in self.source_kinds]
         if not items:
             return ClaimTagging()
         payload = {
             "customer_id": self.customer.entity_id,
             "event_id": event.id,
+            "include_comments": self.include_comments,
             "items": [{"id": item.id, "kind": item.kind, "text": item.short_text()} for item in items],
         }
         response = self.llm.complete_json(
             phase="claim_tagging",
             payload=payload,
-            prompt=claim_tagging_prompt(self.customer, event, items),
+            prompt=claim_tagging_prompt(
+                self.customer, event, items, include_comments=self.include_comments,
+            ),
             model=self.model,
         )
         return self._parse_response(event.id, items, response)

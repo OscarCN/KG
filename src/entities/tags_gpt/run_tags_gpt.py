@@ -19,7 +19,7 @@ Run shape:
           (b) link each extracted event,
           (c) stance tag/update per unique linked event,
           (d) claim tag/update per unique linked event.
-    5. Write linked events + tags_gpt snapshot.
+    5. Write linked events/entities + tags_gpt snapshot.
 
 After the script finishes, these names are bound for inspection:
 
@@ -28,12 +28,12 @@ After the script finishes, these names are bound for inspection:
     customer         — Customer loaded from CUSTOMER_FIXTURE
     llm              — cached JsonLlm client
     retriever        — LocalJsonRetriever or EsNewsRetriever
-    event_store      — EventStore with linked events
+    event_store      — EventStore with linked events used by tags_gpt
     stance_catalog   — StanceCatalog after the run
     claim_catalogs   — ClaimCatalogStore after the run
     pipeline         — StreamingTagsPipeline instance
     article_results  — ArticleProcessResult values, one per streamed source
-    linked           — {"events": [...]} JSON-compatible linked output
+    linked           — {"events": [...], "entities": [...]} JSON-compatible linked output
 """
 
 from __future__ import annotations
@@ -58,18 +58,16 @@ load_dotenv(_PROJECT_ROOT / ".env.local")
 
 logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
 logging.getLogger("src.entities.tags_gpt").setLevel(logging.INFO)
+logging.getLogger("src.entities.linking_gpt").setLevel(logging.INFO)
 
+from src.entities.linking_gpt import TagsGptLinkingAdapter  # noqa: E402
 from src.entities.tags_gpt import (  # noqa: E402
     ClaimCatalogStore,
     ClaimTagger,
     ClaimUpdater,
     EsNewsRetriever,
-    EventLinkingStep,
     EventStore,
-    ExactTitleDecider,
-    LlmLinkDecider,
     LocalJsonRetriever,
-    NoMatchDecider,
     StanceBootstrapStep,
     StanceTagger,
     StanceUpdater,
@@ -93,21 +91,18 @@ CUSTOMER_FIXTURE: Path = _PROJECT_ROOT / "data" / "tags" / "customer_75.json"
 
 # Same local-news fixture convention as run_linking.py. Set to None to use ES.
 NEWS_LOCAL: Optional[Path] = (
-    _PROJECT_ROOT / "data" / "ayuntamiento_qro" / "ayuntamiento_qro_20260506_015754.json"
+    _PROJECT_ROOT / "data" / "ayuntamiento_qro" / "ayuntamiento_qro_20260506_175946.json"
     # _PROJECT_ROOT / "data" / "ayuntamiento_qro" / "ayuntamiento_qro_20260504_214928.json"
 )
 
 BOOTSTRAP_CORPUS_LIMIT: int = 80
 RUN_TIMESTAMP = datetime.now().strftime("%Y%m%d_%H%M%S")
 TAGS_OUTPUT: Optional[Path] = None  # default: data/tags/<customer_slug>/tags_gpt_run_<ts>.json
+GEOCODE: bool = True
 
 # Manual-run knobs.
 LIMIT_BATCHES: Optional[int] = None
 SOURCE_IDS: Optional[list[str]] = None
-
-# "llm" = LLM disambiguation for candidate matches, "exact" = exact-title
-# deterministic matching, "none" = always create new event.
-LINK_DECIDER: str = "llm"
 
 
 def _write_json(path: Path, payload: Any) -> None:
@@ -158,14 +153,7 @@ else:
 
 event_store = EventStore()
 claim_catalogs = ClaimCatalogStore()
-
-link_decider = {
-    "llm": LlmLinkDecider(llm),
-    "exact": ExactTitleDecider(),
-    "none": NoMatchDecider(),
-}[LINK_DECIDER]
-
-linker = EventLinkingStep(event_store=event_store, decider=link_decider)
+linker = TagsGptLinkingAdapter(event_store=event_store, geocode=GEOCODE)
 
 
 # ── 3. Bootstrap stance catalog ───────────────────────────────────────────────
@@ -229,11 +217,15 @@ for i, batch in enumerate(batches, start=1):
 
 # ── 6. Write outputs and print summary ────────────────────────────────────────
 
-linked = {"events": event_store.to_records()}
+linked = {
+    "events": list(linker.linker.events.values()),
+    "entities": list(linker.linker.entities.values()),
+}
 _write_json(OUTPUT, linked)
 print()
 print(f"Wrote {OUTPUT}")
 print(f"  linked events: {len(linked['events'])}")
+print(f"  linked entities: {len(linked['entities'])}")
 print(f"  link statuses: {_short_counts(link_status_counts)}")
 
 snapshot_path = TAGS_OUTPUT or (

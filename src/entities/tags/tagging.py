@@ -52,6 +52,18 @@ class TaggingResult:
     stance_proposals: list[StanceProposal] = field(default_factory=list)
     claims: list[RawClaim] = field(default_factory=list)
     raw_claims_dropped_off_customer: int = 0
+    raw_claims_dropped_from_comments: int = 0
+
+
+_CLAIMS_RULE_NO_COMMENTS = (
+    "- Extrae claims SÓLO de fuentes con `kind` ∈ {article, user_post}. "
+    "Si una fuente es de `kind=user_comment`, NO emitas claims desde ella "
+    "(los comentarios suelen ser opinión / anécdota / sarcasmo, no reportaje fáctico)."
+)
+_CLAIMS_RULE_INCLUDE_COMMENTS = (
+    "- Puedes extraer claims de cualquier fuente del lote, incluidos comentarios "
+    "(`kind=user_comment`); aplica los criterios fácticos por igual."
+)
 
 
 class TaggingOrchestrator:
@@ -60,10 +72,20 @@ class TaggingOrchestrator:
         customer: Customer,
         stance_catalog: StanceCatalog,
         model: str = _DEFAULT_MODEL,
+        *,
+        claims_include_comments: bool = False,
     ):
+        """Phase 2 orchestrator.
+
+        `claims_include_comments` controls whether claims can be extracted
+        from `user_comment` fuentes. Default (False) keeps claims tied to
+        articles + posts only — comments are opinion-heavy and dilute the
+        factual signal of the claim catalog. Flip to True to include them.
+        """
         self.customer = customer
         self.stance_catalog = stance_catalog
         self.model = model
+        self.claims_include_comments = claims_include_comments
 
     # ──────────────────────────────────────────────────────────────
 
@@ -85,6 +107,11 @@ class TaggingOrchestrator:
             event_context=event_summary,
             stance_catalog=self._stance_catalog_block(),
             items_block=self._items_block(items),
+            claims_source_rule=(
+                _CLAIMS_RULE_INCLUDE_COMMENTS
+                if self.claims_include_comments
+                else _CLAIMS_RULE_NO_COMMENTS
+            ),
         )
         messages = [{"role": "user", "content": user_message}]
 
@@ -93,6 +120,7 @@ class TaggingOrchestrator:
             "customer_id": self.customer.entity_id,
             "event_id": event_id,
             "stance_catalog_snapshot": self._stance_catalog_snapshot(),
+            "claims_include_comments": self.claims_include_comments,
             "items": [
                 {"id": it.id, "kind": it.kind, "text": it.text[:1200]}
                 for it in items
@@ -160,6 +188,13 @@ class TaggingOrchestrator:
             affected = [int(x) for x in (c.get("affected_entity_ids") or []) if isinstance(x, (int, str)) and str(x).lstrip("-").isdigit()]
             if not sid or not verbatim:
                 continue
+            source_kind = kind_by_id.get(sid, "article")
+            # Defensive guard: drop claims sourced from comments unless the
+            # caller explicitly opted in (the prompt already instructs the
+            # LLM not to emit them, this is belt-and-suspenders).
+            if source_kind == "user_comment" and not self.claims_include_comments:
+                result.raw_claims_dropped_from_comments += 1
+                continue
             if self.customer.entity_id not in affected:
                 result.raw_claims_dropped_off_customer += 1
                 continue
@@ -175,7 +210,7 @@ class TaggingOrchestrator:
                     affected_entity_ids=affected,
                     verbatim=verbatim,
                     source_id=sid,
-                    source_kind=kind_by_id.get(sid, "article"),
+                    source_kind=source_kind,
                     importance=importance,
                     importance_reason=(c.get("importance_reason") or "")[:500],
                 )
