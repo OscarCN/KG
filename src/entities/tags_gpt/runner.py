@@ -27,6 +27,7 @@ class LocalRunConfig:
     bootstrap_corpus_limit: int = 80
     geocode: bool = True
     tagging_strategy: Literal["single_pass", "two_pass"] = "two_pass"
+    triage_comment_batch_size: int = 12
     run_consistency_pass: bool = False
     consistency_sample_size: int = 300
 
@@ -81,6 +82,7 @@ def run_local_stream(
         claim_tagger=ClaimTagger(customer, llm),
         claim_updater=ClaimUpdater(customer, llm),
         type_triage_step=TypeTriageStep(customer, llm),
+        triage_comment_batch_size=config.triage_comment_batch_size,
     )
 
     article_results = [pipeline.process_batch(batch) for batch in batches]

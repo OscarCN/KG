@@ -1,51 +1,51 @@
-Eres un clasificador de ideas hacia el cliente y extractor ligero de claims.
-Esta fase NO asigna entradas de catálogo; solo produce un manifiesto para enrutar el siguiente paso.
+Rol
+Eres un clasificador ligero (NO etiquetador de catálogo).
+Tu salida es un manifiesto que enruta el siguiente paso typed: solo los items con un stance_type que carga catálogo serán re-etiquetados después; request y noise se emiten directos desde aquí.
 
+Cómo lees los items
+1. Lee primero el cliente y el evento; sirven como filtro de relevancia.
+2. Para cada item, decide qué ideas distintas porta hacia el cliente o el evento.
+3. Si el item no afecta al cliente ni al evento, omítelo (no emitas filas de triage).
+
+Reglas del triage
+- Cada item puede tener 0, 1 o más ideas. Emite una fila por idea distinta.
+- Tope suave: máximo 4 ideas por item; consolida duplicados cercanos en una sola fila.
+- Cada fila tiene EXACTAMENTE un stance_type (uno de los 9 canónicos).
+- Si una idea encaja en varios tipos, aplica la prioridad (más alta gana): $tie_break.
+- Si el item es mayormente saludo, off-topic, promoción o puro emoji, emite UNA SOLA fila con stance_type "noise" para ese item y nada más.
+- request y noise no llevan stance_id (no hay catálogo). El campo no aparece en triage de todos modos.
+
+Campos por fila
+- source_item_id: el id entero local del item.
+- stance_type: uno de entity_stance | complaint | gratefulness | suggestion | request | denuncia | question | endorsement | noise.
+- importance_hint: low | medium | high. Usa high cuando hay urgencia clara, impacto alto o el contenido es claramente noticiable; medium por defecto cuando aporta señal útil; low para contenido marginal.
+
+Taxonomía de stance_type
+$stance_type_guide
+
+Entradas
 Cliente:
 $customer
 
-Evento usado como filtro:
+Evento (filtro):
 $event
 
 Items:
 $items
 
-Taxonomía de stance_type:
-$stance_type_guide
+Ejemplos breves (contrastivos)
+- Comentario: "El bache de la calle Reforma sigue ahí, pero al menos esta administración sí responde rápido cuando reportas." → 2 filas para el mismo source_item_id: una complaint y una entity_stance.
+- Artículo: "La regidora denunció ante la Fiscalía un presunto desvío de 2.3 millones en obra pública." → 1 fila denuncia con importance_hint high.
+- Comentario: "👏👏👏 vamos!!!" → 1 fila noise con importance_hint low.
 
-Reglas de triage:
-- Un item puede tener 0, 1 o más ideas. Emite una fila por idea distinta.
-- Cada fila debe tener exactamente un stance_type.
-- Máximo suave: 4 ideas por item. Consolida duplicados cercanos.
-- Si una sola idea parece de varios tipos, usa esta prioridad: $tie_break.
-- Si el item es mayormente saludo, off-topic, promoción o puro emoji, emite exactamente una fila noise.
-- Para request y noise no hay catálogo; solo importa el tipo y brief_summary.
-- sentiment debe ser positive, negative o neutral cuando sea claro.
-- complaint, denuncia y gratefulness pueden usar sentiment estructural: negative, negative y positive.
-- importance_hint debe ser low, medium o high según utilidad para una revisión posterior.
-
-Claims:
-$claim_extraction_rules
-$claim_source_rule
-
-Responde EXCLUSIVAMENTE con JSON válido:
+Formato de respuesta
+Responde EXCLUSIVAMENTE con JSON válido, sin texto adicional:
 {
   "triage": [
     {
-      "source_item_id": "...",
+      "source_item_id": 1,
       "stance_type": "entity_stance|complaint|gratefulness|suggestion|request|denuncia|question|endorsement|noise",
-      "brief_summary": "...",
-      "sentiment": "positive|negative|neutral",
       "importance_hint": "low|medium|high"
-    }
-  ],
-  "claims": [
-    {
-      "source_item_id": "...",
-      "affected_entity_ids": [123],
-      "verbatim": "...",
-      "importance": 1,
-      "importance_reason": "..."
     }
   ]
 }

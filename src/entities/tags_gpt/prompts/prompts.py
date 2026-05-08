@@ -79,6 +79,44 @@ def items_block(items: list[SourceItem], *, text_limit: int = 1200) -> str:
     return json.dumps(payload, ensure_ascii=False, indent=2, default=json_default)
 
 
+def triage_customer_block(customer: Customer) -> str:
+    return json.dumps(
+        {
+            "name": customer.name,
+            "description": customer.description,
+        },
+        ensure_ascii=False,
+        indent=2,
+        default=json_default,
+    )
+
+
+def triage_event_block(event: LinkedEvent) -> str:
+    return json.dumps(
+        {
+            "description": event.description,
+        },
+        ensure_ascii=False,
+        indent=2,
+        default=json_default,
+    )
+
+
+def triage_items_block(items: list[dict[str, Any]] | list[SourceItem]) -> str:
+    if items and isinstance(items[0], SourceItem):
+        payload = [
+            {
+                "id": index,
+                "kind": item.kind,
+                "text": item.short_text(),
+            }
+            for index, item in enumerate(items, start=1)
+        ]
+    else:
+        payload = items
+    return json.dumps(payload, ensure_ascii=False, indent=2, default=json_default)
+
+
 def stance_catalog_block(entries: list[dict[str, Any]]) -> str:
     return json.dumps(entries, ensure_ascii=False, indent=2, default=json_default)
 
@@ -127,6 +165,18 @@ def stance_type_guide(stance_type: StanceType | None = None) -> str:
     return "\n\n".join(STANCE_TYPE_GUIDES.values())
 
 
+def triage_stance_type_guide() -> str:
+    sections = []
+    for guide in STANCE_TYPE_GUIDES.values():
+        lines = [
+            line
+            for line in guide.splitlines()
+            if "sentiment" not in line.lower()
+        ]
+        sections.append("\n".join(lines).strip())
+    return "\n\n".join(sections)
+
+
 _CLAIM_RULES_NO_COMMENTS = _text("claim_rules_no_comments.txt")
 _CLAIM_RULES_INCLUDE_COMMENTS = _text("claim_rules_include_comments.txt")
 
@@ -158,24 +208,15 @@ def bootstrap_prompt(customer: Customer, items: list[SourceItem]) -> str:
 def type_triage_prompt(
     customer: Customer,
     event: LinkedEvent,
-    items: list[SourceItem],
-    *,
-    include_comments_for_claims: bool = False,
+    items: list[dict[str, Any]] | list[SourceItem],
 ) -> str:
-    claim_source_rule = (
-        "Puedes extraer claims de artículos, publicaciones y comentarios."
-        if include_comments_for_claims
-        else "Extrae claims solo de items con kind article o user_post; no extraigas claims de user_comment."
-    )
     return _render(
         "type_triage.txt",
-        customer=customer_block(customer),
-        event=event_block(event),
-        items=items_block(items),
-        stance_type_guide=stance_type_guide(),
+        customer=triage_customer_block(customer),
+        event=triage_event_block(event),
+        items=triage_items_block(items),
+        stance_type_guide=triage_stance_type_guide(),
         tie_break=STANCE_TYPE_TIE_BREAK,
-        claim_extraction_rules=_claim_extraction_rules(include_comments_for_claims),
-        claim_source_rule=claim_source_rule,
     )
 
 
@@ -289,4 +330,3 @@ def claim_update_prompt(
         clusters=claim_catalog_block(clusters),
         claims=indexed_block(claims, "claim_index"),
     )
-

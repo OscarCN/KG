@@ -14,7 +14,7 @@ inside the runner and phase helpers. `tags_gpt` makes the boundaries explicit:
 2. `retrieval.py` — fetch article / post / comment source items.
 3. `src/entities/linking_gpt/` — link extracted events and entities.
 4. `linking_gpt.TagsGptLinkingAdapter` — expose linked events to the tags stream.
-5. `tagging.py:TypeTriageStep` — classify stance ideas by type and extract catalog-free claims.
+5. `tagging.py:TypeTriageStep` — classify stance ideas by type.
 6. `tagging.py:StanceTagger` — assign current stances and propose catalog changes.
 7. `tagging.py:StanceUpdater` — adjudicate/apply stance catalog changes.
 8. `tagging.py:ClaimUpdater` — cluster/apply claims into per-event catalogs.

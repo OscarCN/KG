@@ -102,6 +102,7 @@ RUN_TIMESTAMP = datetime.now().strftime("%Y%m%d_%H%M%S")
 TAGS_OUTPUT: Optional[Path] = None  # default: data/tags/<customer_slug>/tags_gpt_run_<ts>.json
 GEOCODE: bool = True
 TAGGING_STRATEGY: Literal["single_pass", "two_pass"] = "two_pass"
+TRIAGE_COMMENT_BATCH_SIZE: int = 12
 RUN_CONSISTENCY_PASS: bool = False
 CONSISTENCY_SAMPLE_SIZE: int = 300
 
@@ -194,6 +195,7 @@ pipeline = StreamingTagsPipeline(
     claim_tagger=ClaimTagger(customer, llm),
     claim_updater=ClaimUpdater(customer, llm),
     type_triage_step=TypeTriageStep(customer, llm),
+    triage_comment_batch_size=TRIAGE_COMMENT_BATCH_SIZE,
 )
 
 

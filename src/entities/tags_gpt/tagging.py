@@ -60,7 +60,6 @@ class TypeTriageStep:
         llm: JsonLlm,
         *,
         model: Optional[str] = None,
-        include_comments_for_claims: bool = False,
     ):
         self.customer = customer
         self.llm = llm
@@ -68,20 +67,20 @@ class TypeTriageStep:
             "OPENROUTER_TYPE_TRIAGE_MODEL",
             "google/gemini-2.5-flash-lite",
         )
-        self.include_comments_for_claims = include_comments_for_claims
-
-    @property
-    def claim_source_kinds(self) -> set[str]:
-        return claim_source_kinds(self.include_comments_for_claims)
 
     def triage(self, event: LinkedEvent, items: list[SourceItem]) -> TypeTriageResult:
         if not items:
             return TypeTriageResult(n_items_seen=0)
+        local_items, local_item_by_id = self._local_items(items)
         payload = {
-            "customer_id": self.customer.entity_id,
-            "event_id": event.id,
-            "include_comments_for_claims": self.include_comments_for_claims,
-            "items": [{"id": item.id, "kind": item.kind, "text": item.short_text()} for item in items],
+            "customer": {
+                "name": self.customer.name,
+                "description": self.customer.description,
+            },
+            "event": {
+                "description": event.description,
+            },
+            "items": local_items,
         }
         response = self.llm.complete_json(
             phase="type_triage",
@@ -89,31 +88,49 @@ class TypeTriageStep:
             prompt=type_triage_prompt(
                 self.customer,
                 event,
-                items,
-                include_comments_for_claims=self.include_comments_for_claims,
+                local_items,
             ),
             model=self.model,
         )
-        return self._parse_response(event.id, items, response)
+        return self._parse_response(local_item_by_id, response)
 
-    def _parse_response(self, event_id: str, items: list[SourceItem], response: dict) -> TypeTriageResult:
-        item_by_id = {item.id: item for item in items}
+    @staticmethod
+    def _local_items(items: list[SourceItem]) -> tuple[list[dict], dict[str, SourceItem]]:
+        local_items: list[dict] = []
+        local_item_by_id: dict[str, SourceItem] = {}
+        for index, item in enumerate(items, start=1):
+            local_id = str(index)
+            local_item_by_id[local_id] = item
+            local_items.append(
+                {
+                    "id": index,
+                    "kind": item.kind,
+                    "text": item.short_text(),
+                }
+            )
+        return local_items, local_item_by_id
+
+    def _parse_response(
+        self,
+        local_item_by_id: dict[str, SourceItem],
+        response: dict,
+    ) -> TypeTriageResult:
         grouped: dict[str, list[TypeTriageItem]] = {}
         dropped_invalid = 0
         for raw in response.get("triage") or []:
-            source_item_id = str(raw.get("source_item_id") or "")
-            item = item_by_id.get(source_item_id)
+            if not isinstance(raw, dict):
+                dropped_invalid += 1
+                continue
+            item = local_item_by_id.get(_local_id(raw.get("source_item_id")))
             stance_type = _stance_type(raw.get("stance_type"))
             if item is None or stance_type is None:
                 dropped_invalid += 1
                 continue
-            grouped.setdefault(source_item_id, []).append(
+            grouped.setdefault(item.id, []).append(
                 TypeTriageItem(
-                    source_item_id=source_item_id,
+                    source_item_id=item.id,
                     source_kind=item.kind,
                     stance_type=stance_type,
-                    brief_summary=str(raw.get("brief_summary") or "").strip()[:500],
-                    sentiment=_sentiment(raw.get("sentiment"), stance_type=stance_type),
                     importance_hint=_consistency_relevance(raw.get("importance_hint")),
                 )
             )
@@ -126,20 +143,10 @@ class TypeTriageStep:
                 continue
             triaged.extend(entries[:4])
 
-        claims, dropped_claim_invalid, dropped_off_customer = _parse_claim_rows(
-            customer_id=self.customer.entity_id,
-            event_id=event_id,
-            items=items,
-            source_kinds=self.claim_source_kinds,
-            rows=response.get("claims") or [],
-        )
         return TypeTriageResult(
             triaged=triaged,
-            claims=claims,
-            n_items_seen=len(items),
-            dropped_invalid=dropped_invalid + dropped_claim_invalid,
-            dropped_claim_invalid=dropped_claim_invalid,
-            dropped_off_customer=dropped_off_customer,
+            n_items_seen=len({item.id for item in local_item_by_id.values()}),
+            dropped_invalid=dropped_invalid,
         )
 
 
@@ -633,6 +640,12 @@ def _optional_id(value) -> Optional[str]:
     if not text or text.lower() == "null":
         return None
     return text
+
+
+def _local_id(value) -> str:
+    if value is None:
+        return ""
+    return str(value).strip()
 
 
 def _parse_claim_rows(

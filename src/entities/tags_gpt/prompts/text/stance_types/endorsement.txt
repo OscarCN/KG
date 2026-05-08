@@ -1,5 +1,12 @@
-`endorsement`: señal de apoyo o rechazo generalizado al cliente.
-Label de catálogo: "apoyo a X" o "rechazo a X".
-Ejemplos:
-- "vamos con FeliFer" -> "apoyo al alcalde", sentiment positive
-- "no apoyo a este gobierno" -> "rechazo al gobierno actual", sentiment negative
+`endorsement`: señal de apoyo o rechazo generalizado al cliente como figura, gestión o proyecto político.
+
+Label de catálogo: `apoyo a X` o `rechazo a X` — el objeto del apoyo o rechazo va como sustantivo reutilizable.
+
+Ejemplos (raw → label):
+- "vamos con FeliFer, todo el respaldo" → "apoyo al alcalde", sentiment positive
+- "no apoyo a este gobierno municipal" → "rechazo al gobierno actual", sentiment negative
+- "que se reelija, está haciendo bien las cosas" → "apoyo a la reelección", sentiment positive
+- "fuera el alcalde, ya estuvo" → "rechazo al alcalde", sentiment negative
+
+Sentiment: positive cuando el label es de apoyo; negative cuando es de rechazo.
+Distinguir de gratefulness: endorsement es respaldo o repudio general a la figura; gratefulness reconoce una acción concreta.

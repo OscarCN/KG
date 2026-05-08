@@ -1,7 +1,10 @@
-Reglas de calidad del catálogo:
-- Mantén una lista corta, curada y reutilizable.
-- Evita duplicados; si dos labels expresan la misma idea, usa una sola formulación.
-- Las posturas opuestas pueden coexistir si ambas están sustentadas por evidencia.
-- Escribe labels breves, neutrales y en español de México, idealmente de 5 a 12 palabras.
-- Redacta cada label con la forma propia de su stance_type; nunca como queja en primera persona.
-- La description debe ser una sola oración reutilizable y no depender de un evento único.
+Reglas de calidad y formato del catálogo:
+- Mantén la lista corta, curada y reutilizable; antes de agregar una postura nueva, pregúntate si alguna existente ya cubre la idea.
+- Evita duplicados: si dos labels expresan la misma cualidad con palabras distintas, fusiónalas en una sola formulación limpia.
+- Posturas opuestas pueden coexistir cuando AMBAS estén sustentadas por evidencia.
+  Ejemplo: "el ayuntamiento es transparente" y "el ayuntamiento oculta información" pueden convivir; no descartes una solo porque contradice a la otra.
+- Escribe cada label breve (5 a 12 palabras), en español de México, con tono neutral y descriptivo; no validas ni juzgas la percepción.
+- Redacta cada label con la FORMA TIPADA propia de su stance_type:
+  entity_stance → `<sujeto> es/hace <cualidad>`; complaint → `problemas/fallas/demoras en X`; gratefulness → `agradecimiento/reconocimiento por/a X`; suggestion → `petición/ampliación/modernización de X`; denuncia → `denuncias de <conducta>`; question → tópico tipo FAQ; endorsement → `apoyo/rechazo a X`.
+- Nunca redactes el label como queja en primera persona ("yo creo que…", "para mí…"); siempre como cualidad, problema, propuesta o postura del público.
+- La description es UNA sola oración reutilizable que explica qué captura la postura y por qué es duradera; no debe depender de un evento único ni copiar texto de la fuente.

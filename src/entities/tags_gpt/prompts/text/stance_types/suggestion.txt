@@ -1,5 +1,12 @@
-`suggestion`: propuesta de acción pública o general dirigida al cliente.
-Label de catálogo: "petición de X", "ampliación de Y", "modernización de Z".
-Ejemplos:
-- "deberían poner topes" -> "petición de medidas de seguridad vial"
-- "podrían ampliar el horario" -> "petición de horarios extendidos"
+`suggestion`: propuesta de acción pública o de política dirigida al cliente, aplicable a muchas personas, no solo al autor.
+
+Label de catálogo: `petición de X`, `ampliación de Y`, `modernización de Z` — formula como propuesta colectiva, no como caso personal.
+
+Ejemplos (raw → label):
+- "deberían poner topes en esa avenida" → "petición de medidas de seguridad vial"
+- "podrían ampliar el horario de las oficinas" → "ampliación de horarios de atención"
+- "ya es hora de digitalizar todos los trámites" → "modernización de trámites digitales"
+- "hace falta más alumbrado en el centro" → "petición de más alumbrado público"
+
+Sentiment: derivado del texto; suele ser neutral o levemente negativo (señala una carencia), pero respeta el tono.
+Distinguir de request: suggestion propone una mejora general; request pide ayuda en un caso individual.

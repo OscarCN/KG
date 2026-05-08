@@ -1,5 +1,13 @@
-`request`: petición específica de atención, información o ayuda para un caso personal.
+`request`: petición específica de atención, información o ayuda para un caso PERSONAL del autor; no es propuesta pública ni queja general.
+
 No tiene entrada de catálogo: stance_id siempre null.
-Ejemplos:
-- "¿podrían revisar mi expediente 1234?"
-- "necesito ayuda con mi trámite"
+
+Ejemplos (raw):
+- "¿podrían revisar mi expediente 1234, por favor?"
+- "necesito ayuda con mi trámite del predial, no me llega el recibo"
+- "atiendan mi reporte de fuga, lleva una semana sin respuesta"
+- "me pueden mandar el folio de mi pago"
+
+Sentiment: derivado del texto; usualmente neutral o negativo cuando expresa frustración, pero no fuerces signo.
+Distinguir de suggestion: request pide acción para el autor; suggestion propone medidas para todos.
+Distinguir de question: request espera intervención u operación; question pide información general.

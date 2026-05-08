@@ -525,8 +525,6 @@ class TypeTriageItem:
     source_item_id: str
     source_kind: SourceKind
     stance_type: StanceType
-    brief_summary: str
-    sentiment: Optional[Sentiment] = None
     importance_hint: Optional[ConsistencyRelevance] = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -536,20 +534,14 @@ class TypeTriageItem:
 @dataclass
 class TypeTriageResult:
     triaged: list[TypeTriageItem] = field(default_factory=list)
-    claims: list[RawClaim] = field(default_factory=list)
     n_items_seen: int = 0
     dropped_invalid: int = 0
-    dropped_claim_invalid: int = 0
-    dropped_off_customer: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "triaged": [x.to_dict() for x in self.triaged],
-            "claims": [x.to_dict() for x in self.claims],
             "n_items_seen": self.n_items_seen,
             "dropped_invalid": self.dropped_invalid,
-            "dropped_claim_invalid": self.dropped_claim_invalid,
-            "dropped_off_customer": self.dropped_off_customer,
         }
 
 

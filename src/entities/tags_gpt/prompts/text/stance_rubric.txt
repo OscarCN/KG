@@ -1,18 +1,25 @@
-Una postura es una cualidad o comportamiento DURADERO que el público atribuye al cliente.
-Una postura válida cumple tres condiciones:
-- Reutilizable: puede aplicar a varios eventos futuros del cliente, no a un único incidente.
-- Nivel intermedio: específica como cualidad o comportamiento, no genérica ni atada a un detalle coyuntural.
-- Respaldada por evidencia: aparece en varias muestras o como patrón claro; no se basa en un solo comentario, sarcasmo, ironía o ruido.
+Una postura es una cualidad o comportamiento DURADERO que el público atribuye al cliente; sirve para agregar y rastrear la percepción a lo largo de muchos eventos.
 
-Malas posturas:
-- "la calle Juárez sigue rota" porque es específica de un incidente.
-- "la aseguradora ignoró la reclamación 123" porque es un caso individual.
-- "el ayuntamiento es malo" porque es demasiado vaga.
-- "lol qué desastre" porque es ruido o sarcasmo sin patrón.
+Una postura válida cumple las TRES condiciones siguientes:
+- Reutilizable: aplica razonablemente a varios eventos futuros del cliente; si solo describe un incidente o caso individual, NO es postura.
+- Nivel intermedio: específica como rasgo o comportamiento (no un genérico "es bueno"/"es malo"), pero general (no atada a un detalle coyuntural).
+- Respaldada por evidencia recurrente: aparece en varias muestras o como patrón claro; descarta sarcasmo aislado, ironía, trolling o un único comentario.
 
-Buenas posturas:
-- "el ayuntamiento es ineficiente"
-- "el ayuntamiento descuida la infraestructura"
-- "el alcalde es deshonesto"
-- "la aseguradora retrasa pagos"
-- "la empresa responde tarde a los reclamos"
+Tabla contrastante:
+
+  MALAS posturas                                  POR QUÉ
+  "la calle Juárez sigue rota"                    incidente puntual
+  "la aseguradora ignoró la reclamación 123"      caso individual
+  "el alcalde mintió sobre el metro"              evento concreto
+  "el ayuntamiento es malo"                       demasiado vaga
+  "lol qué desastre"                              ruido o sarcasmo
+
+  BUENAS posturas
+  "el ayuntamiento es ineficiente"
+  "el ayuntamiento descuida la infraestructura"
+  "el alcalde es deshonesto"
+  "la aseguradora retrasa pagos"
+  "la empresa responde tarde a los reclamos"
+  "el municipio es cercano a sus ciudadanos"
+
+Cubre tanto posturas positivas como negativas si el corpus las soporta; la percepción pública rara vez es uniforme.

@@ -63,6 +63,7 @@ class StreamingTagsPipeline:
         claim_tagger: ClaimTagger,
         claim_updater: ClaimUpdater,
         type_triage_step: TypeTriageStep | None = None,
+        triage_comment_batch_size: int = 12,
     ):
         self.state = state
         self.retriever = retriever
@@ -72,6 +73,7 @@ class StreamingTagsPipeline:
         self.claim_tagger = claim_tagger
         self.claim_updater = claim_updater
         self.type_triage_step = type_triage_step
+        self.triage_comment_batch_size = max(1, triage_comment_batch_size)
 
     def process_batch(self, batch: SourceBatch) -> ArticleProcessResult:
         bundle = self.retriever.get_article_bundle(batch.source_id)
@@ -82,7 +84,7 @@ class StreamingTagsPipeline:
 
         for event_id, event in self._unique_linked_events(result):
             if self.state.tagging_strategy == "two_pass":
-                stance_tagging, claim_tagging, triage_summary = self._tag_two_pass(event, bundle.items)
+                stance_tagging, claim_tagging, triage_summary = self._tag_two_pass(event, bundle)
                 result.summaries.append(triage_summary)
             else:
                 stance_tagging = self.stance_tagger.tag(event, bundle.items, self.state.stance_catalog)
@@ -110,10 +112,10 @@ class StreamingTagsPipeline:
 
         return result
 
-    def _tag_two_pass(self, event, items: list[SourceItem]) -> tuple[StanceTagging, ClaimTagging, StepSummary]:
+    def _tag_two_pass(self, event, bundle: ArticleBundle) -> tuple[StanceTagging, ClaimTagging, StepSummary]:
         if self.type_triage_step is None:
             raise ValueError("two_pass tagging requires a TypeTriageStep")
-        triage = self.type_triage_step.triage(event, items)
+        triage = self._triage_bundle(event, bundle)
         summary = self._triage_summary(triage)
         stance_tagging = self._tag_only_assignments(event.id, triage)
 
@@ -127,19 +129,57 @@ class StreamingTagsPipeline:
                 continue
             typed = self.stance_tagger.tag(
                 event,
-                items,
+                bundle.items,
                 self.state.stance_catalog,
                 stance_type=stance_type,
                 triage_hints=hints_by_type[stance_type],
             )
             self._extend_stance_tagging(stance_tagging, typed)
 
-        claim_tagging = ClaimTagging(
-            claims=list(triage.claims),
-            dropped_invalid=triage.dropped_claim_invalid,
-            dropped_off_customer=triage.dropped_off_customer,
-        )
+        claim_items = [item for item in bundle.items if item.kind in self.claim_tagger.source_kinds]
+        claim_tagging = self.claim_tagger.tag(event, claim_items)
         return stance_tagging, claim_tagging, summary
+
+    def _triage_bundle(self, event, bundle: ArticleBundle) -> TypeTriageResult:
+        results = [
+            self.type_triage_step.triage(event, items)
+            for items in self._triage_item_batches(bundle)
+        ]
+        merged = self._merge_triage_results(results)
+        merged.n_items_seen = len({item.id for item in bundle.items})
+        return merged
+
+    def _triage_item_batches(self, bundle: ArticleBundle) -> list[list[SourceItem]]:
+        context: list[SourceItem] = []
+        if bundle.article:
+            context.append(bundle.article)
+        context.extend(bundle.posts)
+
+        if not bundle.comments:
+            return [context] if context else []
+
+        batches: list[list[SourceItem]] = []
+        for start in range(0, len(bundle.comments), self.triage_comment_batch_size):
+            comment_chunk = bundle.comments[start:start + self.triage_comment_batch_size]
+            batches.append([*context, *comment_chunk] if context else list(comment_chunk))
+        return batches
+
+    @staticmethod
+    def _merge_triage_results(results: list[TypeTriageResult]) -> TypeTriageResult:
+        merged = TypeTriageResult()
+        seen_triage: set[tuple[str, str]] = set()
+
+        for result in results:
+            merged.dropped_invalid += result.dropped_invalid
+
+            for hint in result.triaged:
+                key = (hint.source_item_id, hint.stance_type)
+                if key in seen_triage:
+                    continue
+                seen_triage.add(key)
+                merged.triaged.append(hint)
+
+        return merged
 
     def _tag_only_assignments(self, event_id: str, triage: TypeTriageResult) -> StanceTagging:
         result = StanceTagging()
@@ -153,10 +193,9 @@ class StreamingTagsPipeline:
                     customer_id=self.state.stance_catalog.customer_id,
                     stance_id=None,
                     stance_type=hint.stance_type,
-                    sentiment=hint.sentiment,
                     consistency_relevance=hint.importance_hint,
                     event_id=event_id,
-                    reason=hint.brief_summary,
+                    reason="type_triage",
                 )
             )
             result.n_assignments_by_type[hint.stance_type] = (
@@ -181,9 +220,7 @@ class StreamingTagsPipeline:
         summary = StepSummary("type_triage")
         summary.inc("items_seen", triage.n_items_seen)
         summary.inc("ideas", len(triage.triaged))
-        summary.inc("claims", len(triage.claims))
         summary.inc("dropped_invalid", triage.dropped_invalid)
-        summary.inc("dropped_off_customer", triage.dropped_off_customer)
         for hint in triage.triaged:
             summary.inc(f"type_{hint.stance_type}")
         return summary
