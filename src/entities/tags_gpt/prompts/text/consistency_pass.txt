@@ -7,18 +7,18 @@ Tu salida NO se aplica directamente: pasa por el adjudicator/updater estándar a
 
 # Materiales que recibes
 
-- `$customer` — bloque JSON con la identidad y el contexto del cliente.
+- `$customer` — bloque JSON compacto con `name` y `description` del cliente.
 - `$stance_type_guide` — guía completa de los nueve `stance_type` y la forma esperada de cada uno.
 - `$stance_catalog` — lista JSON con las entradas vigentes: `id`, `label`, `description`, `primary_type` y, cuando estén disponibles, `n_assignments_estimate` y `created_at`.
-- `$assignment_samples` — muestra de `StanceAssignment` recientes (cada uno con `source_item_id`, `stance_type`, `stance_id` o null, `sentiment`, `consistency_relevance`, `reason`, `event_id`). Es la señal principal: te muestra cómo se está usando el catálogo en la práctica y dónde el streaming dejó null con relevancia alta o media.
-- `$item_samples` — los items fuente detrás de esas asignaciones, para que puedas releer la evidencia antes de proponer.
+- `$assignment_samples` — muestra compacta de asignaciones recientes (cada una con `source_item_id` local o null, `stance_type`, `stance_id` o null, `sentiment`, `consistency_relevance` y `reason`). Es la señal principal: te muestra cómo se está usando el catálogo en la práctica y dónde el streaming dejó null con relevancia alta o media.
+- `$item_samples` — los items fuente detrás de esas asignaciones, con ids enteros locales, para que puedas releer la evidencia antes de proponer.
 - `$claim_summaries` — señal AUXILIAR: actividad agregada de claims por evento (canónicos populares, importancia máxima). Sirve para detectar cualidades stance-worthy que se repiten y aún no son entradas; no la trates como evidencia directa de asignación.
 
 # Operaciones disponibles
 
 Tienes cinco operaciones a tu disposición. Cada una resuelve un problema distinto y debe usarse sólo cuando la evidencia en `$assignment_samples` y `$item_samples` la justifica.
 
-- `proposals.kind=add` — patrón recurrente que el streaming dejó pasar. Úsalo cuando varias asignaciones con `stance_id: null` y `consistency_relevance` alto o medio comparten una misma idea reusable. Sólo crea si el patrón cumple las tres condiciones del rubric: (i) reutilizable más allá de un evento puntual, (ii) intermedio entre lo demasiado genérico y lo anecdótico, (iii) evidencia recurrente en la muestra. Incluye `source_item_ids` con 2–5 muestras representativas que demuestren el patrón.
+- `proposals.kind=add` — patrón recurrente que el streaming dejó pasar. Úsalo cuando varias asignaciones con `stance_id: null` y `consistency_relevance` alto o medio comparten una misma idea reusable. Sólo crea si el patrón cumple las tres condiciones del rubric: (i) reutilizable más allá de un evento puntual, (ii) intermedio entre lo demasiado genérico y lo anecdótico, (iii) evidencia recurrente en la muestra. Incluye `source_item_ids` con 2–5 ids locales de muestras representativas que demuestren el patrón.
 - `proposals.kind=rename` — formulación obsoleta, ambigua o pobremente redactada de una entrada existente; mejórala sin cambiar lo que representa. Requiere `src_stance_id` y conserva el `stance_type` original. No lo uses para "afinar el alcance" de la entrada — eso es un cambio semántico, no cosmético.
 - `merge_pairs` — dos entradas describen la MISMA cualidad con palabras distintas. Preferentemente intra-type (mismo `primary_type`); cross-type sólo si una es claramente subsumida por la otra. Sé conservador: temas parecidos con cualidades distintas NO se fusionan. Ante la duda, no fusiones.
 - `retire_ids` — entrada obsoleta, sobre-específica (atada a un único evento concreto que ya no recurre) o duplicada y ya cubierta por otra. La entrada se marca como retirada: queda en historia para no romper trazabilidad, pero deja de tagearse en lo nuevo.
@@ -95,7 +95,7 @@ Responde EXCLUSIVAMENTE con JSON válido respetando esta forma exacta. Las cuatr
 
 {
   "proposals": [
-    {"kind": "add", "stance_type": "complaint", "label": "...", "description": "...", "source_item_ids": ["..."]},
+    {"kind": "add", "stance_type": "complaint", "label": "...", "description": "...", "source_item_ids": [1, 2]},
     {"kind": "rename", "stance_type": "entity_stance", "src_stance_id": "...", "label": "...", "description": "..."}
   ],
   "merge_pairs": [

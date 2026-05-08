@@ -8,16 +8,18 @@ $stance_type_guide
 Cliente:
 $customer
 
-Evento (úsalo como FILTRO de relevancia, no como alcance del catálogo; el catálogo vive a nivel cliente y debe ser reutilizable entre eventos):
+Evento (sólo descripción; úsalo como FILTRO de relevancia, no como alcance del catálogo; el catálogo vive a nivel cliente y debe ser reutilizable entre eventos):
 $event
 
 Catálogo actual de posturas de tipo $type_label (puede venir vacío []):
 $stance_catalog
 
-Hints de triage ya enrutados a $type_label (cada uno trae source_item_id, brief_summary, sentiment e importance_hint; estos son los items candidatos a recibir assignment en este paso):
+Hints de triage ya enrutados a $type_label (cada `source_item_id` es un entero local de esta llamada; sólo estos items son candidatos a recibir assignment en este paso):
 $triage_hints
 
-Items completos del lote (lee el texto original cuando lo necesites para confirmar la idea):
+$candidate_rule
+
+Items del lote (cada `id` es un entero local de esta llamada; pueden incluir contexto no candidato, como el post original que acompaña comentarios):
 $items
 
 Orden de lectura sugerido: cliente -> evento como filtro -> catálogo del tipo -> hints de triage -> items.
@@ -29,7 +31,9 @@ Decisión por cada hint de triage:
 4. Un mismo source_item puede recibir varias assignments en otras pasadas (otro stance_type), pero aquí solo emites las de $type_label.
 
 Reglas operativas:
-- Emite cero, una o más assignments por item, todas con stance_type = $type_label.
+- Emite cero, una o más assignments por item candidato, todas con stance_type = $type_label.
+- Devuelve `source_item_id` usando el entero local de Items/Hints; no inventes ids.
+- Si un item aparece en Items pero no en Hints, úsalo sólo como contexto y no le emitas assignment.
 - Solo usa stance_id que aparezcan en $stance_catalog; nunca inventes ids.
 - Las ideas nuevas viven en proposals, no como ids inventados en assignments.
 - No propongas duplicados de algo que el catálogo ya cubre con otra formulación.
@@ -53,10 +57,10 @@ Ejemplo contrastivo (tipo activo = complaint):
 Responde EXCLUSIVAMENTE con JSON válido y con esta forma exacta:
 {
   "assignments": [
-    {"source_item_id": "...", "stance_type": "$type_example", "stance_id": "...|null", "sentiment": "positive|negative|neutral", "reason": "..."}
+    {"source_item_id": 1, "stance_type": "$type_example", "stance_id": "...|null", "sentiment": "positive|negative|neutral", "reason": "..."}
   ],
   "proposals": [
-    {"kind": "add", "stance_type": "$type_example", "label": "...", "description": "...", "source_item_ids": ["..."]},
+    {"kind": "add", "stance_type": "$type_example", "label": "...", "description": "...", "source_item_ids": [1]},
     {"kind": "rename", "stance_type": "$type_example", "src_stance_id": "...", "label": "...", "description": "..."}
   ]
 }

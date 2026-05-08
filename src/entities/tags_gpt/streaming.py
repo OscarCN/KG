@@ -127,14 +127,15 @@ class StreamingTagsPipeline:
         for stance_type in STANCE_TYPES:
             if stance_type not in hints_by_type:
                 continue
-            typed = self.stance_tagger.tag(
-                event,
-                bundle.items,
-                self.state.stance_catalog,
-                stance_type=stance_type,
-                triage_hints=hints_by_type[stance_type],
-            )
-            self._extend_stance_tagging(stance_tagging, typed)
+            for items, hint_batch in self._stance_tag_batches(bundle, hints_by_type[stance_type]):
+                typed = self.stance_tagger.tag(
+                    event,
+                    items,
+                    self.state.stance_catalog,
+                    stance_type=stance_type,
+                    triage_hints=hint_batch,
+                )
+                self._extend_stance_tagging(stance_tagging, typed)
 
         claim_items = [item for item in bundle.items if item.kind in self.claim_tagger.source_kinds]
         claim_tagging = self.claim_tagger.tag(event, claim_items)
@@ -162,6 +163,45 @@ class StreamingTagsPipeline:
         for start in range(0, len(bundle.comments), self.triage_comment_batch_size):
             comment_chunk = bundle.comments[start:start + self.triage_comment_batch_size]
             batches.append([*context, *comment_chunk] if context else list(comment_chunk))
+        return batches
+
+    def _stance_tag_batches(
+        self,
+        bundle: ArticleBundle,
+        hints: list[TypeTriageItem],
+    ) -> list[tuple[list[SourceItem], list[TypeTriageItem]]]:
+        context: list[SourceItem] = []
+        if bundle.article:
+            context.append(bundle.article)
+        context.extend(bundle.posts)
+        context_ids = {item.id for item in context}
+
+        batches: list[tuple[list[SourceItem], list[TypeTriageItem]]] = []
+        context_hints = [hint for hint in hints if hint.source_item_id in context_ids]
+        if context_hints and context:
+            batches.append((list(context), context_hints))
+
+        comment_hint_ids = {
+            hint.source_item_id
+            for hint in hints
+            if hint.source_item_id not in context_ids
+        }
+        hinted_comments = [
+            item
+            for item in bundle.comments
+            if item.id in comment_hint_ids
+        ]
+        hint_by_item_id = {hint.source_item_id: hint for hint in hints}
+        for start in range(0, len(hinted_comments), self.triage_comment_batch_size):
+            comment_chunk = hinted_comments[start:start + self.triage_comment_batch_size]
+            chunk_hints = [
+                hint_by_item_id[item.id]
+                for item in comment_chunk
+                if item.id in hint_by_item_id
+            ]
+            if chunk_hints:
+                batches.append(([*context, *comment_chunk] if context else comment_chunk, chunk_hints))
+
         return batches
 
     @staticmethod

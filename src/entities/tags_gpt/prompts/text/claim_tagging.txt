@@ -21,7 +21,7 @@ Decisión por cada Item (en este orden):
 Un Item puede generar varias claims si contiene aseveraciones fácticas distintas; usa el mismo `source_item_id` en cada una.
 
 Reglas de campo:
-- `source_item_id`: cópialo tal cual desde Items.
+- `source_item_id`: usa el entero local del Item.
 - `verbatim`: una frase CONTIGUA citada literalmente desde el `text` del Item. No parafrasees, no fusiones oraciones, no agregues elipsis.
 - `importance` ∈ {1, 2, 3}:
   · 1 = baja: dato fáctico menor o periférico para el cliente.
@@ -31,8 +31,8 @@ Reglas de campo:
 
 Ejemplos contrastantes (entity_id del cliente = 123):
 
-Item article: "El ayuntamiento de Tlalnepantla anunció ayer el cierre de la avenida López Mateos por obras de drenaje hasta el 15 de mayo." → INCLUIR
-{ "source_item_id": "a1", "affected_entity_ids": [123], "verbatim": "el cierre de la avenida López Mateos por obras de drenaje hasta el 15 de mayo", "importance": 2, "importance_reason": "Afecta movilidad en zona operativa del cliente durante una semana." }
+Item 1 article: "El ayuntamiento de Tlalnepantla anunció ayer el cierre de la avenida López Mateos por obras de drenaje hasta el 15 de mayo." → INCLUIR
+{ "source_item_id": 1, "affected_entity_ids": [123], "verbatim": "el cierre de la avenida López Mateos por obras de drenaje hasta el 15 de mayo", "importance": 2, "importance_reason": "Afecta movilidad en zona operativa del cliente durante una semana." }
 
 Item user_comment: "Creo que el alcalde es un sinvergüenza y nunca hace nada." → DESCARTAR (opinión, sin hecho concreto).
 
@@ -44,7 +44,7 @@ Responde EXCLUSIVAMENTE con JSON válido con esta forma:
 {
   "claims": [
     {
-      "source_item_id": "...",
+      "source_item_id": 1,
       "affected_entity_ids": [123],
       "verbatim": "...",
       "importance": 2,

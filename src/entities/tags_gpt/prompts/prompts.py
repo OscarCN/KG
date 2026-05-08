@@ -47,6 +47,33 @@ def customer_block(customer: Customer) -> str:
     )
 
 
+def compact_customer_payload(
+    customer: Customer,
+    *,
+    include_entity_id: bool = False,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "name": customer.name,
+        "description": customer.description,
+    }
+    if include_entity_id:
+        payload = {"entity_id": customer.entity_id, **payload}
+    return payload
+
+
+def compact_customer_block(
+    customer: Customer,
+    *,
+    include_entity_id: bool = False,
+) -> str:
+    return json.dumps(
+        compact_customer_payload(customer, include_entity_id=include_entity_id),
+        ensure_ascii=False,
+        indent=2,
+        default=json_default,
+    )
+
+
 def event_block(event: LinkedEvent) -> str:
     return json.dumps(
         {
@@ -58,6 +85,21 @@ def event_block(event: LinkedEvent) -> str:
             "location": event.location,
             "source_ids": event.source_ids,
         },
+        ensure_ascii=False,
+        indent=2,
+        default=json_default,
+    )
+
+
+def compact_event_payload(event: LinkedEvent) -> dict[str, Any]:
+    return {
+        "description": event.description,
+    }
+
+
+def compact_event_block(event: LinkedEvent) -> str:
+    return json.dumps(
+        compact_event_payload(event),
         ensure_ascii=False,
         indent=2,
         default=json_default,
@@ -79,42 +121,46 @@ def items_block(items: list[SourceItem], *, text_limit: int = 1200) -> str:
     return json.dumps(payload, ensure_ascii=False, indent=2, default=json_default)
 
 
-def triage_customer_block(customer: Customer) -> str:
-    return json.dumps(
-        {
-            "name": customer.name,
-            "description": customer.description,
-        },
-        ensure_ascii=False,
-        indent=2,
-        default=json_default,
-    )
-
-
-def triage_event_block(event: LinkedEvent) -> str:
-    return json.dumps(
-        {
-            "description": event.description,
-        },
-        ensure_ascii=False,
-        indent=2,
-        default=json_default,
-    )
-
-
-def triage_items_block(items: list[dict[str, Any]] | list[SourceItem]) -> str:
+def compact_items_payload(
+    items: list[dict[str, Any]] | list[SourceItem],
+    *,
+    text_limit: int = 1200,
+) -> list[dict[str, Any]] | list[SourceItem]:
     if items and isinstance(items[0], SourceItem):
-        payload = [
+        return [
             {
                 "id": index,
                 "kind": item.kind,
-                "text": item.short_text(),
+                "text": item.short_text(text_limit),
             }
             for index, item in enumerate(items, start=1)
         ]
-    else:
-        payload = items
-    return json.dumps(payload, ensure_ascii=False, indent=2, default=json_default)
+    return items
+
+
+def compact_items_block(
+    items: list[dict[str, Any]] | list[SourceItem],
+    *,
+    text_limit: int = 1200,
+) -> str:
+    return json.dumps(
+        compact_items_payload(items, text_limit=text_limit),
+        ensure_ascii=False,
+        indent=2,
+        default=json_default,
+    )
+
+
+def triage_customer_block(customer: Customer) -> str:
+    return compact_customer_block(customer)
+
+
+def triage_event_block(event: LinkedEvent) -> str:
+    return compact_event_block(event)
+
+
+def triage_items_block(items: list[dict[str, Any]] | list[SourceItem]) -> str:
+    return compact_items_block(items)
 
 
 def stance_catalog_block(entries: list[dict[str, Any]]) -> str:
@@ -195,13 +241,16 @@ CLAIM_EXTRACTION_RULES = _claim_extraction_rules(include_comments=False)
 CLAIM_CLUSTER_RULES = _text("claim_cluster_rules.txt")
 
 
-def bootstrap_prompt(customer: Customer, items: list[SourceItem]) -> str:
+def bootstrap_prompt(
+    customer: Customer,
+    items: list[dict[str, Any]] | list[SourceItem],
+) -> str:
     return _render(
         "bootstrap.txt",
         stance_rubric=STANCE_RUBRIC,
         stance_format_rules=STANCE_FORMAT_RULES,
-        customer=customer_block(customer),
-        items=items_block(items, text_limit=700),
+        customer=compact_customer_block(customer),
+        items=compact_items_block(items, text_limit=700),
     )
 
 
@@ -223,14 +272,22 @@ def type_triage_prompt(
 def stance_tagging_prompt(
     customer: Customer,
     event: LinkedEvent,
-    items: list[SourceItem],
+    items: list[dict[str, Any]] | list[SourceItem],
     stance_catalog: list[dict[str, Any]],
     *,
     stance_type: StanceType | None = None,
-    triage_hints: list[TypeTriageItem] | None = None,
+    triage_hints: list[TypeTriageItem] | list[dict[str, Any]] | None = None,
     allow_add_proposals: bool = True,
 ) -> str:
-    hints = [hint.to_dict() for hint in triage_hints or []]
+    candidate_rule = (
+        "Sólo los items listados en Hints son candidatos a recibir assignment."
+        if triage_hints is not None
+        else "No hay hints de triage en esta llamada; todos los Items son candidatos."
+    )
+    hints = [
+        hint.to_dict() if isinstance(hint, TypeTriageItem) else hint
+        for hint in triage_hints or []
+    ]
     type_label = stance_type or "todas"
     type_example = stance_type or "entity_stance|complaint|gratefulness|suggestion|request|denuncia|question|endorsement|noise"
     proposal_rule = (
@@ -243,11 +300,12 @@ def stance_tagging_prompt(
         type_label=type_label,
         type_example=type_example,
         stance_type_guide=stance_type_guide(stance_type),
-        customer=customer_block(customer),
-        event=event_block(event),
+        customer=compact_customer_block(customer),
+        event=compact_event_block(event),
         stance_catalog=stance_catalog_block(stance_catalog),
         triage_hints=json.dumps(hints, ensure_ascii=False, indent=2, default=json_default),
-        items=items_block(items),
+        candidate_rule=candidate_rule,
+        items=compact_items_block(items),
         proposal_rule=proposal_rule,
         stance_format_rules=STANCE_FORMAT_RULES,
     )
@@ -257,17 +315,17 @@ def stance_update_prompt(
     customer: Customer,
     stance_catalog: list[dict[str, Any]],
     proposals: list[dict[str, Any]],
-    sample_items: list[SourceItem],
+    sample_items: list[dict[str, Any]] | list[SourceItem],
 ) -> str:
     return _render(
         "stance_update.txt",
         stance_rubric=STANCE_RUBRIC,
         stance_type_guide=stance_type_guide(),
         stance_format_rules=STANCE_FORMAT_RULES,
-        customer=customer_block(customer),
+        customer=compact_customer_block(customer),
         stance_catalog=stance_catalog_block(stance_catalog),
         proposals=indexed_block(proposals, "proposal_index"),
-        sample_items=items_block(sample_items, text_limit=700),
+        sample_items=compact_items_block(sample_items, text_limit=700),
     )
 
 
@@ -280,7 +338,7 @@ def consistency_pass_prompt(
 ) -> str:
     return _render(
         "consistency_pass.txt",
-        customer=customer_block(customer),
+        customer=compact_customer_block(customer),
         stance_type_guide=stance_type_guide(),
         stance_catalog=stance_catalog_block(stance_catalog),
         assignment_samples=json.dumps(
@@ -296,7 +354,7 @@ def consistency_pass_prompt(
 def claim_tagging_prompt(
     customer: Customer,
     event: LinkedEvent,
-    items: list[SourceItem],
+    items: list[dict[str, Any]] | list[SourceItem],
     *,
     include_comments: bool = False,
 ) -> str:
@@ -309,9 +367,9 @@ def claim_tagging_prompt(
     return _render(
         "claim_tagging.txt",
         claim_extraction_rules=_claim_extraction_rules(include_comments),
-        customer=customer_block(customer),
-        event=event_block(event),
-        items=items_block(items),
+        customer=compact_customer_block(customer, include_entity_id=True),
+        event=compact_event_block(event),
+        items=compact_items_block(items),
         items_rule=items_rule,
     )
 
@@ -325,8 +383,8 @@ def claim_update_prompt(
     return _render(
         "claim_update.txt",
         claim_cluster_rules=CLAIM_CLUSTER_RULES,
-        customer=customer_block(customer),
-        event=event_block(event),
+        customer=compact_customer_block(customer),
+        event=compact_event_block(event),
         clusters=claim_catalog_block(clusters),
         claims=indexed_block(claims, "claim_index"),
     )

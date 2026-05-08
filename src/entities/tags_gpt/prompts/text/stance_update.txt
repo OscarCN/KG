@@ -124,16 +124,16 @@ No aceptes un duplicado pudiendo generalizarlo. No rechaces una propuesta valios
 6. ENTRADAS
 ═══════════════════════════════════════════════════════════
 
-CONTEXTO DEL CLIENTE:
+CONTEXTO DEL CLIENTE (sólo `name` y `description`):
 $customer
 
 CATÁLOGO ACTUAL (cada entrada con `id`, `label`, `description`, `primary_type` y, cuando exista, `n_assignments_estimate`):
 $stance_catalog
 
-PROPUESTAS A ADJUDICAR (cada una con `proposal_index` de base cero, `kind` ∈ {add, rename}, `stance_type`, `label`, `description`; las de tipo `rename` incluyen además `src_stance_id`; algunas traen `source_item_ids` que apuntan a las muestras):
+PROPUESTAS A ADJUDICAR (cada una con `proposal_index` de base cero, `kind` ∈ {add, rename}, `stance_type`, `label`, `description`; las de tipo `rename` incluyen además `src_stance_id`; algunas traen `source_item_ids` con ids locales que apuntan a las muestras):
 $proposals
 
-MUESTRAS DE FUENTES QUE GENERARON LAS PROPUESTAS (úsalas para juzgar evidencia y patrón recurrente):
+MUESTRAS DE FUENTES QUE GENERARON LAS PROPUESTAS (cada `id` es un entero local de esta llamada; úsalas para juzgar evidencia y patrón recurrente):
 $sample_items
 
 ═══════════════════════════════════════════════════════════

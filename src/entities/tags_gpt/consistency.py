@@ -51,27 +51,31 @@ class ConsistencyPassStep:
     ) -> ConsistencyPassResult:
         started_at = now_iso()
         sampled = sample or self._sample(catalog.assignments)
-        item_samples = self._item_samples(sampled, items_seen)
+        assignment_samples, item_samples, local_item_by_id = self._compact_samples(sampled, items_seen)
+        claim_summaries = self._claim_summaries(claim_catalogs)
         response = self.llm.complete_json(
             phase="stance_consistency",
             payload={
-                "customer_id": self.customer.entity_id,
+                "customer": {
+                    "name": self.customer.name,
+                    "description": self.customer.description,
+                },
                 "catalog": catalog.snapshot(),
-                "assignments": [assignment.to_dict() for assignment in sampled],
+                "assignments": assignment_samples,
                 "items": item_samples,
-                "claims": self._claim_summaries(claim_catalogs),
+                "claims": claim_summaries,
             },
             prompt=consistency_pass_prompt(
                 self.customer,
                 catalog.snapshot(),
-                [assignment.to_dict() for assignment in sampled],
+                assignment_samples,
                 item_samples,
-                self._claim_summaries(claim_catalogs),
+                claim_summaries,
             ),
             model=self.model,
         )
 
-        proposals = self._parse_proposals(response.get("proposals") or [])
+        proposals = self._parse_proposals(response.get("proposals") or [], local_item_by_id)
         tagging = StanceTagging(proposals=proposals)
         sampled_item_ids = {assignment.source_item_id for assignment in sampled}
         summary = self.stance_updater.update(
@@ -129,21 +133,49 @@ class ConsistencyPassStep:
         return sampled
 
     @staticmethod
-    def _item_samples(assignments: list[StanceAssignment], items_seen: dict[str, SourceItem]) -> list[dict]:
+    def _compact_samples(
+        assignments: list[StanceAssignment],
+        items_seen: dict[str, SourceItem],
+    ) -> tuple[list[dict], list[dict], dict[str, SourceItem]]:
         item_ids = []
         for assignment in assignments:
             if assignment.source_item_id not in item_ids:
                 item_ids.append(assignment.source_item_id)
-        return [
+        item_samples: list[dict] = []
+        local_item_by_id: dict[str, SourceItem] = {}
+        local_id_by_source_id: dict[str, str] = {}
+        for source_item_id in item_ids:
+            item = items_seen.get(source_item_id)
+            if item is None:
+                continue
+            local_id = str(len(item_samples) + 1)
+            local_item_by_id[local_id] = item
+            local_id_by_source_id[item.id] = local_id
+            item_samples.append(
+                {
+                    "id": int(local_id),
+                    "kind": item.kind,
+                    "text": item.short_text(700),
+                }
+            )
+
+        assignment_samples = [
             {
-                "id": item.id,
-                "kind": item.kind,
-                "text": item.short_text(700),
-                "created_at": item.created_at,
+                "source_item_id": (
+                    int(local_id)
+                    if (local_id := local_id_by_source_id.get(assignment.source_item_id)) is not None
+                    else None
+                ),
+                "source_kind": assignment.source_kind,
+                "stance_type": assignment.stance_type,
+                "stance_id": assignment.stance_id,
+                "sentiment": assignment.sentiment,
+                "consistency_relevance": assignment.consistency_relevance,
+                "reason": assignment.reason,
             }
-            for item_id in item_ids
-            if (item := items_seen.get(item_id)) is not None
+            for assignment in assignments
         ]
+        return assignment_samples, item_samples, local_item_by_id
 
     @staticmethod
     def _claim_summaries(claim_catalogs: Optional[ClaimCatalogStore]) -> list[dict]:
@@ -154,8 +186,6 @@ class ConsistencyPassStep:
             for cluster in catalog.clusters.values():
                 out.append(
                     {
-                        "event_id": catalog.event_id,
-                        "cluster_id": cluster.id,
                         "canonical": cluster.canonical,
                         "n_members": len(cluster.members),
                         "importance_max": cluster.importance_max,
@@ -164,7 +194,10 @@ class ConsistencyPassStep:
         return out
 
     @staticmethod
-    def _parse_proposals(rows: list) -> list[StanceProposal]:
+    def _parse_proposals(
+        rows: list,
+        local_item_by_id: dict[str, SourceItem],
+    ) -> list[StanceProposal]:
         proposals: list[StanceProposal] = []
         for raw in rows:
             if not isinstance(raw, dict):
@@ -185,7 +218,11 @@ class ConsistencyPassStep:
                     label=label,
                     description=str(raw.get("description") or "").strip(),
                     stance_type=stance_type,
-                    source_item_ids=[str(x) for x in raw.get("source_item_ids") or []],
+                    source_item_ids=[
+                        item.id
+                        for value in raw.get("source_item_ids") or []
+                        if (item := local_item_by_id.get(_local_id(value))) is not None
+                    ],
                     src_stance_id=raw.get("src_stance_id"),
                 )
             )
@@ -211,3 +248,9 @@ class ConsistencyPassStep:
             if stance_id:
                 out.append(stance_id)
         return out
+
+
+def _local_id(value) -> str:
+    if value is None:
+        return ""
+    return str(value).strip()

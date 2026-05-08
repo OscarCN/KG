@@ -48,7 +48,7 @@ Recorre las muestras siguiendo este proceso:
 4. Descarta los grupos con una sola muestra aislada o atados a un único evento — todavía no constituyen una postura recurrente.
 5. Cubre TANTO posturas positivas como negativas si el corpus las tiene. La percepción pública rara vez es uniformemente negativa; un buen catálogo refleja esa diversidad.
 
-Usa el bloque `filter_context` del cliente para entender qué contenido se considera relevante: te ayuda a interpretar muestras ambiguas y a descartar las que no apuntan al cliente.
+Usa el nombre y descripción del cliente para entender qué contenido se considera relevante: te ayuda a interpretar muestras ambiguas y a descartar las que no apuntan al cliente.
 
 ═══════════════════════════════════════════════════════════
 4. CALIDAD Y TAMAÑO DEL CATÁLOGO
@@ -67,10 +67,10 @@ Reglas adicionales para el bootstrap:
 5. ENTRADAS
 ═══════════════════════════════════════════════════════════
 
-CLIENTE (incluye entity_id, name, description, aliases, types y filter_context con el criterio de relevancia):
+CLIENTE (sólo `name` y `description`):
 $customer
 
-CORPUS (mezcla de artículos, publicaciones y comentarios; úsalo como única fuente de evidencia para identificar posturas recurrentes):
+CORPUS (mezcla de artículos, publicaciones y comentarios; cada `id` es un entero local de esta llamada; úsalo como única fuente de evidencia para identificar posturas recurrentes):
 $items
 
 ═══════════════════════════════════════════════════════════

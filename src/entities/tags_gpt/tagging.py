@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from typing import Optional
+from typing import Any, Optional
 
 from src.entities.tags_gpt.catalogs import ClaimCatalog, ClaimCatalogStore, StanceCatalog
 from src.entities.tags_gpt.llm import JsonLlm
@@ -53,6 +53,70 @@ def claim_source_kinds(include_comments: bool = False) -> set[str]:
     return CLAIM_SOURCE_KINDS_WITH_COMMENTS if include_comments else CLAIM_SOURCE_KINDS
 
 
+def _local_item_payload(
+    items: list[SourceItem],
+    *,
+    text_limit: int = 1200,
+) -> tuple[list[dict[str, Any]], dict[str, SourceItem], dict[str, str]]:
+    local_items: list[dict[str, Any]] = []
+    local_item_by_id: dict[str, SourceItem] = {}
+    local_id_by_source_id: dict[str, str] = {}
+    for index, item in enumerate(items, start=1):
+        local_id = str(index)
+        local_item_by_id[local_id] = item
+        local_id_by_source_id[item.id] = local_id
+        local_items.append(
+            {
+                "id": index,
+                "kind": item.kind,
+                "text": item.short_text(text_limit),
+            }
+        )
+    return local_items, local_item_by_id, local_id_by_source_id
+
+
+def _local_triage_hints(
+    hints: list[TypeTriageItem],
+    local_id_by_source_id: dict[str, str],
+) -> list[dict[str, Any]]:
+    local_hints: list[dict[str, Any]] = []
+    for hint in hints:
+        local_id = local_id_by_source_id.get(hint.source_item_id)
+        if local_id is None:
+            continue
+        local_hints.append(
+            {
+                "source_item_id": int(local_id),
+                "stance_type": hint.stance_type,
+                "importance_hint": hint.importance_hint,
+            }
+        )
+    return local_hints
+
+
+def _local_stance_proposals(
+    proposals: list[StanceProposal],
+    local_id_by_source_id: dict[str, str],
+) -> list[dict[str, Any]]:
+    payload: list[dict[str, Any]] = []
+    for proposal in proposals:
+        item = {
+            "kind": proposal.kind,
+            "label": proposal.label,
+            "description": proposal.description,
+            "stance_type": proposal.stance_type,
+            "source_item_ids": [
+                int(local_id)
+                for source_id in proposal.source_item_ids
+                if (local_id := local_id_by_source_id.get(source_id)) is not None
+            ],
+        }
+        if proposal.src_stance_id:
+            item["src_stance_id"] = proposal.src_stance_id
+        payload.append(item)
+    return payload
+
+
 class TypeTriageStep:
     def __init__(
         self,
@@ -71,7 +135,7 @@ class TypeTriageStep:
     def triage(self, event: LinkedEvent, items: list[SourceItem]) -> TypeTriageResult:
         if not items:
             return TypeTriageResult(n_items_seen=0)
-        local_items, local_item_by_id = self._local_items(items)
+        local_items, local_item_by_id, _ = _local_item_payload(items)
         payload = {
             "customer": {
                 "name": self.customer.name,
@@ -93,22 +157,6 @@ class TypeTriageStep:
             model=self.model,
         )
         return self._parse_response(local_item_by_id, response)
-
-    @staticmethod
-    def _local_items(items: list[SourceItem]) -> tuple[list[dict], dict[str, SourceItem]]:
-        local_items: list[dict] = []
-        local_item_by_id: dict[str, SourceItem] = {}
-        for index, item in enumerate(items, start=1):
-            local_id = str(index)
-            local_item_by_id[local_id] = item
-            local_items.append(
-                {
-                    "id": index,
-                    "kind": item.kind,
-                    "text": item.short_text(),
-                }
-            )
-        return local_items, local_item_by_id
 
     def _parse_response(
         self,
@@ -165,11 +213,23 @@ class StanceTagger:
         stance_type: Optional[StanceType] = None,
         triage_hints: Optional[list[TypeTriageItem]] = None,
     ) -> StanceTagging:
-        if triage_hints is not None:
-            hint_item_ids = {hint.source_item_id for hint in triage_hints}
-            items = [item for item in items if item.id in hint_item_ids]
         if not items:
             return StanceTagging()
+        if triage_hints is not None:
+            candidate_item_ids = {hint.source_item_id for hint in triage_hints}
+        else:
+            candidate_item_ids = {item.id for item in items}
+        if not candidate_item_ids:
+            return StanceTagging()
+        local_items, local_item_by_id, local_id_by_source_id = _local_item_payload(items)
+        candidate_local_item_by_id = {
+            local_id: item
+            for local_id, item in local_item_by_id.items()
+            if item.id in candidate_item_ids
+        }
+        if not candidate_local_item_by_id:
+            return StanceTagging()
+        local_hints = _local_triage_hints(triage_hints or [], local_id_by_source_id)
         catalog_snapshot = (
             catalog.snapshot(types={stance_type})
             if stance_type in STANCE_BEARING_TYPES
@@ -177,13 +237,18 @@ class StanceTagger:
         )
         allow_add_proposals = stance_type in STREAMING_GROWABLE_TYPES if stance_type else True
         payload = {
-            "customer_id": self.customer.entity_id,
-            "event_id": event.id,
+            "customer": {
+                "name": self.customer.name,
+                "description": self.customer.description,
+            },
+            "event": {
+                "description": event.description,
+            },
             "stance_type": stance_type,
             "catalog": catalog_snapshot,
-            "triage_hints": [hint.to_dict() for hint in triage_hints or []],
+            "triage_hints": local_hints,
             "allow_add_proposals": allow_add_proposals,
-            "items": [{"id": item.id, "kind": item.kind, "text": item.short_text()} for item in items],
+            "items": local_items,
         }
         response = self.llm.complete_json(
             phase="stance_tagging",
@@ -191,31 +256,38 @@ class StanceTagger:
             prompt=stance_tagging_prompt(
                 self.customer,
                 event,
-                items,
+                local_items,
                 catalog_snapshot,
                 stance_type=stance_type,
-                triage_hints=triage_hints,
+                triage_hints=local_hints if triage_hints is not None else None,
                 allow_add_proposals=allow_add_proposals,
             ),
             model=self.model,
         )
-        return self._parse_response(event.id, items, catalog, response, stance_type=stance_type)
+        return self._parse_response(
+            event.id,
+            candidate_local_item_by_id,
+            local_item_by_id,
+            catalog,
+            response,
+            stance_type=stance_type,
+        )
 
     def _parse_response(
         self,
         event_id: str,
-        items: list[SourceItem],
+        candidate_local_item_by_id: dict[str, SourceItem],
+        local_item_by_id: dict[str, SourceItem],
         catalog: StanceCatalog,
         response: dict,
         *,
         stance_type: Optional[StanceType] = None,
     ) -> StanceTagging:
-        item_kind = {item.id: item.kind for item in items}
         result = StanceTagging()
         for raw in response.get("assignments") or []:
-            source_item_id = str(raw.get("source_item_id") or "")
+            item = candidate_local_item_by_id.get(_local_id(raw.get("source_item_id")))
             raw_stance_type = _stance_type(raw.get("stance_type")) or stance_type or "entity_stance"
-            if source_item_id not in item_kind:
+            if item is None:
                 result.dropped_assignments += 1
                 continue
             if stance_type and raw_stance_type != stance_type:
@@ -232,8 +304,8 @@ class StanceTagger:
                     continue
             result.assignments.append(
                 StanceAssignment(
-                    source_item_id=source_item_id,
-                    source_kind=item_kind[source_item_id],
+                    source_item_id=item.id,
+                    source_kind=item.kind,
                     customer_id=self.customer.entity_id,
                     stance_id=stance_id,
                     stance_type=raw_stance_type,
@@ -263,7 +335,11 @@ class StanceTagger:
                     label=label,
                     description=str(raw.get("description") or "").strip(),
                     stance_type=proposal_type,
-                    source_item_ids=[str(x) for x in raw.get("source_item_ids") or []],
+                    source_item_ids=[
+                        item.id
+                        for value in raw.get("source_item_ids") or []
+                        if (item := local_item_by_id.get(_local_id(value))) is not None
+                    ],
                     src_stance_id=raw.get("src_stance_id"),
                 )
             )
@@ -272,7 +348,8 @@ class StanceTagger:
             for assignment in result.assignments
             if assignment.stance_id is not None
         }
-        result.n_items_tagged_no_stance = len(set(item_kind) - assigned_item_ids)
+        candidate_item_ids = {item.id for item in candidate_local_item_by_id.values()}
+        result.n_items_tagged_no_stance = len(candidate_item_ids - assigned_item_ids)
         return result
 
 
@@ -319,10 +396,19 @@ class StanceUpdater:
             return []
         if self.llm is None:
             return [StanceDecision(i, "accept") for i, _ in enumerate(proposals)]
+        local_sample_items, _, local_id_by_source_id = _local_item_payload(
+            sample_items,
+            text_limit=700,
+        )
+        proposals_payload = _local_stance_proposals(proposals, local_id_by_source_id)
         payload = {
-            "customer_id": self.customer.entity_id,
+            "customer": {
+                "name": self.customer.name,
+                "description": self.customer.description,
+            },
             "catalog": catalog.snapshot(),
-            "proposals": [proposal.__dict__ for proposal in proposals],
+            "proposals": proposals_payload,
+            "sample_items": local_sample_items,
         }
         response = self.llm.complete_json(
             phase="stance_update",
@@ -330,8 +416,8 @@ class StanceUpdater:
             prompt=stance_update_prompt(
                 self.customer,
                 catalog.snapshot(),
-                [proposal.__dict__ for proposal in proposals],
-                sample_items,
+                proposals_payload,
+                local_sample_items,
             ),
             model=self.model,
         )
@@ -434,27 +520,39 @@ class ClaimTagger:
         items = [item for item in items if item.kind in self.source_kinds]
         if not items:
             return ClaimTagging()
+        local_items, local_item_by_id, _ = _local_item_payload(items)
         payload = {
-            "customer_id": self.customer.entity_id,
-            "event_id": event.id,
+            "customer": {
+                "entity_id": self.customer.entity_id,
+                "name": self.customer.name,
+                "description": self.customer.description,
+            },
+            "event": {
+                "description": event.description,
+            },
             "include_comments": self.include_comments,
-            "items": [{"id": item.id, "kind": item.kind, "text": item.short_text()} for item in items],
+            "items": local_items,
         }
         response = self.llm.complete_json(
             phase="claim_tagging",
             payload=payload,
             prompt=claim_tagging_prompt(
-                self.customer, event, items, include_comments=self.include_comments,
+                self.customer, event, local_items, include_comments=self.include_comments,
             ),
             model=self.model,
         )
-        return self._parse_response(event.id, items, response)
+        return self._parse_response(event.id, local_item_by_id, response)
 
-    def _parse_response(self, event_id: str, items: list[SourceItem], response: dict) -> ClaimTagging:
+    def _parse_response(
+        self,
+        event_id: str,
+        local_item_by_id: dict[str, SourceItem],
+        response: dict,
+    ) -> ClaimTagging:
         claims, dropped_invalid, dropped_off_customer = _parse_claim_rows(
             customer_id=self.customer.entity_id,
             event_id=event_id,
-            items=items,
+            local_item_by_id=local_item_by_id,
             source_kinds=self.source_kinds,
             rows=response.get("claims") or [],
         )
@@ -531,12 +629,31 @@ class ClaimUpdater:
             }
             for cluster in catalog.clusters.values()
         ]
-        claims_payload = [claim.to_dict() for claim in claims]
+        local_id_by_source_id: dict[str, int] = {}
+        for claim in claims:
+            if claim.source_item_id not in local_id_by_source_id:
+                local_id_by_source_id[claim.source_item_id] = len(local_id_by_source_id) + 1
+        claims_payload = [
+            {
+                "source_item_id": local_id_by_source_id[claim.source_item_id],
+                "source_kind": claim.source_kind,
+                "affected_entity_ids": list(claim.affected_entity_ids),
+                "verbatim": claim.verbatim,
+                "importance": claim.importance,
+                "importance_reason": claim.importance_reason,
+            }
+            for claim in claims
+        ]
         response = self.llm.complete_json(
             phase="claim_update",
             payload={
-                "customer_id": self.customer.entity_id,
-                "event_id": event.id,
+                "customer": {
+                    "name": self.customer.name,
+                    "description": self.customer.description,
+                },
+                "event": {
+                    "description": event.description,
+                },
                 "clusters": clusters,
                 "claims": claims_payload,
             },
@@ -652,18 +769,17 @@ def _parse_claim_rows(
     *,
     customer_id: int,
     event_id: str,
-    items: list[SourceItem],
+    local_item_by_id: dict[str, SourceItem],
     source_kinds: set[str],
     rows: list,
 ) -> tuple[list[RawClaim], int, int]:
-    item_kind = {item.id: item.kind for item in items if item.kind in source_kinds}
     claims: list[RawClaim] = []
     dropped_invalid = 0
     dropped_off_customer = 0
     for raw in rows:
-        source_item_id = str(raw.get("source_item_id") or "")
+        item = local_item_by_id.get(_local_id(raw.get("source_item_id")))
         verbatim = str(raw.get("verbatim") or "").strip()
-        if source_item_id not in item_kind or not verbatim:
+        if item is None or item.kind not in source_kinds or not verbatim:
             dropped_invalid += 1
             continue
         affected = _int_list(raw.get("affected_entity_ids") or [])
@@ -676,8 +792,8 @@ def _parse_claim_rows(
                 customer_id=customer_id,
                 affected_entity_ids=affected,
                 verbatim=verbatim,
-                source_item_id=source_item_id,
-                source_kind=item_kind[source_item_id],
+                source_item_id=item.id,
+                source_kind=item.kind,
                 importance=_importance(raw.get("importance")),
                 importance_reason=str(raw.get("importance_reason") or "")[:500],
             )

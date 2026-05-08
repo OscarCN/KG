@@ -36,16 +36,16 @@ Dos clusters con tema compartido pero alegaciones distintas NO se fusionan. Ejem
 
 ENTRADAS
 
-Cliente:
+Cliente (sólo `name` y `description`):
 $customer
 
-Evento (el catálogo está acotado a este `event.id`):
+Evento (sólo descripción; el catálogo está acotado a este evento):
 $event
 
 Clusters existentes (`id`, `canonical`, `n_members`, `sample_verbatims`):
 $clusters
 
-Claims nuevas a procesar (cada una con `claim_index` de base cero, `verbatim`, `affected_entity_ids`, `importance`):
+Claims nuevas a procesar (cada una con `claim_index` de base cero, `verbatim`, `affected_entity_ids`, `importance`; `source_item_id`, si aparece, es un entero local):
 $claims
 
 FORMATO DE RESPUESTA

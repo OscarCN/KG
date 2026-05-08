@@ -22,14 +22,25 @@ class StanceBootstrapStep:
         items = corpus[: self.max_items]
         if not items:
             return catalog
+        local_items = [
+            {
+                "id": index,
+                "kind": item.kind,
+                "text": item.short_text(700),
+            }
+            for index, item in enumerate(items, start=1)
+        ]
         payload = {
-            "customer_id": customer.entity_id,
-            "items": [{"id": item.id, "kind": item.kind, "text": item.short_text(700)} for item in items],
+            "customer": {
+                "name": customer.name,
+                "description": customer.description,
+            },
+            "items": local_items,
         }
         response = self.llm.complete_json(
             phase="stance_bootstrap",
             payload=payload,
-            prompt=bootstrap_prompt(customer, items),
+            prompt=bootstrap_prompt(customer, local_items),
             model=self.model,
         )
         for item in response.get("stances") or []:
