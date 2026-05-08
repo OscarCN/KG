@@ -38,7 +38,7 @@ Rules:
 
 - An item can have **0, 1, or more** stance assignments.
 - Each assignment carries exactly **one** type. Types are disjoint *per assignment*, not *per item*.
-- Tag-only types (`question`, `request`, `noise`) coexist with stance-bearing assignments only when the LLM identifies clearly separable parts of the same utterance (e.g. *"¿hasta cuándo van a estar tan tarde?"* → `question` + `complaint`). For mostly-noise items with a fleeting stance hint, prefer a single `noise` assignment over a borderline stance.
+- Tag-only types (`request`, `noise`) coexist with stance-bearing assignments only when the LLM identifies clearly separable parts of the same utterance. For mostly-noise items with a fleeting stance hint, prefer a single `noise` assignment over a borderline stance.
 - An item entirely composed of greetings/off-topic/promotional/call-to-action gets **exactly one** `noise` assignment (not multiple noise tags).
 
 ### 2.2 The nine types
@@ -147,22 +147,25 @@ When a denuncia is severe enough it should also raise an alert independently of 
 
 #### `question` — pregunta abierta dirigida al cliente o sobre él
 
-Information-seeking. Always tag-only.
+Information-seeking. Each item-level question is tagged with the **FAQ topic** it belongs to — the recurring inquiry pattern that emerges across many items.
 
-| Real comment | Stance label |
+| Real comment | Stance label (FAQ topic) |
 |---|---|
-| "¿hasta cuándo van a tener cerrada la calle Madero?" | *(no entry)* |
-| "¿quién es el responsable del programa de salud?" | *(no entry)* |
-| "¿dónde puedo pagar mi predial este año?" | *(no entry)* |
-| "¿alguien sabe si ya reabrieron el módulo del centro?" | *(no entry)* |
+| "¿hasta cuándo van a tener cerrada la calle Madero?" | "duración de cierres viales" |
+| "¿quién es el responsable del programa de salud?" | "responsables institucionales" |
+| "¿dónde puedo pagar mi predial este año?" | "pago del predial" |
+| "¿alguien sabe si ya reabrieron el módulo del centro?" | "estatus de módulos de atención" |
+| "¿qué documentos necesito para el acta de nacimiento?" | "requisitos para acta de nacimiento" |
 
-**Notes.** `stance_id` is always `null` *for the question assignment itself* — the literal utterance is info-seeking, not stance-bearing.
+**Notes.** Catalog entries are phrased as **topic-style labels**, often noun phrases (*"pago del predial"*, *"horarios de atención"*) or short descriptive phrases (*"duración de cierres viales"*, *"responsables institucionales"*). They read like FAQ section titles. Sentiment is typically neutral.
 
-**Recurring question patterns become stances under other types.** When the same question theme recurs across many items (*"¿cómo pago el predial?"* in 30 items, *"¿quién es responsable de X?"* across an event), the **consistency pass** (§5) generalizes the underlying *info gap* into an entry under an existing type — usually `complaint` (*"información poco clara sobre el pago del predial"*) or `entity_stance` (*"el ayuntamiento es opaco con sus procesos"*). The original `question` assignments stay tag-only; the generalized stance is a separate entry that *new* items hitting that pattern can also be assigned to (typically as a `complaint` if the user expresses frustration alongside the question, or just as the `question` plus a parallel auto-emitted `complaint` assignment when the LLM detects implicit grievance).
+**Why questions get their own catalog (FAQ catalog).** Recurring questions are a first-class downstream signal: comms teams want a direct list of *"things the public keeps asking us about"* so they can publish documentation. Mapping questions onto complaints (*"información poco clara sobre X"*) muddles the action signal — recurring questions trigger a comms response, not an operational fix. The two are different remediations and different teams.
 
-In other words: **questions don't get their own catalog because the right home for recurring question patterns is already the `complaint` or `entity_stance` entry-sets.** Same machinery, correct semantic shape.
+**Layered with complaints when frustration is present.** With multi-stance per item, a comment like *"¿por qué siempre tardan tanto con los trámites?"* yields **two** assignments: one `question` to the FAQ topic *"tiempos de trámites"* AND one `complaint` to *"demoras en atención"*. The FAQ is the primary signal (the question topic recurs); the implicit grievance is the secondary one. Both lie in their natural type's catalog.
 
-Aggregate "top unanswered questions per period" remains a useful comms-gap metric in its own right, derived from the literal `question` assignments before generalization.
+**Streaming behavior.** Same growth model as `complaint` / `gratefulness` / `suggestion`: streaming Phase 2 assigns to existing FAQ entries when one fits and `null` when none does. The **consistency pass** (§5) generalizes recurring question patterns into new FAQ entries (typical case) and *additionally* proposes complaint/entity_stance entries when the question pattern reveals deep customer-perception issues (e.g. recurring opacity questions also seed *"el ayuntamiento es opaco con sus procesos"*).
+
+**Aggregate metrics.** "Top unanswered FAQ topics per period" is a useful comms-gap signal — derived directly from the question catalog's per-entry assignment counts.
 
 ---
 
@@ -269,29 +272,29 @@ High-stakes content typically produces both: a `denuncia` stance assignment with
 | `suggestion` | yes | no | yes |
 | `denuncia` | yes | no | yes |
 | `endorsement` | yes (split by sentiment polarity at the entry level) | no | yes |
+| `question` | yes (FAQ catalog — topic-style entries) | no | yes |
 | `request` | no | n/a | n/a |
-| `question` | no | n/a | n/a |
 | `noise` | no | n/a | n/a |
 
-Streaming-time growth is reserved for `entity_stance` because that's the type most likely to surface novel-but-durable framings the catalog should capture immediately. The other types accumulate into recurring patterns over many items and are best generalized in batch by the consistency pass.
+Streaming-time growth is reserved for `entity_stance` because that's the type most likely to surface novel-but-durable framings the catalog should capture immediately. The other six stance-bearing types accumulate into recurring patterns over many items and are best generalized in batch by the consistency pass.
 
 ## 3. Where the type lives
 
 The type lives on **both** the entry and the assignment, but for different reasons:
 
-- **On the entry (`primary_type`):** entries within each stance-bearing type share a *semantic shape* (see the per-type tables in §2.2). An `entity_stance` entry reads `"<sujeto> es/hace <cualidad>"`. A `complaint` entry reads `"problemas en <ámbito>"` / `"fallas en <Y>"`. A `suggestion` entry reads `"petición de <Z>"`. Forcing all of those into one untyped catalog produces shape salad and breaks the prompts. Each entry declares its `primary_type` and lives in the entry-set for that type.
+- **On the entry (`primary_type`):** entries within each stance-bearing type share a *semantic shape* (see the per-type tables in §2.2). An `entity_stance` entry reads `"<sujeto> es/hace <cualidad>"`. A `complaint` entry reads `"problemas en <ámbito>"` / `"fallas en <Y>"`. A `suggestion` entry reads `"petición de <Z>"`. A `question` entry is a topic-style FAQ label (*"pago del predial"*, *"horarios de atención"*). Forcing all of those into one untyped catalog produces shape salad and breaks the prompts. Each entry declares its `primary_type` and lives in the entry-set for that type.
 
-- **On the assignment (`stance_type`):** the assignment's type matches the type of the entry it points at. For tag-only types (`request`, `question`, `noise`) the assignment has `stance_id = null` and the type lives only on the assignment.
+- **On the assignment (`stance_type`):** the assignment's type matches the type of the entry it points at. For tag-only types (`request`, `noise`) the assignment has `stance_id = null` and the type lives only on the assignment.
 
-Practical consequence: the `StanceCatalog` exposes a typed view internally (one bucket per stance-bearing type — six buckets at v1) but presents a unified iteration API for callers that don't care. The bootstrap pass produces only `entity_stance` entries (current behavior); the consistency pass produces entries across all six stance-bearing types.
+Practical consequence: `tags_gpt/catalogs.py:StanceCatalog` keeps its single flat `entries: dict[str, StanceEntry]` (entry ids are globally unique), but every `StanceEntry` declares its `primary_type`. Type-scoped queries become filter operations on the flat dict — `iter_entries(types=…)`, `summary(types=…)`, `snapshot(types=…)`. Seven *logical* buckets at v1 (one per stance-bearing type, including the FAQ-shaped `question` catalog); a single physical dict. The bootstrap pass (`tags_gpt/bootstrap.py:StanceBootstrapStep`) produces only `entity_stance` entries today; the consistency pass (§5) produces entries across all seven stance-bearing types.
 
 **Multi-stance per item.** A single source item can have multiple assignments referencing entries of different types — e.g. one `complaint` assignment to "problemas en cobros" and one `entity_stance` assignment to "el ayuntamiento es ineficiente" emitted from the same comment. The data model already supports this (assignments are a list); the prompt and orchestrator changes in §7 are what enable it in practice.
 
-When the type is non-stance-bearing (`noise`, `question`, `request`), the assignment still exists as a row but `stance_id` is `null`. Keeping the row preserves coverage statistics ("how many items did we tag total" vs "…how many got a stance entry").
+When the type is non-stance-bearing (`request`, `noise`), the assignment still exists as a row but `stance_id` is `null`. Keeping the row preserves coverage statistics ("how many items did we tag total" vs "…how many got a stance entry").
 
 ## 4. Tagging orchestration — two-pass design
 
-The current single-pass Phase 2 (one LLM call per *(article, event)* that does triage + entry assignment + proposals + claim extraction at once) degrades as the catalog grows: every call must hold all entries across all six stance-bearing types in context, the prompt has to teach all type shapes simultaneously, and any catalog mutation invalidates the whole call's cache. A two-pass split fixes all three.
+The current single-pass Phase 2 (one LLM call per *(article, event)* that does triage + entry assignment + proposals + claim extraction at once) degrades as the catalog grows: every call must hold all entries across all seven stance-bearing types in context, the prompt has to teach all type shapes simultaneously, and any catalog mutation invalidates the whole call's cache. A two-pass split fixes all three.
 
 ### 4.1 Phase 2a — Type triage (one call per article batch)
 
@@ -301,7 +304,7 @@ The current single-pass Phase 2 (one LLM call per *(article, event)* that does t
 **Catalog-independent.** Phase 2a never loads any stance entry-set. Its cache key —
 `(model, customer_id, event_id, items_payload)` — is therefore stable across every catalog mutation. Massive cache hit rate over time.
 
-**Cheap model is appropriate.** Triage is essentially classification + light claim extraction; a fast/cheap model (gemini-2.5-flash-lite, similar to the linker disambiguator) is enough. The tagger orchestrator can switch models per phase via env vars (`OPENROUTER_TYPE_TRIAGE_MODEL` for 2a, the existing tagger model for 2b).
+**Cheap model is appropriate.** Triage is essentially classification + light claim extraction; a fast/cheap model (gemini-2.5-flash-lite, similar to the linker disambiguator) is enough. Each step in `tags_gpt/tagging.py` already takes a `model` kwarg with an env-var default — `TypeTriageStep` adds `OPENROUTER_TYPE_TRIAGE_MODEL`; `StanceTagger` keeps `OPENROUTER_STANCE_TAGGER_MODEL` for the per-type calls.
 
 **Output is a routing manifest.** Each item is annotated with which type-buckets it has content in. Phase 2b only invokes the buckets that actually matter — items with no stance ideas don't trigger any Phase 2b call.
 
@@ -320,6 +323,7 @@ For each stance-bearing type that Phase 2a flagged as present in any item, run o
 - `suggestion` prompt teaches *"petición de X"* / *"ampliación de Y"*.
 - `denuncia` prompt teaches *"denuncias de <conducta irregular>"*.
 - `endorsement` prompt teaches *"apoyo a X"* / *"rechazo a X"* with sentiment polarity.
+- `question` prompt teaches FAQ topic-style labels (*"pago del predial"*, *"horarios de atención"*, *"requisitos para acta de nacimiento"*).
 
 Same per-type tables in §2.2 are the few-shot examples each prompt embeds.
 
@@ -378,16 +382,17 @@ The current `tags/` and `tags_gpt/` implementations both ship with the single-pa
 
 ### 4.8 Migration path
 
-The data-model changes (typed entries, `stance_type` on assignments, multi-stance per item) are prerequisites. Once they're in:
+The data-model changes in §7 (typed entries via `StanceEntry.primary_type`, `stance_type` on `StanceAssignment`, multi-stance per item) are prerequisites — they ship without touching the orchestration. Once they're in:
 
-1. Add a `tagging_strategy: Literal["single_pass", "two_pass"] = "single_pass"` config on the orchestrator. Default keeps current behavior.
-2. Implement the Phase 2a call (catalog-free type triage + claims).
-3. Implement one Phase 2b call (start with `entity_stance` since it already has streaming-time growth — the new Phase 2b looks like a leaner version of today's Phase 2). Keep its prompt as a thin specialization of the existing `tagging.txt`.
-4. A/B against the single-pass on the same fixture: compare assignment counts per type, proposal quality, end-of-run snapshot diff, total LLM calls, total tokens.
-5. If 2b for `entity_stance` looks good, expand to the other five types one at a time, adding their per-type prompt and entry-shape examples (the §2.2 tables make this mostly mechanical).
-6. Flip the default to `two_pass` once five+ types are in.
+1. **Add the strategy flag.** New field `StreamingState.tagging_strategy: Literal["single_pass","two_pass"] = "single_pass"` (`tags_gpt/streaming.py`). Default keeps current behavior — `StanceTagger` runs once with the full catalog snapshot, exactly like today.
+2. **Implement Phase 2a.** New `TypeTriageStep` in `tags_gpt/tagging.py` and `type_triage_prompt` in `tags_gpt/prompts.py`. Output: `TypeTriageResult` (§7.9). Catalog-free; routes claims through too (Option A in §4.4). Cheap model via `OPENROUTER_TYPE_TRIAGE_MODEL`.
+3. **Make `StanceTagger` per-type.** Add `stance_type` and `triage_hints` keyword arguments to `StanceTagger.tag(...)` (§7.9). When set, the tagger calls `catalog.snapshot(types={stance_type})` instead of the full snapshot, and the prompt is rendered with the per-type entry-shape exemplars from §2.2. Keep the no-arg call signature working (defaults to `stance_type="entity_stance"`).
+4. **Wire the two-pass branch in `StreamingTagsPipeline.process_batch`.** When `state.tagging_strategy == "two_pass"`: call `TypeTriageStep.triage` once, then iterate active types and call `StanceTagger.tag` per type in parallel; updaters and `Claim*` steps stay unchanged.
+5. **A/B against single-pass.** Run the existing fixtures through both strategies; compare assignment counts per type, proposal quality, snapshot diff, total LLM calls, total tokens. Use `CachedJsonLlm` so re-runs are deterministic.
+6. **Roll out per-type prompts incrementally.** Start with `entity_stance` (it already has streaming-time growth, smallest behavior change). When the metrics look good, add per-type prompts for the other six stance-bearing types one at a time; the §2.2 tables make this mostly mechanical.
+7. **Flip the default.** Once six+ types ship, change the `tagging_strategy` default to `"two_pass"` in `LocalRunConfig` and `StreamingState`.
 
-Each step is independently shippable; we never need to migrate the whole pipeline at once.
+Each step ships independently; the whole pipeline never has to migrate at once.
 
 ## 5. Consistency pass
 
@@ -417,19 +422,20 @@ State needed to enforce these triggers:
    - including a tail of items that fell into `noise` or that were tagged with low confidence so we audit the bottom of the distribution.
    Default sample size: 200–400 items.
 
-2. **Re-evaluation prompt.** Run a single LLM call (similar to bootstrap) with: the customer context, the *current full catalog*, the sample, plus aggregate stats (per-entry assignment counts, per-type counts, last-used timestamps, **recurring `question` themes**). Ask the LLM to propose:
+2. **Re-evaluation prompt.** Run a single LLM call (similar to bootstrap) with: the customer context, the *current full catalog* (all seven entry-sets), the sample, plus aggregate stats (per-entry assignment counts, per-type counts, last-used timestamps, recurring unmapped patterns per type). Ask the LLM to propose:
    - **add** — patterns recurring in the sample that aren't represented yet, including:
      - new entry-driving stances directly observable in the sample (the bootstrap-style case),
-     - **info-gap stances derived from recurring `question` patterns** — e.g. 30 items asking *"¿cómo pago el predial?"* → propose a `complaint` entry "información poco clara sobre el pago del predial" or an `entity_stance` "el ayuntamiento es opaco con sus procesos". The literal question assignments stay tag-only; the derived entry lives under the appropriate type.
+     - new **FAQ topic entries** for recurring `question` patterns that don't yet have a topic in the question catalog (e.g. 30 items asking variants of *"¿cómo pago el predial?"* → propose a `question` entry *"pago del predial"*),
+     - **secondary stance entries** that a question pattern reveals when the recurring inquiry implies a deeper customer-perception issue. These are *additional* to the FAQ entry, not replacements — e.g. when *"¿por qué nunca contestan?"* recurs, also propose a `complaint` entry *"fallas en respuesta a solicitudes"* or an `entity_stance` *"el ayuntamiento es inaccesible"*. With multi-stance per item, future items hitting the pattern can sustain both assignments at once.
    - **rename** — entries whose label has drifted from how they're actually used;
    - **merge** — pairs of entries that are now near-duplicates;
    - **retire** — entries unused in the last `M` items (catalog hygiene);
    - **re-route** — assignments that should point at a different entry (mass correction);
-   - **back-route** — given a newly-added info-gap entry, retroactively attach `complaint` / `entity_stance` assignments to past `question` items that matched the pattern (optional; pricier — defer to v1.5 if the basic pass works).
+   - **back-route** — given a newly-added entry, retroactively attach assignments to past items that matched the pattern (optional; pricier — defer to v1.5 if the basic pass works).
 
-3. **Adjudication.** All proposals go through the existing `StanceAdjudicator` in batch mode. This re-uses the rules from `prompts/adjudicator.txt` and protects the same invariants.
+3. **Adjudication.** Proposals run through `StanceUpdater._decide(...)` (`tags_gpt/tagging.py`) reusing the same prompt and decision space as the streaming-time adjudicator (`stance_update_prompt` in `tags_gpt/prompts.py`). Same `StanceDecision` action enum (`accept` / `reject` / `rename` / `generalise`).
 
-4. **Apply.** Mutations applied via the existing `apply.py` paths. Re-routes and retirements are new operations that don't exist today (added when this lands).
+4. **Apply.** Mutations apply directly through `StanceCatalog` methods on `tags_gpt/catalogs.py`: `add_entry` / `rename` / `merge` (existing), plus new `retire(stance_id)` and `reroute(from_id, to_id)` (§7.5). The Updater pattern is preserved — the consistency-pass step (`tags_gpt/consistency.py:ConsistencyPassStep`, §7.10) owns these mutations the same way `StanceUpdater` owns streaming-time mutations.
 
 ### Why this is worth the LLM cost
 
@@ -439,7 +445,7 @@ State needed to enforce these triggers:
 
 ## 6. Worthiness flag (idea, not v1)
 
-At Phase 2 tagging time the LLM could emit a `consistency_relevance: "low" | "medium" | "high"` per assignment, predicting whether the item is a useful exemplar for a future consistency pass. High-relevance items would be:
+At Phase 2 tagging time the LLM could emit a `consistency_relevance: "low" | "medium" | "high"` per assignment (the field already lands on `StanceAssignment` in §7.2), predicting whether the item is a useful exemplar for a future consistency pass. High-relevance items would be:
 
 - novel framings of an existing stance,
 - exemplars of an emerging pattern not yet in the catalog,
@@ -455,12 +461,25 @@ The consistency pass would prefer high-relevance items for its sample, with a ba
 
 ## 7. Data model additions
 
-Concrete field-level changes. Both code paths (`src/entities/tags/` and `src/entities/tags_gpt/`) need them in parallel.
+The canonical implementation is **`src/entities/tags_gpt/`**. Every change below names the exact module + dataclass that gets touched. Where a class already exists in `tags_gpt`, this section says "field added" / "method added" rather than redefining the class.
 
-### 7.1 New enum
+The `tags_gpt` architecture relevant to this design:
+
+- `models.py` — pure dataclasses (`Customer`, `ContentGraph`, `SourceItem`, `LinkedEvent`, `LinkResult`, `StanceEntry`, `StanceAssignment`, `StanceProposal`, `StanceTagging`, `StanceDecision`, `RawClaim`, `ClaimCluster`, `ClaimAssignment`, `ClaimTagging`, `ClaimDecision`, `ClaimMutation`, `StepSummary`, `EventTagResult`, `ArticleProcessResult`).
+- `catalogs.py` — in-memory stores (`EventStore`, `StanceCatalog`, `ClaimCatalog`, `ClaimCatalogStore`).
+- `tagging.py` — independent steps (`StanceTagger`, `StanceUpdater`, `ClaimTagger`, `ClaimUpdater`). Each step produces decisions; the *Updater* steps own all catalog mutations (Phase 5 is inline, no separate `apply.py`).
+- `streaming.py` — `StreamingTagsPipeline` composes the steps with explicit boundaries; `StreamingState` holds `event_store`, `stance_catalog`, `claim_catalogs`, `items_seen`.
+- `prompts.py` — prompt-builder functions (`stance_tagging_prompt`, `stance_update_prompt`, `claim_tagging_prompt`, `claim_update_prompt`, …); no separate `prompts/*.txt` templates.
+- `llm.py` — `JsonLlm` Protocol; `OpenRouterJsonLlm`, `CachedJsonLlm`, `ScriptedJsonLlm` implementations. Caching lives in the LLM adapter, not in each tagger.
+- `bootstrap.py` — `StanceBootstrapStep`. The consistency pass step (§5) follows the same shape.
+- `persistence.py` — `load_content_graph`, `save_snapshot` (snapshot uses each dataclass's `to_dict()` — adding fields auto-propagates).
+- `runner.py` — `LocalRunConfig`, `run_local_stream`.
+
+### 7.1 New enums (`tags_gpt/models.py`)
+
+Add next to the existing `SourceKind` Literal alias:
 
 ```python
-# src/entities/tags/models/source_item.py (or a new types.py)
 StanceType = Literal[
     "entity_stance",
     "complaint",
@@ -473,7 +492,10 @@ StanceType = Literal[
     "noise",
 ]
 
+Sentiment = Literal["positive", "negative", "neutral"]
+
 # Types that have their own entry-set inside the catalog.
+# `question` is included as the FAQ catalog (topic-style entries).
 STANCE_BEARING_TYPES: set[StanceType] = {
     "entity_stance",
     "complaint",
@@ -481,134 +503,246 @@ STANCE_BEARING_TYPES: set[StanceType] = {
     "suggestion",
     "denuncia",
     "endorsement",
+    "question",
 }
 
 # Types whose entries can grow at streaming time (Phase 2). Currently only
-# entity_stance — the rest grow only via the consistency pass.
+# `entity_stance`; the rest grow only via the consistency pass (§5).
 STREAMING_GROWABLE_TYPES: set[StanceType] = {"entity_stance"}
 
-# Types that exist as assignment-only tags (no entry, stance_id=null).
-TAG_ONLY_TYPES: set[StanceType] = {"question", "request", "noise"}
+# Types that exist as assignment-only tags (no catalog entry; stance_id=None).
+TAG_ONLY_TYPES: set[StanceType] = {"request", "noise"}
 ```
 
-### 7.2 `StanceAssignment` — new fields
+### 7.2 `StanceAssignment` — new fields (`tags_gpt/models.py`)
+
+The class today holds `source_item_id`, `source_kind`, `customer_id`, `stance_id`, `event_id`, `reason`, `assigned_at`. Add four fields and relax one:
 
 ```python
 @dataclass
 class StanceAssignment:
     source_item_id: str
-    source_kind: str
+    source_kind: SourceKind
     customer_id: int
-    stance_id: Optional[str]                 # CHANGED: now optional (null for noise/question/request without entry)
-    stance_type: StanceType                  # NEW — required, defaults to "entity_stance" for back-compat
-    sentiment: Optional[str] = None          # NEW — "positive" / "negative" / "neutral" / None; carries endorsement polarity
-    consistency_relevance: Optional[str] = None  # NEW — "low"/"medium"/"high"/None; the §6 worthiness flag
-    consistency_used: bool = False           # NEW — set to True after a consistency pass uses this item
-    event_id: Optional[str] = None           # unchanged
-    theme_id: Optional[str] = None           # unchanged
-    assigned_at: str = field(default_factory=_now)
-    reason: str = ""
+    stance_id: Optional[str]                          # CHANGED: was str → Optional[str] (null for noise/request, or for stance-bearing types when no entry fits yet)
+    stance_type: StanceType = "entity_stance"         # NEW — required at semantic level; default for back-compat with existing snapshots
+    sentiment: Optional[Sentiment] = None             # NEW — required for endorsement; auto-set for complaint/gratefulness; optional otherwise
+    consistency_relevance: Optional[Literal["low","medium","high"]] = None  # NEW — §6 worthiness flag
+    consistency_used: bool = False                    # NEW — set to True once a consistency pass has consumed this assignment
+    event_id: Optional[str] = None                    # unchanged
+    reason: str = ""                                  # unchanged
+    assigned_at: str = field(default_factory=now_iso) # unchanged
 ```
 
-Migration note: the `stance_id` field becomes optional. Existing serialised catalogs (the JSON snapshots already on disk) won't have `stance_type` — load with default `"entity_stance"` for back-compat, write the new field on save.
+`StanceAssignment.to_dict()` is `dict(self.__dict__)` today — new fields auto-propagate to snapshots without code change. Multi-stance per item is *already* supported because `StanceCatalog.assignments` is a list (§2.1 needs no schema change).
 
-### 7.3 `StanceEntry` — gains `primary_type`
+Migration: existing snapshot rows lack `stance_type` → load with `"entity_stance"`; lack the consistency fields → load with defaults.
+
+### 7.3 `StanceEntry` — gains `primary_type` (`tags_gpt/models.py`)
+
+The class today holds `id`, `label`, `description`, `created_at`, `aliases`. Add one field:
 
 ```python
 @dataclass
 class StanceEntry:
     id: str
     label: str
-    description: str
-    primary_type: StanceType                 # NEW — one of STANCE_BEARING_TYPES
-    created_at: str = field(default_factory=_now)
-    n_assignments: int = 0
+    description: str = ""
+    primary_type: StanceType = "entity_stance"        # NEW — see §7.1
+    created_at: str = field(default_factory=now_iso)
     aliases: list[str] = field(default_factory=list)
-    origin_event_id: Optional[str] = None    # NEW (optional; see §8.G)
+    origin_event_id: Optional[str] = None             # NEW (optional; see §8.G)
 ```
 
-Migration: existing serialised entries default `primary_type = "entity_stance"` on load (every entry created before this change is an entity_stance by definition).
+Note: there is **no `n_assignments` field** in `tags_gpt` — counts are derived on demand by `StanceCatalog.summary()` walking `assignments`. This stays. Type-scoped counts are a `summary(by_type=...)` filter.
 
-### 7.3.1 `StanceCatalog` — typed entry-sets
+`StanceEntry.new(label, description, entry_id=...)` adds an optional `primary_type` parameter (default `"entity_stance"`).
 
-The catalog now holds one entry-set per stance-bearing type. Internal storage:
+Migration: existing entries default `primary_type = "entity_stance"` on load.
 
-```python
-class StanceCatalog:
-    customer_id: int
-    entries_by_type: dict[StanceType, dict[str, StanceEntry]]   # NEW
-    # legacy view: entries -> aggregates across all types (for back-compat)
-    assignments: list[StanceAssignment]
-    retired_entries: dict[str, StanceEntry]                     # NEW (see §7.5)
-```
+### 7.4 `StanceCatalog` — typed-aware operations (`tags_gpt/catalogs.py`)
 
-API additions:
+`tags_gpt`'s `StanceCatalog` keeps a single flat `entries: dict[str, StanceEntry]`. We **keep that flat layout** — entry ids are globally unique and every entry now declares its `primary_type`, so type-scoped queries are filter operations on the flat dict. This is less invasive than splitting into `entries_by_type` and lets every existing method (`add`, `add_entry`, `assign`, `rename`, `merge`, `delete`, `summary`, `snapshot`, `to_dict`) keep its current signature.
 
-- `add(entry)` — places the entry in the bucket matching its `primary_type`.
-- `iter_entries(types: set[StanceType] | None = None)` — typed iteration.
-- `get(stance_id)` — finds the entry across all type buckets (entry ids are unique globally).
-- The existing `summary()` should accept an optional `by_type` flag for typed reporting.
+Method changes:
 
-### 7.4 `Customer` — new state for consistency triggers
+- **`add(label, description="", entry_id=None, primary_type="entity_stance")`** — new keyword arg.
+- **`add_entry(entry)`** — unchanged; uses `entry.primary_type` directly.
+- **`assign(assignment)`** — add a type-consistency check:
+  ```python
+  entry = self.entries.get(assignment.stance_id) if assignment.stance_id else None
+  if entry and entry.primary_type != assignment.stance_type:
+      return False  # type mismatch — drop
+  ```
+- **`summary(*, event_id=None, top_n=None, types=None)`** — new `types: set[StanceType] | None` arg; when set, only count assignments whose `stance_type ∈ types` (or whose entry's `primary_type ∈ types`).
+- **`iter_entries(types=None)`** — new helper returning `Iterable[StanceEntry]` filtered by `primary_type`.
+- **`snapshot(types=None)`** — extend to optionally narrow to a subset of types (used by the per-type Phase 2b prompt — see §4.2 — to load only one type's entries).
+
+### 7.5 `StanceCatalog` — new mutation operations (`tags_gpt/catalogs.py`)
+
+The consistency pass needs two operations not in the catalog today. Both touch only `tags_gpt/catalogs.py`:
+
+- **`retire(stance_id) -> bool`** — soft-delete: removes the entry from `entries` and pushes it onto a new `retired_entries: dict[str, StanceEntry]` field. Existing assignments stay tagged with the retired id (history preserved). New tagging can't assign to retired entries because `assign()` checks `entries`, not `retired_entries`.
+- **`reroute(from_id, to_id) -> int`** — bulk-rewrite assignments. Distinct from existing `merge(src, dst)`: `reroute` keeps `from_id` alive in `entries` (for cases where the source entry is still valid; we just want to redirect a subset). Returns the count of rewritten assignments.
+
+The existing `merge(src, dst)` already does delete-source + reroute; keep it for the LLM-driven *merge* mutation. `reroute` is additionally callable from outside the LLM (admin UI, post-hoc cleanup).
+
+### 7.6 `Customer` — new state for consistency triggers (`tags_gpt/models.py`)
+
+The dataclass today mirrors `kgdb.entities` columns + joined helpers. Add (and include in `to_dict()` / `from_dict()`):
 
 ```python
 @dataclass
 class Customer:
     # ... existing kgdb fields ...
-    # NEW — consistency-pass state (Stage 1 in-memory; Stage 2 will live in kgdb)
+    # NEW — consistency-pass state (Stage 1 in-memory; Stage 2 lives in kgdb on a sibling table)
     items_processed_total: int = 0
     items_processed_since_last_pass: int = 0
-    last_consistency_pass_at: Optional[str] = None  # ISO timestamp
+    last_consistency_pass_at: Optional[str] = None    # ISO timestamp
     last_consistency_pass_count: int = 0
     consistency_pass_threshold_items: int = 200
     consistency_pass_threshold_days: int = 7
+
+    def consistency_pass_due(self, now: datetime) -> bool:
+        if self.items_processed_since_last_pass >= self.consistency_pass_threshold_items:
+            return True
+        if self.last_consistency_pass_at is None:
+            return False  # never run; only fires once the counter trips
+        last = datetime.fromisoformat(self.last_consistency_pass_at)
+        return (now - last).days >= self.consistency_pass_threshold_days
 ```
 
-Helper method:
+`StreamingTagsPipeline.process_batch` increments the counters after each article finishes; the pipeline (or its caller) checks `customer.consistency_pass_due(now)` and dispatches to the consistency-pass step (§5).
 
-```python
-def consistency_pass_due(self, now: datetime) -> bool:
-    if self.items_processed_since_last_pass >= self.consistency_pass_threshold_items:
-        return True
-    if self.last_consistency_pass_at is None:
-        return False  # never run; only fires once items hit the counter
-    last = datetime.fromisoformat(self.last_consistency_pass_at)
-    return (now - last).days >= self.consistency_pass_threshold_days
-```
+`Customer.to_dict()` / `from_dict()` need explicit handling for these fields (unlike `StanceAssignment`, `Customer.to_dict` is hand-written rather than `dict(self.__dict__)`).
 
-### 7.5 `StanceCatalog` — new mutation operations
+### 7.7 `StanceTagging` — typed coverage (`tags_gpt/models.py`)
 
-The consistency pass needs two mutations not in the catalog today:
-
-- `retire(stance_id, reason)` — moves an entry from `entries` to `retired_entries: dict[str, StanceEntry]`. Keeps history; removes from active set. Future tagging can't assign to retired entries; consistency pass can un-retire.
-- `reroute(from_stance_id, to_stance_id)` — bulk-rewrite all assignments from one entry to another. Already partially exists as `reroute_assignments`; needs to handle the case where both entries stay alive (current behavior deletes `from`).
-
-### 7.6 `TaggingResult` — multi-stance + typed coverage
+The class today is `assignments: list[StanceAssignment]`, `proposals: list[StanceProposal]`, `dropped_assignments: int`. Add coverage counters:
 
 ```python
 @dataclass
-class TaggingResult:
-    stance_assignments: list[dict] = field(default_factory=list)
-    # ^^^ Multiple entries with the same `source_item_id` are now allowed and
-    #     expected (multi-stance per item, §2.1). Each carries its own
-    #     `stance_type`, `sentiment`, and (optionally) `stance_id`.
-    stance_proposals: list[StanceProposal] = field(default_factory=list)
-    # ^^^ Streaming Phase 2 only proposes for `entity_stance` per §2.5.
-    claims: list[RawClaim] = field(default_factory=list)
-    raw_claims_dropped_off_customer: int = 0
-    raw_claims_dropped_from_comments: int = 0
-    n_assignments_by_type: dict[str, int] = field(default_factory=dict)  # NEW — coverage stats
-    n_items_tagged_with_no_stance: int = 0   # NEW — items that got only tag-only assignments (or none)
+class StanceTagging:
+    assignments: list[StanceAssignment] = field(default_factory=list)
+    proposals: list[StanceProposal] = field(default_factory=list)
+    dropped_assignments: int = 0
+    n_assignments_by_type: dict[StanceType, int] = field(default_factory=dict)   # NEW
+    n_items_tagged_no_stance: int = 0                                            # NEW — items whose only assignments were tag-only or none
 ```
 
-The Phase 2 prompt change required:
+`StanceTagger._parse_response()` populates `n_assignments_by_type` and `n_items_tagged_no_stance` while iterating the LLM output.
 
-- Output shape becomes `stance_assignments: [{source_item_id, stance_type, stance_id?, sentiment?, reason}]` — `stance_id` optional, `stance_type` and `sentiment` newly required (sentiment optional for types where it doesn't apply).
-- Instruction explicitly allows multiple assignments per `source_item_id`.
-- Instruction explicitly says: when the LLM detects more than one distinct stance idea in a comment, emit one assignment per idea.
-- For streaming Phase 2 only `entity_stance` may produce a proposal in `stance_proposals` (per §2.5); the LLM MAY annotate other types' assignments with the corresponding catalog entry id IF an entry already exists, otherwise pass `stance_id = null` and let the consistency pass generalize.
+The prompt-shape change in `prompts.py:stance_tagging_prompt`:
+- Output `assignments` items now require `stance_type` and (optionally) `sentiment` next to `stance_id` and `reason`.
+- The instruction explicitly allows *multiple* `assignments` entries per `source_item_id` — multi-stance per item.
+- Streaming Phase 2 still only allows `add` proposals for `stance_type == "entity_stance"`. Other types' "I'd add this if I could" hints get emitted as `proposals` with `kind="add"` but the `StanceUpdater` will reject them at `_apply_decision` time when `proposal.kind == "add" and the proposal's implied type ≠ entity_stance`. Or — cleaner — `StanceProposal` gains a `stance_type` field and `StanceUpdater` filters on it.
 
-### 7.7 Consistency pass artefact (new dataclass)
+### 7.7.1 `StanceProposal` — gains `stance_type` (`tags_gpt/models.py`)
+
+```python
+@dataclass
+class StanceProposal:
+    kind: Literal["add", "rename"]
+    label: str
+    description: str = ""
+    stance_type: StanceType = "entity_stance"        # NEW — required field at streaming time only "entity_stance" is accepted
+    source_item_ids: list[str] = field(default_factory=list)
+    src_stance_id: Optional[str] = None
+```
+
+`StanceUpdater._apply_decision` adds:
+
+```python
+if proposal.kind == "add" and proposal.stance_type not in STREAMING_GROWABLE_TYPES:
+    summary.inc("rejected_streaming_growth_blocked")
+    return
+```
+
+### 7.8 `ClaimTagging` — already correct (`tags_gpt/models.py`)
+
+`ClaimTagging` already supports multi-claim per item (`claims` is a list) and tracks `dropped_off_customer` / `dropped_invalid`. The `include_comments` flag and `claim_source_kinds()` helper already filter at the input layer. **No changes for the type-system work.** Optional cosmetic addition: a `dropped_from_comments` counter when `include_comments=False`, but the input-layer filter makes the LLM never see comments in that mode, so the counter would always be zero.
+
+### 7.9 New step classes for the two-pass orchestration (§4)
+
+When we adopt the two-pass design, three new artefacts land in `tags_gpt/`:
+
+```python
+# tags_gpt/models.py
+@dataclass
+class TypeTriageItem:
+    source_item_id: str
+    source_kind: SourceKind
+    stance_type: StanceType
+    brief_summary: str
+    sentiment: Optional[Sentiment] = None
+    importance_hint: Optional[Literal["low","medium","high"]] = None
+
+@dataclass
+class TypeTriageResult:
+    triaged: list[TypeTriageItem] = field(default_factory=list)
+    claims: list[RawClaim] = field(default_factory=list)        # Option A: claims travel with Phase 2a
+    n_items_seen: int = 0
+```
+
+```python
+# tags_gpt/tagging.py — new step (Phase 2a)
+class TypeTriageStep:
+    def __init__(self, customer: Customer, llm: JsonLlm, *, model: Optional[str] = None): ...
+    def triage(self, event: LinkedEvent, items: list[SourceItem]) -> TypeTriageResult: ...
+```
+
+```python
+# tags_gpt/tagging.py — Phase 2b: StanceTagger gains a `stance_type` parameter
+class StanceTagger:
+    def tag(
+        self,
+        event: LinkedEvent,
+        items: list[SourceItem],
+        catalog: StanceCatalog,
+        *,
+        stance_type: StanceType = "entity_stance",   # NEW — when set, only loads catalog.snapshot(types={stance_type})
+        triage_hints: Optional[list[TypeTriageItem]] = None,  # NEW — restrict items to those Phase 2a flagged for this type
+    ) -> StanceTagging: ...
+```
+
+`StreamingTagsPipeline.process_batch` (in `tags_gpt/streaming.py`) gains a config knob:
+
+```python
+@dataclass
+class StreamingState:
+    # ... existing ...
+    tagging_strategy: Literal["single_pass", "two_pass"] = "single_pass"
+```
+
+When `two_pass`, the pipeline calls `TypeTriageStep.triage` once per batch, then iterates `STANCE_BEARING_TYPES ∩ {types observed in triage}` calling `StanceTagger.tag(..., stance_type=t, triage_hints=...)` per type. Updaters and Claim* steps stay unchanged (the per-type `StanceTagger` outputs the same `StanceTagging` shape; updaters don't care which type produced it).
+
+### 7.10 `ConsistencyPassStep` (mirror of `StanceBootstrapStep`)
+
+```python
+# tags_gpt/consistency.py (new module — keep alongside bootstrap.py)
+class ConsistencyPassStep:
+    def __init__(
+        self,
+        customer: Customer,
+        llm: JsonLlm,
+        stance_updater: StanceUpdater,         # reuses existing adjudication logic
+        *,
+        model: Optional[str] = None,
+        sample_size: int = 300,
+    ): ...
+
+    def run(
+        self,
+        catalog: StanceCatalog,
+        sample: list[StanceAssignment],
+        items_seen: dict[str, SourceItem],
+        claim_catalogs: ClaimCatalogStore,     # input signal — claims feed proposals (one-way)
+    ) -> ConsistencyPassResult: ...
+```
+
+Sampling, prompt construction, and applying mutations all live in this step. It calls `StanceUpdater._decide(...)` (or its public wrapper) to adjudicate the proposals it generates.
+
+### 7.11 `ConsistencyPassResult` (new dataclass, `tags_gpt/models.py`)
 
 ```python
 @dataclass
@@ -617,16 +751,32 @@ class ConsistencyPassResult:
     started_at: str
     finished_at: str
     sample_size: int
-    sample_strategy: dict  # {"stratified_by_type": {...}, "by_relevance": {...}}
-    proposals: list[StanceProposal]               # add / rename
-    merge_proposals: list[tuple[str, str]]        # (src_id, dst_id)
-    retire_proposals: list[str]                   # stance_ids
-    reroute_proposals: list[tuple[str, str]]      # (from_id, to_id)
-    adjudication_decisions: list[AdjudicationDecision]  # results after running adjudicator
-    n_assignments_re_routed: int = 0
+    sample_strategy: dict[str, Any]                 # {"stratified_by_type": {...}, "by_relevance": {...}}
+    proposals: list[StanceProposal]                 # add / rename — typed across all six non-entity_stance types
+    merge_pairs: list[tuple[str, str]]              # (src_id, dst_id) per type
+    retire_ids: list[str]                           # stance_ids retired (across types)
+    reroute_pairs: list[tuple[str, str]]            # (from_id, to_id) — usually intra-type
+    decisions: list[StanceDecision]                 # adjudicator decisions matching `proposals` 1:1
+    summary: StepSummary                            # counts (proposed/accepted/rejected/renamed/generalised/retired/rerouted/back_routed)
+
+    def to_dict(self) -> dict[str, Any]: ...
 ```
 
-Stored alongside the snapshot for audit.
+Stored alongside the regular snapshot for audit (`persistence.save_snapshot` gains an optional `consistency_pass_result` parameter, or there's a new `save_consistency_pass(...)` sibling).
+
+### 7.12 Persistence — auto-propagation (`tags_gpt/persistence.py`)
+
+`save_snapshot` already serialises via `to_dict()` on `EventStore`, `StanceCatalog`, `ClaimCatalogStore`, all of which call `to_dict()` on their member dataclasses. Most of §7.x rides this for free:
+
+| Field added | How it lands in the snapshot |
+|---|---|
+| `StanceAssignment.{stance_type, sentiment, consistency_relevance, consistency_used}` | auto-propagates via `dict(self.__dict__)` |
+| `StanceEntry.{primary_type, origin_event_id}` | needs `to_dict` update — `StanceEntry.to_dict` is hand-written |
+| `StanceProposal.stance_type` | auto-propagates (proposals aren't snapshotted today, but if added) |
+| `Customer.{items_processed_*, last_consistency_*, consistency_*}` | needs `to_dict` / `from_dict` updates — both are hand-written |
+| `StanceTagging.{n_assignments_by_type, n_items_tagged_no_stance}` | derived counters; not snapshotted directly (they live on `EventTagResult`) |
+
+Migration on load: missing fields default per dataclass defaults — back-compat with snapshots written before this change.
 
 ## 8. Other ideas worth exploring
 
@@ -668,7 +818,7 @@ Items that the streaming tagger marks `noise` could short-circuit the rest of th
 Periodically re-tag a handful of items blind (no current-catalog context shown) and compare with production tags. Diverging tags signal drift.
 
 **K. User-driven curation hooks.**
-Persisting decisions made by humans (the eventual "I disagree, this should be a different stance" feedback) into the catalog as adjudicator-equivalent decisions. Out of scope until a UI exists; but design `apply.py` so a `source: "human" | "llm"` field on each mutation can be plumbed when ready.
+Persisting decisions made by humans (the eventual *"I disagree, this should be a different stance"* feedback) into the catalog as adjudicator-equivalent decisions. Out of scope until a UI exists; but design `StanceUpdater` / `ClaimUpdater` so a `source: "human" | "llm"` field on each `StanceDecision` / `ClaimDecision` can be plumbed when ready (and so `StepSummary.notes` records who initiated each mutation).
 
 **L. Time-decayed assignment counts.**
 `StanceEntry.n_assignments` is currently monotonic. A decayed variant (`exponentially weighted by recency`) makes orphan detection / retirement more responsive.
@@ -692,7 +842,7 @@ Long-tail events with few assignments shouldn't be over-sampled by sheer count; 
 6. **Migration of existing snapshots.** Existing JSON snapshots have no `stance_type` on assignments and no `primary_type` on entries. Default both to `"entity_stance"` on load — but flag a metric so we know how much of the historical assignment volume is back-filled vs explicitly typed.
 7. **Multi-stance upper bound per item.** Comments can in principle mix many ideas. Cap at e.g. 4 assignments per source item to bound output size and force the LLM to consolidate near-duplicates (§2.1)? Recommend yes, soft cap = 4.
 8. **Same-type duplicates within an item.** If an item carries two complaints about different topics ("me cobraron mal y nadie contesta el teléfono"), emit two `complaint` assignments to two different entries vs one assignment per item per type? Recommend two assignments — distinct ideas, distinct entries.
-9. **`question` recurrence — already covered.** Recurring question themes don't need their own catalog: the consistency pass generalizes them into existing-type entries (`complaint` *"información poco clara sobre <X>"* / `entity_stance` *"el ayuntamiento es opaco con <Y>"*). See §2.2 *question* and §5 step 2. The literal `question` assignments stay tag-only; the derived stance lives where it semantically belongs. Aggregate "top unanswered questions" is still a useful pre-generalization metric.
+9. **`question` has its own FAQ catalog (resolved).** Earlier drafts treated `question` as tag-only and routed recurring patterns into `complaint`/`entity_stance` entries. v1 instead gives `question` its own per-customer entry-set with topic-style labels (*"pago del predial"*, *"horarios de atención"*) — the FAQ catalog. Recurring question patterns become `question` entries directly (primary path); when they also reveal a deeper perception issue, the consistency pass *additionally* proposes a `complaint`/`entity_stance` entry, and multi-stance per item lets future items sustain both. See §2.2 *question* and §5 step 2.
 10. **Sentiment for `complaint` / `gratefulness`.** Polarity is structurally fixed (complaint = negative, gratefulness = positive). Is the `sentiment` field still required for these, or auto-set? Recommend auto-set, save the LLM token.
 
 ## Pointers
