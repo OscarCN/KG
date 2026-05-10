@@ -1,0 +1,13 @@
+`denuncia`: acusación pública de irregularidad, abuso, ilícito, mala conducta, fraude o violación regulatoria atribuida al cliente o a personas vinculadas a él.
+
+Forma del label: "<conducta irregular>".
+
+Ejemplos contrastivos (texto crudo → label de catálogo):
+- "los policías de esa zona piden mordida a cambio de no levantar infracciones" → "corrupción policial"
+- "la empresa infla las facturas con cargos que nadie pidió" → "fraudes en facturación"
+- "le dejaron una gasa adentro tras la cirugía, casi se muere" → "negligencia médica"
+- "obligan a su personal a trabajar dobles turnos sin pago de horas extra" → "prácticas laborales abusivas"
+- "la planta lleva años tirando residuos al río sin que nadie haga nada" → "contaminación ambiental"
+- "no contratan a mujeres mayores de cuarenta, lo hacen sistemáticamente" → "discriminación laboral"
+
+Distingue de `complaint`: el complaint reporta un problema operativo (mal servicio, demora); la denuncia imputa una conducta. Si dudas entre los dos, prefiere `denuncia` sólo cuando el texto realmente acuse una conducta indebida, no sólo describa una falla.

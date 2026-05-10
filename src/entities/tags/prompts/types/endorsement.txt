@@ -1,0 +1,13 @@
+`endorsement`: apoyo o rechazo generalizado al cliente, su liderazgo, su marca, su administración o un proyecto vinculado. La polaridad VA EN EL LABEL — no existe campo sentiment.
+
+Forma del label: "apoyo a X" o "rechazo a X". Las dos entradas opuestas (apoyo / rechazo a X) coexisten en el catálogo.
+
+Ejemplos contrastivos (texto crudo → label de catálogo):
+- "el alcalde está haciendo un buen trabajo, lo respaldo" → "apoyo al alcalde"
+- "este gobierno ya cansó a todos, fuera" → "rechazo al gobierno actual"
+- "esta marca es la mejor, siempre la voy a comprar" → "apoyo a la marca"
+- "la nueva política de la empresa es un abuso, no la acepto" → "rechazo a la nueva política de la empresa"
+- "vamos con todo el movimiento, aquí estamos" → "apoyo al movimiento"
+- "la directiva tiene que renunciar ya, no los queremos" → "rechazo a la directiva"
+
+Distingue de `gratefulness`: el endorsement expresa apoyo o rechazo generalizado al sujeto; el gratefulness reconoce una acción o servicio específico. Distingue de `entity_stance`: el endorsement toma postura del hablante (a favor / en contra); el entity_stance atribuye un rasgo al sujeto.

@@ -1,0 +1,94 @@
+
+Tarea: mantener el catálogo de posturas de tipo `{stance_type}` que el público expresa y que son relevantes para una entidad (persona u organización).
+
+El catálogo es un conjunto curado de las posturas recurrentes; cada elemento del catálogo es una postura única con `stance_id`, `label` y `description`.
+Cada asignación liga un item (una publicación: artículo, post o comentario) a un elemento del catálogo, o a `null` si ninguno le queda bien.
+
+Objetivos del catálogo:
+- vista corta, estable y legible de las posturas distintas que el público le expresa a la entidad
+- refleja cómo se etiquetan los items HOY, no un snapshot viejo
+- sin duplicados ni casi-duplicados
+- cada postura cubre un patrón reusable, no un caso aislado
+- `stance_id` se mantiene estable aunque cambie la redacción, para que las asignaciones existentes cambien el nombre directamente
+- Buscamos que haya la menor cantidad posible de publicaciones sin postura, y que el catálogo de posturas no crezca demasiado.
+
+debes revisar las posturas del catálogo contra una muestra reciente de asignaciones, y proponer ajustes cuando apliquen: añadir posturas faltantes, renombrar posturas mal redactadas, fusionar entradas duplicadas, retirar entradas obsoletas, o redirigir asignaciones mal apuntadas
+
+se muestran el catálogo del tipo y la muestra reciente de asignaciones del mismo tipo
+
+
+CLIENTE (entidad principal — sólo cuentan posturas que le aplican directa o indirectamente):
+{customer}
+
+GUÍA DEL TIPO `{stance_type}` (define la forma y nivel de abstracción de las posturas):
+{stance_type_guide}
+
+CATÁLOGO ACTUAL (posturas existentes del tipo):
+{catalog_slice}
+
+ASIGNACIONES RECIENTES (las de `stance_id: null` son evidencia de posturas que el catálogo no cubre):
+{assignments}
+
+ITEMS FUENTE (texto de las publicaciones detrás de las asignaciones, id 1..N):
+{items}
+
+RESUMEN DE CLAIMS POR EVENTO (señal auxiliar; refuerza o descarta un patrón, no crea postura por sí solo):
+{claim_summaries}
+
+
+REGLAS
+
+- Prioridad cuando dudes (de menos a más invasivo): rename > reroute > merge > add > retire.
+- `add`: sólo si ≥3 asignaciones distintas con `stance_id: null` comparten la misma postura.
+- `rename`: cuando la postura existe y se puede generalizar o ser más explicativa.
+- `merge`: sólo intra-tipo; sub-áreas distintas con posturas distintas no se fusionan.
+- `retire`: posturas obsoletas, sub-cubiertas por otra, o sin uso reciente en la muestra.
+- `reroute`: asignaciones apuntadas a una postura parecida pero incorrecta; redirige sin tocar el catálogo.
+
+kind: "add" o "rename" en `proposals`.
+label: frase canónica corta (≤ 8 palabras) para una postura nueva o renombrada.
+description: una o dos oraciones que definan qué cubre la postura.
+source_item_ids: ids de los items que sustentan una propuesta `add` (≥ 3 distintos).
+src_stance_id: id de la postura que se renombra.
+src_id / dst_id: en `merge_pairs`, fusiona `src_id` dentro de `dst_id` (sobrevive `dst_id`).
+stance_id: en `retire_ids`, id de la postura que se retira.
+from_id / to_id: en `reroute_pairs`, redirige asignaciones de `from_id` a `to_id`.
+reason: justificación corta (≤ 15 palabras, español de México).
+
+
+Responde EXCLUSIVAMENTE con JSON:
+
+{
+  "proposals": [
+    {"kind": "add", "label": "...", "description": "...", "source_item_ids": ["..."]},
+    {"kind": "rename", "src_stance_id": "<id>", "label": "...", "description": "..."}
+  ],
+  "merge_pairs": [
+    {"src_id": "<id>", "dst_id": "<id>", "reason": "..."}
+  ],
+  "retire_ids": [
+    {"stance_id": "<id>", "reason": "..."}
+  ],
+  "reroute_pairs": [
+    {"from_id": "<id>", "to_id": "<id>", "reason": "..."}
+  ]
+}
+
+Ejemplo (cadena hospitalaria; 5 asignaciones null sobre demoras en urgencias → add; dos entradas de farmacia que ya no se distinguen en uso → merge; entrada vieja sin uso reciente → retire; asignaciones a "queja sobre triage" que en realidad son sobre admisión → reroute):
+
+{
+  "proposals": [
+    {"kind": "add", "label": "demoras en urgencias", "description": "Tiempo de espera percibido como excesivo en sala de urgencias.", "source_item_ids": ["it_8821", "it_8907", "it_8915", "it_9002", "it_9044"]}
+  ],
+  "merge_pairs": [
+    {"src_id": "st_farm_amb", "dst_id": "st_farm_int", "reason": "asignaciones recientes no distinguen sub-área"}
+  ],
+  "retire_ids": [
+    {"stance_id": "st_vac_2023", "reason": "campaña cerrada; sin asignaciones en la muestra"}
+  ],
+  "reroute_pairs": [
+    {"from_id": "st_triage_q", "to_id": "st_admision_q", "reason": "los items mencionan admisión, no triage clínico"}
+  ]
+}
+
+Si no hay nada accionable, devuelve {"proposals": [], "merge_pairs": [], "retire_ids": [], "reroute_pairs": []}.

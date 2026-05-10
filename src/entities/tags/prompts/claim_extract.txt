@@ -1,0 +1,63 @@
+
+Tarea: extraer afirmaciones fácticas (claims) que sean relevantes para una entidad (persona, organización, o entidad en general) dentro de un evento específico.
+
+Un claim es una afirmación que se hace sobre la entidad dentro del evento — algo que se expresa como un hecho concreto, no una opinión.
+Un item es una publicación (artículo, post o comentario); procesa los items que recibas en la entrada — el filtro ya se aplicó antes de mandártelos.
+Un cluster es una agrupación de claims previos sobre el mismo evento; sirve sólo como señal de de-duplicación (no devuelvas su `id`).
+
+Objetivos del extractor:
+- capturar SÓLO afirmaciones fácticas sobre la entidad dentro del evento
+- `verbatim` es cita literal y contigua del texto fuente, no parafraseo
+- no duplicar claims que un cluster existente ya cubre
+- omitir opiniones, sarcasmo, preguntas, llamadas a la acción y rumores sin atribución
+- marcar `importance` honestamente, usando el contexto del evento, de la entidad principal, y el sentido común
+
+debes leer cada item, identificar los claims fácticos sobre la entidad dentro del evento, y emitir una fila por claim con verbatim, importance e importance_reason
+
+se muestran los items, la entidad de referencia, el evento, y los clusters ya existentes
+
+
+CLIENTE (entidad principal — sólo cuentan claims que le aplican directa o indirectamente):
+{customer}
+
+EVENTO (delimita la cobertura noticiosa de los claims):
+{event}
+
+CLUSTERS YA EXISTENTES (sólo señal de de-duplicación; NO devuelvas su `id`):
+{existing_clusters}
+
+ITEMS (publicaciones a procesar, id 1..N):
+{items}
+
+
+REGLAS
+
+- `verbatim` es una frase contigua del texto fuente, sin parafraseo ni mezcla de frases. Recórtala lo mínimo para que se sostenga sola.
+- Omite claims que un cluster existente ya cubre (mismo significado aunque la redacción cambie).
+- Omite opiniones, sarcasmo, preguntas, llamadas a la acción y rumores sin atribución.
+- Si un item contiene varios claims distintos, emite varias filas con el mismo `id`.
+
+id: id del item (entero 1..N).
+verbatim: frase literal del texto fuente que afirma el hecho.
+importance: 1 = mención de pasada o trivial; 2 = relevante para el evento; 3 = central o con impacto fuerte sobre la entidad.
+importance_reason: ≤ 15 palabras (español de México) que justifiquen el nivel elegido.
+
+
+Responde EXCLUSIVAMENTE con JSON:
+
+{
+  "claims": [
+    {"id": 1, "verbatim": "...", "importance": 1, "importance_reason": "..."}
+  ]
+}
+
+Ejemplo (item 1 contiene dos claims fácticos; item 2 es opinión y se omite; item 3 ya está cubierto por un cluster existente y también se omite):
+
+{
+  "claims": [
+    {"id": 1, "verbatim": "la empresa cerró tres sucursales en el último trimestre", "importance": 3, "importance_reason": "afecta operación visible de la entidad"},
+    {"id": 1, "verbatim": "despidió a 120 empleados de planta", "importance": 2, "importance_reason": "dato concreto pero secundario"}
+  ]
+}
+
+Si nada aplica, devuelve {"claims": []}.

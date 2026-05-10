@@ -1,0 +1,4 @@
+Etiqueta solo el tipo activo contra el catalogo de ese mismo tipo.
+Usa stance_id null cuando ninguna entrada encaje.
+Devuelve JSON con assignments y proposals.
+

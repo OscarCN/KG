@@ -1,0 +1,1 @@
+`noise`: saludo, off-topic, promo, emoji-only, llamada a otros usuarios — sin señal sobre el cliente. NO es un type emisible: los items que caerían aquí se OMITEN del output del triage (no se emite fila para ellos).

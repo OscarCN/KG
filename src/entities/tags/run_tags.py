@@ -1,0 +1,313 @@
+"""Stream a pre-linked corpus through the tags pipeline, step-by-step.
+
+Designed to be run in IPython:
+    ipython src/entities/tags/run_tags.py
+or, inside a session:
+    %run src/entities/tags/run_tags.py
+
+After it finishes, every step instance and every catalog is bound at
+module scope so you can poke around:
+
+    customer            — Customer dataclass loaded from CUSTOMER_FIXTURE
+    retriever           — ArticleBundleRetriever over the pre-linked fixture
+    bundles             — list of ArticleBundle
+    triage_step         — TypeTriageStep
+    stance_tagger       — StanceTagger
+    stance_updater      — StanceUpdater
+    claim_tagger        — ClaimTagger
+    claim_updater       — ClaimUpdater
+    bootstrap_step      — BootstrapStep
+    consistency_step    — ConsistencyPassStep
+    state               — StreamingState (.stance_catalog, .claim_catalogs, .items_seen)
+    pipeline            — StreamingTagsPipeline
+    stats               — StreamingStats counters
+
+To re-tag a single bundle after the run:
+    result = pipeline.process_bundle(bundles[0])
+"""
+
+from __future__ import annotations
+
+import logging
+import sys
+from datetime import datetime
+from pathlib import Path
+from typing import Optional
+
+from dotenv import load_dotenv
+
+# Ensure the project root is on sys.path so `src.*` imports resolve when
+# this file is run directly (`ipython src/entities/tags/run_tags.py`).
+_PROJECT_ROOT = Path(__file__).resolve().parents[3]
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
+
+load_dotenv(_PROJECT_ROOT / ".env.local")
+
+logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
+logging.getLogger("src.entities.tags").setLevel(logging.INFO)
+
+from src.entities.tags.bootstrap import BootstrapStep
+from src.entities.tags.catalogs import ClaimCatalogStore, StanceCatalog
+from src.entities.tags.consistency import ConsistencyPassStep
+from src.entities.tags.llm import CachedJsonLlm, OpenRouterJsonLlm, cache_dir_for
+from src.entities.tags.persistence import (
+    load_snapshot,
+    load_stance_catalog,
+    save_snapshot,
+    save_stance_catalog,
+)
+from src.entities.tags.retrieval import ArticleBundleRetriever
+from src.entities.tags.runner import LocalRunConfig, load_customer
+from src.entities.tags.stats import (
+    StreamingStats,
+    print_article_snapshot,
+    print_event_created_snapshot,
+    print_sample_source_items,
+    print_top_events,
+    print_top_stances_by_type,
+)
+from src.entities.tags.streaming import StreamingState, StreamingTagsPipeline
+from src.entities.tags.tagging import (
+    ClaimTagger,
+    ClaimUpdater,
+    StanceTagger,
+    StanceUpdater,
+)
+from src.entities.tags.triage import TypeTriageStep
+
+
+# ── Configuration ─────────────────────────────────────────────────────────────
+
+CUSTOMER_FIXTURE: Path = _PROJECT_ROOT / "data" / "tags" / "customer_75.json"
+
+# Pre-linked fixture (output of `scripts/build_linked_fixture.py`). The
+# sibling event store is auto-derived as `<stem>__events.json`.
+LINKED_FIXTURE: Path = (
+    _PROJECT_ROOT
+    / "data"
+    / "linked"
+    / "ayuntamiento_qro_20260506_175946.json"
+)
+EVENTS_FIXTURE: Path = LINKED_FIXTURE.with_name(f"{LINKED_FIXTURE.stem}__events.json")
+
+# Where to write the bootstrap catalog + run snapshot + consistency-pass result.
+TAGS_OUTPUT_DIR: Path = _PROJECT_ROOT / "data" / "tags"
+RUN_TIMESTAMP: str = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+# Toggles
+BOOTSTRAP_IF_MISSING: bool = True   # run Phase 1 if no catalog file exists
+RUN_STREAMING: bool = True          # run the per-bundle streaming loop
+RUN_CONSISTENCY: bool = False       # run consistency pass at the end
+
+# Streaming knobs
+INCLUDE_COMMENTS_IN_CLAIMS: bool = False
+SNAPSHOT_TOP_N: int = 10
+BUNDLE_LIMIT: Optional[int] = None  # cap to first N bundles for fast iteration
+
+# Consistency-pass knobs
+CONSISTENCY_SAMPLE_SIZE: int = 300
+
+
+# ── 0. Build a `LocalRunConfig` (used for env-var-driven model defaults) ──────
+
+config = LocalRunConfig(
+    customer_path=CUSTOMER_FIXTURE,
+    linked_path=LINKED_FIXTURE,
+    events_path=EVENTS_FIXTURE,
+    output_dir=TAGS_OUTPUT_DIR,
+    catalog_path=None,
+    include_comments=INCLUDE_COMMENTS_IN_CLAIMS,
+    snapshot_top_n=SNAPSHOT_TOP_N,
+    sample_size=CONSISTENCY_SAMPLE_SIZE,
+)
+print(f"models: triage={config.triage_model}")
+print(f"        bootstrap={config.bootstrap_model}")
+print(f"        tagger={config.tagger_model}")
+print(f"        claim_tagger={config.claim_tagger_model}")
+print(f"        claim_updater={config.claim_updater_model}")
+print(f"        consistency={config.consistency_model}")
+
+
+# ── 1. Load customer + open the pre-linked fixture ────────────────────────────
+
+print()
+print("Loading customer + pre-linked fixture …")
+customer = load_customer(CUSTOMER_FIXTURE)
+print(f"  customer: entity_id={customer.entity_id} name={customer.name!r}")
+
+retriever = ArticleBundleRetriever(LINKED_FIXTURE, EVENTS_FIXTURE, customer=customer)
+bundles: list = []
+if not LINKED_FIXTURE.exists():
+    print(f"  ⚠️  LINKED_FIXTURE not found: {LINKED_FIXTURE}")
+    print(f"      Run scripts/build_linked_fixture.py first to produce it.")
+    print(f"      Continuing with empty bundles list — Phase 1 / 4 / 6 will be skipped.")
+else:
+    bundles = list(retriever.iter_bundles())
+    if BUNDLE_LIMIT:
+        bundles = bundles[:BUNDLE_LIMIT]
+    n_with_events = sum(1 for b in bundles if b.event_ids)
+    print(f"  bundles loaded: {len(bundles)} ({n_with_events} with linked events)")
+    print(f"  events resolved: {len(retriever.event_descriptions())}")
+
+
+# ── 2. Build LLM adapters (one cached client per phase) ───────────────────────
+
+
+def _llm(phase: str, model: str) -> CachedJsonLlm:
+    return CachedJsonLlm(
+        OpenRouterJsonLlm(model=model),
+        cache_dir=cache_dir_for(phase, customer.entity_id),
+        model=model,
+        extra={"phase": phase},
+    )
+
+
+triage_llm = _llm("triage", config.triage_model)
+bootstrap_llm = _llm("bootstrap", config.bootstrap_model)
+tagger_llm = _llm("tagging", config.tagger_model)
+claim_tagger_llm = _llm("claim_tag", config.claim_tagger_model)
+claim_updater_llm = _llm("claim_group", config.claim_updater_model)
+consistency_llm = _llm("consistency", config.consistency_model)
+
+
+# ── 3. Build step instances (one of each, reusable across the run) ───────────
+
+triage_step = TypeTriageStep(customer, triage_llm)
+stance_tagger = StanceTagger(customer, tagger_llm)
+stance_updater = StanceUpdater()
+claim_tagger = ClaimTagger(customer, claim_tagger_llm, include_comments=INCLUDE_COMMENTS_IN_CLAIMS)
+claim_updater = ClaimUpdater(customer, claim_updater_llm)
+bootstrap_step = BootstrapStep(customer, triage_step, bootstrap_llm)
+consistency_step = ConsistencyPassStep(
+    customer, consistency_llm, sample_size=CONSISTENCY_SAMPLE_SIZE
+)
+
+
+# ── 4. Phase 1 — bootstrap the typed stance catalog ──────────────────────────
+
+bootstrap_path: Path = TAGS_OUTPUT_DIR / customer.slug / "bootstrap.json"
+stance_catalog: StanceCatalog
+
+if bootstrap_path.exists():
+    stance_catalog = load_stance_catalog(bootstrap_path)
+    print()
+    print(f"Loaded existing bootstrap catalog from {bootstrap_path} "
+          f"({len(stance_catalog.entries)} entries)")
+elif BOOTSTRAP_IF_MISSING and bundles:
+    print()
+    print("Bootstrapping stance catalog (Phase 1) …")
+    stance_catalog = bootstrap_step.run(bundles)
+    save_stance_catalog(stance_catalog, bootstrap_path)
+    print(f"  produced {len(stance_catalog.entries)} entries → {bootstrap_path}")
+    print_top_stances_by_type(stance_catalog, top_n=5)
+else:
+    stance_catalog = StanceCatalog(customer.entity_id)
+    if not bundles:
+        print("Starting from empty catalog (no bundles available)")
+    else:
+        print("Starting from empty catalog (BOOTSTRAP_IF_MISSING=False)")
+
+
+# ── 5. Streaming setup ────────────────────────────────────────────────────────
+
+state = StreamingState(customer=customer, stance_catalog=stance_catalog)
+pipeline = StreamingTagsPipeline(
+    state=state,
+    triage_step=triage_step,
+    stance_tagger=stance_tagger,
+    stance_updater=stance_updater,
+    claim_tagger=claim_tagger,
+    claim_updater=claim_updater,
+)
+stats = StreamingStats()
+
+
+# ── 6. Streaming loop — one ArticleBundle at a time ──────────────────────────
+
+if RUN_STREAMING and bundles:
+    print()
+    print(f"Streaming {len(bundles)} bundles …")
+    for i, bundle in enumerate(bundles, start=1):
+        result = pipeline.process_bundle(bundle)
+        stats.absorb(result)
+        print(f"[{i}/{len(bundles)}] {bundle.root.id}")
+        print_article_snapshot(
+            stats,
+            state.stance_catalog,
+            state.claim_catalogs,
+            label=f"bundle {i}",
+            top_n=SNAPSHOT_TOP_N,
+        )
+        for etr in result.event_tag_results:
+            if etr.event_id == "__bundle__":
+                continue
+            print_event_created_snapshot(
+                state.stance_catalog,
+                state.claim_catalogs,
+                customer.entity_id,
+                etr.event_id,
+                top_n=SNAPSHOT_TOP_N,
+            )
+
+
+# ── 7. Optional — consistency pass over the run snapshot ─────────────────────
+
+consistency_result = None
+if RUN_CONSISTENCY:
+    print()
+    print("Running consistency pass …")
+    consistency_result = consistency_step.run(
+        state.stance_catalog, state.items_seen, state.claim_catalogs
+    )
+    if consistency_result.summary:
+        print(f"  counters: {consistency_result.summary.counters}")
+    print(f"  proposals applied: {len(consistency_result.proposals)}  "
+          f"merges: {len(consistency_result.merge_pairs)}  "
+          f"retires: {len(consistency_result.retire_ids)}  "
+          f"reroutes: {len(consistency_result.reroute_pairs)}")
+
+
+# ── 8. Persist + summary ─────────────────────────────────────────────────────
+
+snapshot_path = TAGS_OUTPUT_DIR / customer.slug / f"run_{RUN_TIMESTAMP}.json"
+save_snapshot(state.stance_catalog, state.claim_catalogs, snapshot_path)
+print()
+print(f"Wrote {snapshot_path}")
+
+if consistency_result is not None:
+    import json as _json
+    consistency_path = TAGS_OUTPUT_DIR / customer.slug / f"consistency_{RUN_TIMESTAMP}.json"
+    consistency_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(consistency_path, "w", encoding="utf-8") as f:
+        _json.dump(consistency_result.to_dict(), f, ensure_ascii=False, indent=2)
+    print(f"Wrote {consistency_path}")
+
+
+print_top_stances_by_type(state.stance_catalog, top_n=5)
+print_sample_source_items(state.stance_catalog, state.claim_catalogs, state.items_seen, n=3)
+print_top_events(state.stance_catalog, state.claim_catalogs, n_events=5)
+
+
+# ── Per-bundle helper for IPython re-runs ────────────────────────────────────
+
+
+def tag_one(bundle_index_or_source_id):
+    """Re-tag a single bundle. Useful in IPython after `%run`.
+
+    Examples:
+        tag_one(0)                                  # by index
+        tag_one('https://www.facebook.com/…')       # by source_id
+    """
+    if isinstance(bundle_index_or_source_id, int):
+        bundle = bundles[bundle_index_or_source_id]
+    else:
+        bundle = retriever.bundle_for(bundle_index_or_source_id)
+        if bundle is None:
+            raise KeyError(bundle_index_or_source_id)
+    result = pipeline.process_bundle(bundle)
+    print_article_snapshot(
+        stats, state.stance_catalog, state.claim_catalogs,
+        label=f"manual {bundle.root.id}", top_n=SNAPSHOT_TOP_N,
+    )
+    return result

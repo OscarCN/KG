@@ -1,0 +1,48 @@
+Construye el catálogo inicial de entradas del tipo `{stance_type}` para el cliente. Recibes todas las ocurrencias que ya fueron marcadas con ese tipo; agrúpalas por la postura concreta que comparten y redacta una entrada canónica por grupo.
+
+CLIENTE (entidad principal — sólo agrupa ocurrencias que afectan su percepción directa o indirectamente; descarta las que no le aplican):
+{customer}
+
+GUÍA DEL TIPO `{stance_type}` (define la forma y nivel de abstracción correctos para cada entrada):
+{stance_type_guide}
+
+OCURRENCIAS (lista plana; cada fila trae `source_item_id`, `kind`, `brief_summary`, `text`, `importance_hint`):
+{occurrences}
+
+REGLAS
+
+- Una entrada por postura distinta. Funde ocurrencias que digan lo mismo aunque usen palabras diferentes.
+- Cada entrada necesita al menos 2 `source_item_ids` distintos como evidencia; descarta grupos con una sola ocurrencia.
+- Máximo 15 entradas. Si sobran candidatas, conserva las de mayor evidencia y mayor importancia.
+- Respeta el nivel de abstracción que indica la guía del tipo: ni tan amplio que dos quejas distintas caigan juntas, ni tan específico que cada ocurrencia sea su propia entrada.
+- No emitas entradas casi duplicadas (mismo significado con redacción distinta); fusiónalas.
+- Si ninguna ocurrencia aplica al cliente, devuelve `{"entries": []}`.
+
+label: frase corta (≤ 8 palabras, español de México) que nombra la postura canónica, redactada en la forma que pide la guía del tipo.
+description: una o dos oraciones que explican qué cubre la entrada y la distinguen de entradas vecinas.
+source_item_ids: lista de los `source_item_id` de las ocurrencias agrupadas (≥ 2 distintos, tomados tal cual de la entrada).
+
+Responde EXCLUSIVAMENTE con JSON:
+
+{
+  "entries": [
+    {"label": "...", "description": "...", "source_item_ids": ["...", "..."]}
+  ]
+}
+
+Ejemplo (cliente: una aseguradora; tipo `complaint`; tres ocurrencias hablan de demoras al pagar siniestros, dos de mala atención telefónica, una mención aislada se descarta por falta de evidencia):
+
+{
+  "entries": [
+    {
+      "label": "demora en pago de siniestros",
+      "description": "Asegurados reportan que el reembolso o pago del siniestro tarda semanas más de lo prometido.",
+      "source_item_ids": ["a12", "a37", "a55"]
+    },
+    {
+      "label": "mala atención en call center",
+      "description": "Quejas por tiempos de espera largos y agentes que no resuelven en la línea de atención.",
+      "source_item_ids": ["a08", "a44"]
+    }
+  ]
+}

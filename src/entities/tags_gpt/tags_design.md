@@ -224,28 +224,23 @@ and `rechazo al alcalde`) typically coexist whenever the public is divided.
 Greeting, spam, off-topic, promotion, emoji-only content, or content with no
 signal about the customer.
 
-| Text | Behavior |
+| Text | Assignment |
 |---|---|
-| "Buenos dias a todos." | omitted (no triage row, no assignment) |
-| "Siganme en mi canal." | omitted |
-| "🙏🙏🙏" | omitted |
+| "Buenos dias a todos." | `noise`, `stance_id = null` |
+| "Siganme en mi canal." | `noise`, `stance_id = null` |
+| "🙏🙏🙏" | `noise`, `stance_id = null` |
 
-Catalog: no. Items that would be noise are **omitted** at the triage step
-(the model emits no row for them) — they leave no trace in the assignment
-log. This saves output tokens and keeps the assignments table free of
-content with no downstream consumer. Coverage of "items considered" is
-still recoverable from `state.items_seen` minus the items that produced
-assignments.
+Catalog: no. Mostly-noise items should receive exactly one `noise` assignment
+and no other stance.
 
 ### Type Tie-Break
 
 If one stance idea could fit multiple types, choose the most specific type:
 
-`denuncia > request > complaint > suggestion > gratefulness > endorsement > entity_stance > question`
+`denuncia > request > complaint > suggestion > gratefulness > endorsement > entity_stance > question > noise`
 
 This resolves ambiguity for one idea. It does not prevent one item from
-emitting multiple distinct stance assignments. (`noise` is not in the
-tie-break list — items that would only fit `noise` are simply omitted.)
+emitting multiple distinct stance assignments.
 
 ## 4. Data Stream Design
 
