@@ -8,7 +8,8 @@ We already applied the cleanup pattern to the two-pass type triage path:
 
 - Customer context is reduced to `{ "name": ..., "description": ... }`.
 - Event context is reduced to `{ "description": ... }`.
-- Source items are reduced to `{ "id": <local int>, "kind": ..., "text": ... }`.
+- Source items are reduced to the smallest shape needed by the prompt:
+  `{ "id": <local int>, "kind": ..., "text": ... }` when kind is needed, or numbered text blocks (`[1] text`) when only evidence references are needed.
 - Long source IDs are mapped to local integers inside the prompt builder/parser and immediately mapped back after parsing.
 - Triage no longer extracts claims and no longer asks for `brief_summary` or `sentiment`.
 - Claim extraction is a separate step, limited to articles/posts by default.
@@ -142,21 +143,24 @@ Batching:
 - Sample and batch by stance type.
 - Prefer multiple small consistency calls over one large global prompt.
 
-### `bootstrap_prompt`
+### bootstrap prompts
 
-Goal: create initial stance catalog entries from a small corpus.
+Goal: create initial stance catalog entries from a small corpus in two steps.
 
 Recommended compact inputs:
 
 - Customer: `name`, `description`.
-- Event: `description` when bootstrapping for an event.
-- Items: local integer IDs, `kind`, `text`.
-- Optional target stance types.
+- Step 1 type triage: reuse the same batched `TypeTriageStep` used by streaming tagging; no bootstrap-only triage prompt.
+- Step 2 per-type catalog bootstrap: only items triaged to the active stance type, rendered as numbered text blocks.
+- Active stance type and stance-type guide for the per-type catalog call.
 
 Parser requirements:
 
-- Validate generated entries by type.
-- Do not allow bootstrap output to depend on long source IDs.
+- Map local item IDs back only inside the bootstrap step.
+- Drop `request` and `noise`; they do not create catalog entries.
+- Validate generated entries against the active type.
+- Require enough valid local evidence IDs before adding an entry.
+- Do not allow catalog bootstrap output to depend on source URLs or source kinds.
 
 Batching:
 
@@ -166,7 +170,7 @@ Batching:
 ## Acceptance Criteria
 
 - Every prompt has its own compact context builder or clearly named compact block.
-- Prompt payloads contain local integer IDs for source items, proposals, samples, or raw claims where applicable.
+- Prompt payloads contain local integer IDs for source items, proposals, samples, or raw claims where downstream parsing needs them.
 - Parsers map local IDs back before constructing domain models.
 - Unknown local IDs are dropped and counted.
 - Comment-heavy prompts support a configurable batch size.

@@ -17,6 +17,7 @@ from typing import Any, Callable, Optional, Protocol
 from src.entities.tags_gpt.models import json_default
 
 logger = logging.getLogger(__name__)
+llm_io_logger = logging.getLogger("src.entities.tags_gpt.llm_io")
 
 
 class JsonLlm(Protocol):
@@ -95,11 +96,26 @@ class CachedJsonLlm:
         if path.exists():
             with open(path, encoding="utf-8") as handle:
                 cached = json.load(handle)
-            return dict(cached["response"])
+            response = dict(cached["response"])
+            _log_llm_io(
+                phase=phase,
+                model=model,
+                prompt=prompt,
+                response=response,
+                cache_hit=True,
+            )
+            return response
         response = self.inner.complete_json(phase=phase, payload=payload, prompt=prompt, model=model)
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "w", encoding="utf-8") as handle:
             json.dump({"response": response}, handle, ensure_ascii=False, indent=2, default=json_default)
+        _log_llm_io(
+            phase=phase,
+            model=model,
+            prompt=prompt,
+            response=response,
+            cache_hit=False,
+        )
         return response
 
     @staticmethod
@@ -138,16 +154,55 @@ class ScriptedJsonLlm:
         self.calls.append({"phase": phase, "payload": payload, "prompt": prompt, "model": model})
         response = self.responses.get(phase)
         if response is None:
-            return {}
+            parsed_response: dict[str, Any] = {}
+            _log_llm_io(
+                phase=phase,
+                model=model,
+                prompt=prompt,
+                response=parsed_response,
+                cache_hit=None,
+            )
+            return parsed_response
         if callable(response):
-            return dict(response(payload, prompt, model))
-        if isinstance(response, list):
+            parsed_response = dict(response(payload, prompt, model))
+        elif isinstance(response, list):
             if not response:
-                return {}
-            return dict(response.pop(0))
-        return dict(response)
+                parsed_response = {}
+            else:
+                parsed_response = dict(response.pop(0))
+        else:
+            parsed_response = dict(response)
+        _log_llm_io(
+            phase=phase,
+            model=model,
+            prompt=prompt,
+            response=parsed_response,
+            cache_hit=None,
+        )
+        return parsed_response
 
 
 def default_cached_llm(cache_root: Optional[Path] = None) -> JsonLlm:
     root = cache_root or Path(__file__).resolve().parents[3] / "cache" / "tags_gpt"
     return CachedJsonLlm(OpenRouterJsonLlm(), root)
+
+
+def _log_llm_io(
+    *,
+    phase: str,
+    model: str,
+    prompt: str,
+    response: dict[str, Any],
+    cache_hit: Optional[bool],
+) -> None:
+    if not llm_io_logger.isEnabledFor(logging.DEBUG):
+        return
+    cache_label = "n/a" if cache_hit is None else ("hit" if cache_hit else "miss")
+    llm_io_logger.debug(
+        "LLM call phase=%s model=%s cache=%s\nPROMPT:\n%s\nRESPONSE:\n%s",
+        phase,
+        model,
+        cache_label,
+        prompt,
+        json.dumps(response, ensure_ascii=False, indent=2, default=json_default),
+    )

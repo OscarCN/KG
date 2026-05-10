@@ -142,28 +142,11 @@ class StreamingTagsPipeline:
         return stance_tagging, claim_tagging, summary
 
     def _triage_bundle(self, event, bundle: ArticleBundle) -> TypeTriageResult:
-        results = [
-            self.type_triage_step.triage(event, items)
-            for items in self._triage_item_batches(bundle)
-        ]
-        merged = self._merge_triage_results(results)
-        merged.n_items_seen = len({item.id for item in bundle.items})
-        return merged
-
-    def _triage_item_batches(self, bundle: ArticleBundle) -> list[list[SourceItem]]:
-        context: list[SourceItem] = []
-        if bundle.article:
-            context.append(bundle.article)
-        context.extend(bundle.posts)
-
-        if not bundle.comments:
-            return [context] if context else []
-
-        batches: list[list[SourceItem]] = []
-        for start in range(0, len(bundle.comments), self.triage_comment_batch_size):
-            comment_chunk = bundle.comments[start:start + self.triage_comment_batch_size]
-            batches.append([*context, *comment_chunk] if context else list(comment_chunk))
-        return batches
+        return self.type_triage_step.triage(
+            event,
+            bundle.items,
+            batch_size=self.triage_comment_batch_size,
+        )
 
     def _stance_tag_batches(
         self,
@@ -203,23 +186,6 @@ class StreamingTagsPipeline:
                 batches.append(([*context, *comment_chunk] if context else comment_chunk, chunk_hints))
 
         return batches
-
-    @staticmethod
-    def _merge_triage_results(results: list[TypeTriageResult]) -> TypeTriageResult:
-        merged = TypeTriageResult()
-        seen_triage: set[tuple[str, str]] = set()
-
-        for result in results:
-            merged.dropped_invalid += result.dropped_invalid
-
-            for hint in result.triaged:
-                key = (hint.source_item_id, hint.stance_type)
-                if key in seen_triage:
-                    continue
-                seen_triage.add(key)
-                merged.triaged.append(hint)
-
-        return merged
 
     def _tag_only_assignments(self, event_id: str, triage: TypeTriageResult) -> StanceTagging:
         result = StanceTagging()

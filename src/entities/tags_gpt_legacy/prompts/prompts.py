@@ -151,6 +151,38 @@ def compact_items_block(
     )
 
 
+def numbered_items_payload(
+    items: list[dict[str, Any]] | list[SourceItem],
+    *,
+    text_limit: int = 700,
+) -> list[dict[str, Any]]:
+    payload: list[dict[str, Any]] = []
+    for index, item in enumerate(items, start=1):
+        if isinstance(item, SourceItem):
+            local_id = index
+            text = item.short_text(text_limit)
+        elif isinstance(item, dict):
+            local_id = item.get("id") or index
+            text = str(item.get("text") or "").strip()[:text_limit]
+        else:
+            local_id = index
+            text = str(item or "").strip()[:text_limit]
+        if text:
+            payload.append({"id": local_id, "text": text})
+    return payload
+
+
+def numbered_items_block(
+    items: list[dict[str, Any]] | list[SourceItem],
+    *,
+    text_limit: int = 700,
+) -> str:
+    lines = []
+    for item in numbered_items_payload(items, text_limit=text_limit):
+        lines.append(f"[{item['id']}]\n{item['text']}")
+    return "\n\n---\n\n".join(lines) or "(sin muestras)"
+
+
 def triage_customer_block(customer: Customer) -> str:
     return compact_customer_block(customer)
 
@@ -241,17 +273,32 @@ CLAIM_EXTRACTION_RULES = _claim_extraction_rules(include_comments=False)
 CLAIM_CLUSTER_RULES = _text("claim_cluster_rules.txt")
 
 
-def bootstrap_prompt(
+def bootstrap_catalog_prompt(
     customer: Customer,
+    stance_type: StanceType,
     items: list[dict[str, Any]] | list[SourceItem],
+    *,
+    min_evidence: int = 2,
 ) -> str:
+    target_size = "5 a 15" if stance_type == "entity_stance" else "0 a 10"
     return _render(
         "bootstrap.txt",
         stance_rubric=STANCE_RUBRIC,
         stance_format_rules=STANCE_FORMAT_RULES,
+        stance_type=stance_type,
+        stance_type_guide=stance_type_guide(stance_type),
         customer=compact_customer_block(customer),
-        items=compact_items_block(items, text_limit=700),
+        items=numbered_items_block(items, text_limit=700),
+        target_size=target_size,
+        min_evidence=min_evidence,
     )
+
+
+def bootstrap_prompt(
+    customer: Customer,
+    items: list[dict[str, Any]] | list[SourceItem],
+) -> str:
+    return bootstrap_catalog_prompt(customer, "entity_stance", items)
 
 
 def type_triage_prompt(

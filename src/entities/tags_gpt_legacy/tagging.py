@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from src.entities.tags_gpt.catalogs import ClaimCatalog, ClaimCatalogStore, StanceCatalog
@@ -75,6 +76,46 @@ def _local_item_payload(
     return local_items, local_item_by_id, local_id_by_source_id
 
 
+def _triage_item_batches(
+    items: list[SourceItem],
+    batch_size: int,
+) -> list[tuple[list[SourceItem], set[str]]]:
+    chunk_size = max(1, batch_size)
+    context = [item for item in items if item.kind in ("article", "user_post")]
+    comments = [item for item in items if item.kind == "user_comment"]
+
+    batches: list[tuple[list[SourceItem], set[str]]] = []
+    for chunk in _chunks(context, chunk_size):
+        batches.append((chunk, {item.id for item in chunk}))
+
+    context_by_id = {item.id: item for item in context}
+    comments_by_parent: dict[str, list[SourceItem]] = {}
+    comments_without_context: list[SourceItem] = []
+    for comment in comments:
+        parent = context_by_id.get(comment.parent_source_id or "")
+        if parent is None and len(context) == 1:
+            parent = context[0]
+        if parent is None:
+            comments_without_context.append(comment)
+        else:
+            comments_by_parent.setdefault(parent.id, []).append(comment)
+
+    for parent_id, grouped_comments in comments_by_parent.items():
+        parent = context_by_id[parent_id]
+        for chunk in _chunks(grouped_comments, chunk_size):
+            batches.append(([parent, *chunk], {item.id for item in chunk}))
+
+    for chunk in _chunks(comments_without_context, chunk_size):
+        batches.append((chunk, {item.id for item in chunk}))
+
+    return [(batch_items, candidate_ids) for batch_items, candidate_ids in batches if candidate_ids]
+
+
+def _chunks(items: list[SourceItem], size: int) -> list[list[SourceItem]]:
+    chunk_size = max(1, size)
+    return [items[index : index + chunk_size] for index in range(0, len(items), chunk_size)]
+
+
 def _local_triage_hints(
     hints: list[TypeTriageItem],
     local_id_by_source_id: dict[str, str],
@@ -117,6 +158,25 @@ def _local_stance_proposals(
     return payload
 
 
+@dataclass
+class TypeTriageDebugCall:
+    batch_index: int
+    candidate_source_item_ids: list[str] = field(default_factory=list)
+    payload: dict[str, Any] = field(default_factory=dict)
+    prompt: str = ""
+    response: dict[str, Any] = field(default_factory=dict)
+    result: TypeTriageResult = field(default_factory=TypeTriageResult)
+
+
+@dataclass
+class TypeTriageDebugResult:
+    result: TypeTriageResult
+    prompt: str
+    payload: dict[str, Any] = field(default_factory=dict)
+    response: dict[str, Any] = field(default_factory=dict)
+    calls: list[TypeTriageDebugCall] = field(default_factory=list)
+
+
 class TypeTriageStep:
     def __init__(
         self,
@@ -132,10 +192,68 @@ class TypeTriageStep:
             "google/gemini-2.5-flash-lite",
         )
 
-    def triage(self, event: LinkedEvent, items: list[SourceItem]) -> TypeTriageResult:
+    def triage(
+        self,
+        event: LinkedEvent,
+        items: list[SourceItem],
+        *,
+        batch_size: int = 12,
+    ) -> TypeTriageResult:
+        return self.triage_with_debug(event, items, batch_size=batch_size).result
+
+    def triage_with_debug(
+        self,
+        event: LinkedEvent,
+        items: list[SourceItem],
+        *,
+        batch_size: int = 12,
+    ) -> TypeTriageDebugResult:
         if not items:
-            return TypeTriageResult(n_items_seen=0)
+            return TypeTriageDebugResult(
+                result=TypeTriageResult(n_items_seen=0),
+                prompt="",
+            )
+
+        calls = [
+            self._triage_call_with_debug(
+                event,
+                batch_items,
+                candidate_source_item_ids=candidate_ids,
+                batch_index=index,
+            )
+            for index, (batch_items, candidate_ids) in enumerate(
+                _triage_item_batches(items, batch_size),
+                start=1,
+            )
+        ]
+        if not calls:
+            return TypeTriageDebugResult(
+                result=TypeTriageResult(n_items_seen=0),
+                prompt="",
+            )
+        merged = self._merge_debug_calls(calls)
+        return TypeTriageDebugResult(
+            result=merged,
+            payload=calls[0].payload,
+            prompt=calls[0].prompt,
+            response=calls[0].response,
+            calls=calls,
+        )
+
+    def _triage_call_with_debug(
+        self,
+        event: LinkedEvent,
+        items: list[SourceItem],
+        *,
+        candidate_source_item_ids: set[str],
+        batch_index: int,
+    ) -> TypeTriageDebugCall:
         local_items, local_item_by_id, _ = _local_item_payload(items)
+        candidate_local_item_by_id = {
+            local_id: item
+            for local_id, item in local_item_by_id.items()
+            if item.id in candidate_source_item_ids
+        }
         payload = {
             "customer": {
                 "name": self.customer.name,
@@ -146,17 +264,44 @@ class TypeTriageStep:
             },
             "items": local_items,
         }
+        prompt = type_triage_prompt(
+            self.customer,
+            event,
+            local_items,
+        )
         response = self.llm.complete_json(
             phase="type_triage",
             payload=payload,
-            prompt=type_triage_prompt(
-                self.customer,
-                event,
-                local_items,
-            ),
+            prompt=prompt,
             model=self.model,
         )
-        return self._parse_response(local_item_by_id, response)
+        result = self._parse_response(candidate_local_item_by_id, response)
+        result.n_items_seen = len(candidate_source_item_ids)
+        return TypeTriageDebugCall(
+            batch_index=batch_index,
+            candidate_source_item_ids=sorted(candidate_source_item_ids),
+            payload=payload,
+            prompt=prompt,
+            response=response,
+            result=result,
+        )
+
+    @staticmethod
+    def _merge_debug_calls(calls: list[TypeTriageDebugCall]) -> TypeTriageResult:
+        merged = TypeTriageResult()
+        seen: set[tuple[str, StanceType]] = set()
+        seen_items: set[str] = set()
+        for call in calls:
+            merged.dropped_invalid += call.result.dropped_invalid
+            seen_items.update(call.candidate_source_item_ids)
+            for hint in call.result.triaged:
+                key = (hint.source_item_id, hint.stance_type)
+                if key in seen:
+                    continue
+                seen.add(key)
+                merged.triaged.append(hint)
+        merged.n_items_seen = len(seen_items)
+        return merged
 
     def _parse_response(
         self,

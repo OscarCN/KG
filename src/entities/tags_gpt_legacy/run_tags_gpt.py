@@ -56,10 +56,6 @@ if str(_PROJECT_ROOT) not in sys.path:
 
 load_dotenv(_PROJECT_ROOT / ".env.local")
 
-logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
-logging.getLogger("src.entities.tags_gpt").setLevel(logging.INFO)
-logging.getLogger("src.entities.linking_gpt").setLevel(logging.INFO)
-
 from src.entities.linking_gpt import TagsGptLinkingAdapter  # noqa: E402
 from src.entities.tags_gpt import (  # noqa: E402
     ClaimCatalogStore,
@@ -97,7 +93,7 @@ NEWS_LOCAL: Optional[Path] = (
     # _PROJECT_ROOT / "data" / "ayuntamiento_qro" / "ayuntamiento_qro_20260504_214928.json"
 )
 
-BOOTSTRAP_CORPUS_LIMIT: int = 80
+BOOTSTRAP_CORPUS_LIMIT: int = 300
 RUN_TIMESTAMP = datetime.now().strftime("%Y%m%d_%H%M%S")
 TAGS_OUTPUT: Optional[Path] = None  # default: data/tags/<customer_slug>/tags_gpt_run_<ts>.json
 GEOCODE: bool = True
@@ -109,6 +105,39 @@ CONSISTENCY_SAMPLE_SIZE: int = 300
 # Manual-run knobs.
 LIMIT_BATCHES: Optional[int] = None
 SOURCE_IDS: Optional[list[str]] = None
+DEBUG_BOOTSTRAP: bool = True
+DEBUG_LLM_IO: bool = True
+STOP_BEFORE_SOURCE_ID: Optional[str] = (
+    "https://www.facebook.com/permalink.php?"
+    "story_fbid=pfbid02WWrzvgR84zxvAFnEE6u1hEKkhuTi9Rg9MuZiLPqExmRgCPqghNVz9t5yRUHYKrrLl"
+    "&id=100064393401223"
+)
+
+# Manual report knobs.
+REPORT_SAMPLE_ITEMS: int = 12
+REPORT_SAMPLE_EVENTS: int = 8
+REPORT_TOP_STANCES: int = 20
+REPORT_TOP_SOURCE_EVENTS: int = 10
+REPORT_TEXT_CHARS: int = 220
+
+
+logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
+logging.getLogger().setLevel(logging.WARNING)
+logging.getLogger("src.entities.tags_gpt").setLevel(logging.INFO)
+logging.getLogger("src.entities.linking_gpt").setLevel(logging.INFO)
+logging.getLogger("src.entities.tags_gpt.llm_io").setLevel(
+    logging.DEBUG if DEBUG_LLM_IO else logging.WARNING
+)
+
+for _noisy_logger in (
+    "elastic_transport",
+    "elasticsearch",
+    "httpcore",
+    "httpx",
+    "openai",
+    "urllib3",
+):
+    logging.getLogger(_noisy_logger).setLevel(logging.WARNING)
 
 
 def _write_json(path: Path, payload: Any) -> None:
@@ -173,8 +202,47 @@ bootstrap_corpus = retriever.get_customer_corpus(
 )
 print(f"  corpus items: {len(bootstrap_corpus)}")
 
-stance_catalog = StanceBootstrapStep(llm).bootstrap(customer, bootstrap_corpus)
+bootstrap_payload = {}
+bootstrap_prompt_text = ""
+bootstrap_response = {}
+bootstrap_items = []
+bootstrap_debug = None
+bootstrap_catalog_results = []
+if DEBUG_BOOTSTRAP:
+    bootstrap_step = StanceBootstrapStep(llm)
+    bootstrap_debug = bootstrap_step.bootstrap_with_debug(customer, bootstrap_corpus)
+    stance_catalog = bootstrap_debug.catalog
+    bootstrap_items = bootstrap_debug.items
+    bootstrap_catalog_results = bootstrap_debug.catalog_results
+    bootstrap_triage_calls = bootstrap_debug.triage.calls if bootstrap_debug.triage else []
+    if bootstrap_triage_calls:
+        bootstrap_payload = bootstrap_triage_calls[0].payload
+        bootstrap_prompt_text = bootstrap_triage_calls[0].prompt
+        bootstrap_response = bootstrap_triage_calls[0].response
+
+    print(f"  bootstrap triage batches: {len(bootstrap_triage_calls)}")
+    for triage_call in bootstrap_triage_calls:
+        print(
+            f"    batch {triage_call.batch_index}: "
+            f"triaged={len(triage_call.result.triaged)} "
+            f"dropped_invalid={triage_call.result.dropped_invalid}"
+        )
+
+    print(f"  bootstrap catalog calls: {len(bootstrap_catalog_results)}")
+    for catalog_result in bootstrap_catalog_results:
+        if catalog_result.skipped:
+            print(f"    {catalog_result.stance_type}: skipped no triaged items")
+        else:
+            print(
+                f"    {catalog_result.stance_type}: "
+                f"created={catalog_result.created} "
+                f"dropped_invalid={catalog_result.dropped_invalid} "
+                f"dropped_insufficient_evidence={catalog_result.dropped_insufficient_evidence}"
+            )
+else:
+    stance_catalog = StanceBootstrapStep(llm).bootstrap(customer, bootstrap_corpus)
 print(f"  produced {len(stance_catalog.entries)} stance entries")
+print(f"  by type: {dict(Counter(entry.primary_type for entry in stance_catalog.entries.values()))}")
 
 
 # ── 4. Build streaming coordinator ────────────────────────────────────────────
@@ -205,9 +273,22 @@ print()
 print("Streaming batches ...")
 article_results = []
 link_status_counts: Counter[str] = Counter()
+manual_batch = None
+manual_batch_index = None
+manual_bundle = None
 
 for i, batch in enumerate(batches, start=1):
     print(f"[{i}/{len(batches)}] {batch.source_id}")
+    if STOP_BEFORE_SOURCE_ID and batch.source_id == STOP_BEFORE_SOURCE_ID:
+        manual_batch = batch
+        manual_batch_index = i
+        manual_bundle = retriever.get_article_bundle(batch.source_id)
+        print("      DEBUG STOP: matched STOP_BEFORE_SOURCE_ID")
+        print("      Automatic streaming stops before processing this batch.")
+        print("      Bound for manual use: manual_batch, manual_batch_index, manual_bundle, pipeline")
+        print("      Example: result = pipeline.process_batch(manual_batch)")
+        break
+
     result = pipeline.process_batch(batch)
     article_results.append(result)
 
@@ -223,6 +304,11 @@ for i, batch in enumerate(batches, start=1):
     print(f"      link: {_short_counts(batch_status_counts)}")
     print(f"      stance_update: {_short_counts(stance_counts)}")
     print(f"      claim_update: {_short_counts(claim_counts)}")
+
+
+if manual_batch is not None:
+    print()
+    print("Manual stop reached; downstream outputs/reports are partial up to the prior batch.")
 
 
 consistency_result = None
@@ -273,3 +359,139 @@ print(f"  stance assignments: {len(stance_catalog.assignments)}")
 print(f"  claim catalogs: {len(list(claim_catalogs.values()))}")
 print(f"  claim clusters: {sum(len(catalog.clusters) for catalog in claim_catalogs.values())}")
 print(f"  source items seen: {len(state.items_seen)}")
+
+
+print()
+print("Inspection report:")
+
+
+def _short(text: str, limit: int = REPORT_TEXT_CHARS) -> str:
+    value = " ".join(str(text or "").split())
+    return value if len(value) <= limit else f"{value[:limit].rstrip()}..."
+
+
+def _stance_label(assignment) -> str:
+    entry = stance_catalog.entries.get(assignment.stance_id or "")
+    retired = stance_catalog.retired_entries.get(assignment.stance_id or "")
+    if entry:
+        return entry.label
+    if retired:
+        return f"{retired.label} [retired]"
+    return f"<{assignment.stance_type}:uncatalogued>"
+
+
+stances_by_item = {}
+for assignment in stance_catalog.assignments:
+    stances_by_item.setdefault(assignment.source_item_id, []).append(assignment)
+
+claims_by_item = {}
+claim_catalog_by_event = {catalog.event_id: catalog for catalog in claim_catalogs.values()}
+for catalog in claim_catalogs.values():
+    for cluster in catalog.clusters.values():
+        for claim in cluster.members:
+            claims_by_item.setdefault(claim.source_item_id, []).append(
+                {
+                    "event_id": catalog.event_id,
+                    "canonical": cluster.canonical,
+                    "verbatim": _short(claim.verbatim, 140),
+                    "importance": claim.importance,
+                }
+            )
+
+event_rows = []
+for event in event_store.values():
+    catalog = claim_catalog_by_event.get(event.id)
+    n_claims = sum(len(cluster.members) for cluster in catalog.clusters.values()) if catalog else 0
+    event_rows.append((n_claims, len(event.source_ids), event, catalog))
+
+tagged_items = []
+for index, item in enumerate(state.items_seen.values()):
+    activity = len(stances_by_item.get(item.id, [])) + len(claims_by_item.get(item.id, []))
+    if activity:
+        kind_rank = {"user_post": 0, "user_comment": 1, "article": 2}.get(item.kind, 3)
+        tagged_items.append((kind_rank, -activity, index, item))
+
+by_type = Counter(assignment.stance_type for assignment in stance_catalog.assignments)
+by_label = Counter(_stance_label(assignment) for assignment in stance_catalog.assignments)
+by_event_label = Counter(
+    (assignment.event_id, _stance_label(assignment))
+    for assignment in stance_catalog.assignments
+    if assignment.event_id
+)
+
+report = {
+    "sample_items": [
+        {
+            "kind": item.kind,
+            "id": _short(item.id, 86),
+            "text": _short(item.text),
+            "stances": [
+                {
+                    "type": assignment.stance_type,
+                    "label": _stance_label(assignment),
+                    "sentiment": assignment.sentiment,
+                    "relevance": assignment.consistency_relevance,
+                }
+                for assignment in stances_by_item.get(item.id, [])[:6]
+            ],
+            "claims": claims_by_item.get(item.id, [])[:5],
+        }
+        for _, _, _, item in sorted(tagged_items)[:REPORT_SAMPLE_ITEMS]
+    ],
+    "events_with_claims": [
+        {
+            "id": event.id,
+            "event_type": event.event_type,
+            "description": _short(event.description or event.name, 120),
+            "sources": [_short(source_id, 86) for source_id in event.source_ids[:6]],
+            "source_count": len(event.source_ids),
+            "claim_groups": [] if not catalog else [
+                {
+                    "canonical": cluster.canonical,
+                    "n": len(cluster.members),
+                    "importance_max": cluster.importance_max,
+                    "samples": [_short(member.verbatim, 150) for member in cluster.members[:3]],
+                }
+                for cluster in sorted(
+                    catalog.clusters.values(),
+                    key=lambda item: (item.importance_max, len(item.members)),
+                    reverse=True,
+                )
+            ],
+        }
+        for _, _, event, catalog in sorted(
+            event_rows,
+            key=lambda row: (row[0], row[1]),
+            reverse=True,
+        )[:REPORT_SAMPLE_EVENTS]
+    ],
+    "stance_aggregates": {
+        "by_type": dict(by_type),
+        "top_labels": [{"label": label, "count": count} for label, count in by_label.most_common(REPORT_TOP_STANCES)],
+        "top_event_stance_pairs": [
+            {
+                "event_id": event_id,
+                "event": _short((event_store.get(event_id).description or event_store.get(event_id).name), 100)
+                if event_store.get(event_id)
+                else event_id,
+                "label": label,
+                "count": count,
+            }
+            for (event_id, label), count in by_event_label.most_common(10)
+        ],
+    },
+    "events_with_most_sources": [
+        {
+            "id": event.id,
+            "event_type": event.event_type,
+            "description": _short(event.description or event.name, 140),
+            "source_count": len(event.source_ids),
+        }
+        for event in sorted(
+            event_store.values(),
+            key=lambda item: len(item.source_ids),
+            reverse=True,
+        )[:REPORT_TOP_SOURCE_EVENTS]
+    ],
+}
+print(json.dumps(report, ensure_ascii=False, indent=2, default=json_default))
