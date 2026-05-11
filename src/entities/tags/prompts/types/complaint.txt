@@ -1,12 +1,9 @@
-`complaint`: queja sobre un problema concreto o recurrente que afecta al cliente o a sus servicios.
+`complaint`: queja sobre un problema concreto o recurrente que es relevante para la entidad, sus servicios, productos, etc.
 
-Forma del label: "problemas en X" / "fallas en Y" / "demoras en Z".
+Ejemplos (texto crudo → label):
+- "tardé cuatro horas en el módulo y ni así me atendieron" → "atención presencial demasiado lenta"
+- "ya van tres veces que me cobran el mismo recibo este mes, qué eficiencia" → "cobros duplicados recurrentes"
+- "reportes en redes señalan caídas frecuentes en la app del banco esta semana" → "fallas recurrentes en banca móvil"
+- "que la obra va a quedar lista en 4 meses? jaja claro, como el puente bicentenario, 4 años para terminarse" → "retrasos en obras"
 
-Ejemplos contrastivos (texto crudo → label de catálogo):
-- "tardé cuatro horas en el módulo y ni así me atendieron" → "demoras en atención presencial"
-- "no me llega señal en mi colonia desde la semana pasada" → "fallas en cobertura móvil"
-- "mi pedido lleva diez días y nadie me dice dónde está" → "problemas en envíos a domicilio"
-- "la app del banco se cae cada vez que intento transferir" → "fallas en banca móvil"
-- "en urgencias me pasaron hasta después de seis horas esperando" → "demoras en atención de urgencias"
-
-Distingue de `entity_stance`: el complaint reporta un problema operativo, concreto o recurrente; el entity_stance atribuye un rasgo durable al sujeto. Distingue de `request`: el complaint expone el problema sin pedir acción individual; la request pide atención a un caso personal.
+Distingue de `entity_stance`: el complaint reporta un problema operativo, concreto o recurrente; el entity_stance atribuye un rasgo durable. Distingue de `request`: el complaint expone el problema sin pedir acción individual; la request pide atención a un caso personal.

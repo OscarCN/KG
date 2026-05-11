@@ -1,12 +1,8 @@
-`suggestion`: propuesta pública o recomendación dirigida al cliente, de alcance general (no un caso personal).
+`suggestion`: propuesta pública o recomendación dirigida a la entidad, de alcance general (no un caso personal).
 
-Forma del label: "petición de X" / "ampliación de Y" / "modernización de Z".
-
-Ejemplos contrastivos (texto crudo → label de catálogo):
-- "deberían poner topes y semáforos en esa avenida, hay muchos accidentes" → "petición de medidas de seguridad vial"
-- "ojalá la operadora llevara internet a las comunidades del sur" → "ampliación de cobertura en zonas rurales"
-- "la tienda debería simplificar el proceso de devolución, es un calvario" → "modernización de proceso de devoluciones"
-- "el hospital tendría que abrir urgencias 24 horas también los domingos" → "petición de horarios extendidos en urgencias"
-- "el banco debería dejar abrir cuentas desde la app sin ir a sucursal" → "modernización de apertura de cuentas"
+Ejemplos (texto crudo → label):
+- "deberían poner topes y semáforos en esa avenida, hay muchos accidentes" → "instalar topes y semáforos en avenidas peligrosas"
+- "todos los demás bancos ya dejan abrir cuenta desde la app, no entiendo por qué este no" → "permitir apertura de cuentas desde la app"
+- "ojalá un día las urgencias abrieran 24 horas también los domingos" → "abrir urgencias 24 horas en domingos"
 
 Distingue de `request`: las suggestions son públicas/generales y aplican a todos; las requests son personales y atienden un caso específico del usuario.

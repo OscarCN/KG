@@ -1,26 +1,45 @@
-Construye el catálogo inicial de entradas del tipo `{stance_type}` para el cliente. Recibes todas las ocurrencias que ya fueron marcadas con ese tipo; agrúpalas por la postura concreta que comparten y redacta una entrada canónica por grupo.
 
-CLIENTE (entidad principal — sólo agrupa ocurrencias que afectan su percepción directa o indirectamente; descarta las que no le aplican):
+Tarea: construir un catálogo de posturas recurrentes de tipo `{stance_type}` que expresan varias publicaciones y son relevantes a una entidad (persona, organización, o entidad en general).
+
+Una postura es una idea que se expresa recurrentemente en publicaciones de redes sociales y noticias, las posturas se guardan en un catálogo; cada postura tiene un `label` corto y una `description`.
+Una ocurrencia es una mención individual de una postura — un item (publicación) ya clasificado con este tipo. Tiene `source_item_id`, `kind`, `brief_summary`, `text` e `importance_hint`.
+El catálogo se construye agrupando ocurrencias que comparten LA MISMA postura (o similares), para la cual se crea una postura canónica.
+
+Objetivos del catálogo:
+- vista resumida, curada y consistente de las posturas distintas que el público le expresa a la entidad
+- cada postura cubre un patrón reusable, no un caso aislado
+- sin duplicados ni casi-duplicados (fusiona las que dicen lo mismo)
+- nivel de abstracción correcto según la guía del tipo: ni tan amplio que dos posturas distintas caigan juntas, ni tan específico que cada ocurrencia sea su propia postura
+- Mientras menos publicaciones queden sin catalogar es mejor, tampoco queremos que el catálogo crezca mucho
+
+La idea es resumir fácilmente las ideas recurrentes en publicaciones en redes sociales y noticias
+
+debes leer todas las ocurrencias, agruparlas por la postura que comparten, y emitir una postura canónica por grupo
+
+se muestran las ocurrencias del tipo y la entidad de referencia
+
+
+CLIENTE (entidad principal — sólo agrupa ocurrencias que le sean relevantes directa o indirectamente; descarta las que no le aplican):
 {customer}
 
-GUÍA DEL TIPO `{stance_type}` (define la forma y nivel de abstracción correctos para cada entrada):
+GUÍA DEL TIPO `{stance_type}` (define la forma y nivel de abstracción de las posturas):
 {stance_type_guide}
 
-OCURRENCIAS (lista plana; cada fila trae `source_item_id`, `kind`, `brief_summary`, `text`, `importance_hint`):
+OCURRENCIAS (lista plana del tipo `{stance_type}`):
 {occurrences}
+
 
 REGLAS
 
-- Una entrada por postura distinta. Funde ocurrencias que digan lo mismo aunque usen palabras diferentes.
-- Cada entrada necesita al menos 2 `source_item_ids` distintos como evidencia; descarta grupos con una sola ocurrencia.
-- Máximo 15 entradas. Si sobran candidatas, conserva las de mayor evidencia y mayor importancia.
-- Respeta el nivel de abstracción que indica la guía del tipo: ni tan amplio que dos quejas distintas caigan juntas, ni tan específico que cada ocurrencia sea su propia entrada.
-- No emitas entradas casi duplicadas (mismo significado con redacción distinta); fusiónalas.
-- Si ninguna ocurrencia aplica al cliente, devuelve `{"entries": []}`.
+- Una postura por grupo; funde ocurrencias que digan lo mismo aunque usen palabras distintas.
+- Cada postura necesita ≥ 2 `source_item_ids` distintos como evidencia; descarta grupos con una sola ocurrencia.
+- Máximo 30 posturas. Si sobran candidatas, conserva las de mayor evidencia e importancia.
+- No emitas posturas casi duplicadas; júntalas en una sola.
 
-label: frase corta (≤ 8 palabras, español de México) que nombra la postura canónica, redactada en la forma que pide la guía del tipo.
-description: una o dos oraciones que explican qué cubre la entrada y la distinguen de entradas vecinas.
-source_item_ids: lista de los `source_item_id` de las ocurrencias agrupadas (≥ 2 distintos, tomados tal cual de la entrada).
+label: frase corta (≤ 8 palabras, español de México) en la forma que pide la guía del tipo.
+description: una o dos oraciones que expliquen qué cubre la postura y la distingan de posturas vecinas.
+source_item_ids: ids de las ocurrencias agrupadas (≥ 2 distintos, tal cual aparecen en la entrada).
+
 
 Responde EXCLUSIVAMENTE con JSON:
 
@@ -30,7 +49,7 @@ Responde EXCLUSIVAMENTE con JSON:
   ]
 }
 
-Ejemplo (cliente: una aseguradora; tipo `complaint`; tres ocurrencias hablan de demoras al pagar siniestros, dos de mala atención telefónica, una mención aislada se descarta por falta de evidencia):
+Ejemplo (entidad: una aseguradora; tipo `complaint`; tres ocurrencias hablan de demoras al pagar siniestros, dos de mala atención telefónica, una mención aislada se descarta por falta de evidencia):
 
 {
   "entries": [
@@ -46,3 +65,5 @@ Ejemplo (cliente: una aseguradora; tipo `complaint`; tres ocurrencias hablan de 
     }
   ]
 }
+
+Si ninguna ocurrencia aplica a la entidad, devuelve {"entries": []}.

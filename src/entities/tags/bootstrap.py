@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 
 DEFAULT_MIN_EVIDENCE = 2
-DEFAULT_MAX_PER_TYPE = 15
+DEFAULT_MAX_PER_TYPE = 30
 
 
 class BootstrapStep:

@@ -85,6 +85,56 @@ def print_event_created_snapshot(
         print(f"        [{tag} imp={importance_max} n={n}] {canonical}")
 
 
+_CATALOG_OVERVIEW_TYPE_ORDER: tuple[StanceType, ...] = (
+    "entity_stance",
+    "complaint",
+    "denuncia",
+    "suggestion",
+    "request",
+    "gratefulness",
+    "endorsement",
+    "question",
+)
+
+
+def print_catalog_overview(
+    stance_catalog: StanceCatalog,
+    *,
+    description_limit: int = 80,
+) -> None:
+    """Print every entry in the catalog grouped by `primary_type`.
+
+    Useful right after bootstrapping (when assignments are still empty so
+    `print_top_stances_by_type` has nothing to show).
+    """
+    by_type: dict[str, list] = {}
+    for entry in stance_catalog.entries.values():
+        by_type.setdefault(entry.primary_type, []).append(entry)
+
+    total = len(stance_catalog.entries)
+    if total == 0:
+        print("Catalog overview: (empty)")
+        return
+
+    n_types = len([t for t in by_type if by_type[t]])
+    print(f"Catalog overview: {total} entries across {n_types} type(s)")
+    ordered_types = list(_CATALOG_OVERVIEW_TYPE_ORDER) + [
+        t for t in by_type if t not in _CATALOG_OVERVIEW_TYPE_ORDER
+    ]
+    for t in ordered_types:
+        entries = sorted(by_type.get(t) or [], key=lambda e: e.label.lower())
+        if not entries:
+            continue
+        print(f"  {t}  ({len(entries)} entries)")
+        for e in entries:
+            print(f"    • {e.label}")
+            if e.description:
+                desc = " ".join(e.description.split())
+                if len(desc) > description_limit:
+                    desc = desc[: description_limit - 1] + "…"
+                print(f"        {desc}")
+
+
 def print_top_stances_by_type(
     stance_catalog: StanceCatalog,
     *,

@@ -38,7 +38,7 @@ from dotenv import load_dotenv
 
 # Ensure the project root is on sys.path so `src.*` imports resolve when
 # this file is run directly (`ipython src/entities/tags/run_tags.py`).
-_PROJECT_ROOT = Path(__file__).resolve().parents[3]
+_PROJECT_ROOT = Path('/Users/oscarcuellar/ocn/media/kg/kg/src/entities/tags/run_tags.py').resolve().parents[3]
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
@@ -62,6 +62,7 @@ from src.entities.tags.runner import LocalRunConfig, load_customer
 from src.entities.tags.stats import (
     StreamingStats,
     print_article_snapshot,
+    print_catalog_overview,
     print_event_created_snapshot,
     print_sample_source_items,
     print_top_events,
@@ -200,13 +201,15 @@ elif BOOTSTRAP_IF_MISSING and bundles:
     stance_catalog = bootstrap_step.run(bundles)
     save_stance_catalog(stance_catalog, bootstrap_path)
     print(f"  produced {len(stance_catalog.entries)} entries → {bootstrap_path}")
-    print_top_stances_by_type(stance_catalog, top_n=5)
 else:
     stance_catalog = StanceCatalog(customer.entity_id)
     if not bundles:
         print("Starting from empty catalog (no bundles available)")
     else:
         print("Starting from empty catalog (BOOTSTRAP_IF_MISSING=False)")
+
+print()
+print_catalog_overview(stance_catalog)
 
 
 # ── 5. Streaming setup ────────────────────────────────────────────────────────
