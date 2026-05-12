@@ -16,7 +16,7 @@ import logging
 import random
 from typing import Optional
 
-from src.entities.tags.catalogs import ClaimCatalogStore, StanceCatalog
+from src.entities.tags.catalogs import StanceCatalog
 from src.entities.tags.llm import JsonLlm
 from src.entities.tags.models import (
     ConsistencyPassResult,
@@ -61,7 +61,6 @@ class ConsistencyPassStep:
         self,
         catalog: StanceCatalog,
         items_seen: dict[str, SourceItem],
-        claim_catalogs: Optional[ClaimCatalogStore] = None,
     ) -> ConsistencyPassResult:
         result = ConsistencyPassResult(customer_id=self.customer.entity_id)
         result.started_at = now_iso()
@@ -78,7 +77,6 @@ class ConsistencyPassStep:
             per_type.setdefault(a.stance_type, []).append(a)
 
         # 3 + 4. Per active type, run consolidation, validate, apply.
-        claim_summaries = self._claim_summaries(claim_catalogs)
         for stance_type in STANCE_BEARING_ACTIVE_TYPES:
             assignments_for_type = per_type.get(stance_type) or []
             if not assignments_for_type:
@@ -88,7 +86,6 @@ class ConsistencyPassStep:
                 stance_type,
                 assignments_for_type,
                 items_seen,
-                claim_summaries,
                 result,
                 summary,
             )
@@ -110,32 +107,57 @@ class ConsistencyPassStep:
         stance_type: StanceType,
         assignments: list[StanceAssignment],
         items_seen: dict[str, SourceItem],
-        claim_summaries: list[dict],
         result: ConsistencyPassResult,
         summary: StepSummary,
     ) -> None:
         catalog_slice = catalog.snapshot(types=[stance_type])
-        assignment_payload = [
-            {
-                "source_item_id": a.source_item_id,
-                "stance_id": a.stance_id,
-                "event_id": a.event_id,
-                "reason": a.reason,
-            }
-            for a in assignments[:DEFAULT_ASSIGNMENTS_PER_CALL]
-        ]
-        # Pull the source items behind those assignments.
+        existing_ids = {entry["id"] for entry in catalog_slice}
+
+        # Build the item id-map first: int `it_N` → canonical source_item_id.
+        # Then express assignments referencing those ints (and `st_N` for
+        # their stance_id) so the LLM never has to echo a long string back.
         sample_item_ids = list({a.source_item_id for a in assignments})[
             :DEFAULT_ITEM_SAMPLES_PER_CALL
         ]
-        item_payload = []
+        item_id_map: dict[int, str] = {}
+        canonical_to_short_item: dict[str, str] = {}
+        item_payload: list[dict] = []
         for sid in sample_item_ids:
             item = items_seen.get(sid)
             if item is None:
                 continue
-            item_payload.append(
-                {"id": item.id, "kind": item.kind, "text": item.short_text(800)}
-            )
+            short = f"it_{len(item_payload) + 1}"
+            item_id_map[len(item_payload) + 1] = item.id
+            canonical_to_short_item[item.id] = short
+            item_payload.append({"id": short, "text": item.short_text(800)})
+
+        # Stance short-id map is populated by the prompt builder; we need
+        # the inverse (canonical → `st_N`) for assignment_payload here, so
+        # we mirror what the builder will do.
+        stance_id_map: dict[str, str] = {
+            f"st_{i + 1}": entry["id"] for i, entry in enumerate(catalog_slice)
+        }
+        canonical_to_short_stance: dict[str, str] = {
+            v: k for k, v in stance_id_map.items()
+        }
+
+        assignment_payload = []
+        for a in assignments[:DEFAULT_ASSIGNMENTS_PER_CALL]:
+            row: dict = {
+                "item_id": canonical_to_short_item.get(a.source_item_id),
+                "stance_id": canonical_to_short_stance.get(a.stance_id) if a.stance_id else None,
+                "reason": a.reason,
+            }
+            assignment_payload.append(row)
+
+        # Per-entry assignment counts over the FULL catalog (not just the
+        # sample) — gives the model the growth signal it needs to choose
+        # between `split` (big n, distinguishable subideas) and `retire`
+        # (small n, stale).
+        counts_by_id: dict[str, int] = {}
+        for a in catalog.assignments:
+            if a.stance_type == stance_type and a.stance_id:
+                counts_by_id[a.stance_id] = counts_by_id.get(a.stance_id, 0) + 1
 
         prompt = consistency_prompt_for_type(
             self.customer,
@@ -143,14 +165,40 @@ class ConsistencyPassStep:
             catalog_slice,
             assignment_payload,
             item_payload,
-            claim_summaries,
+            stance_id_map=stance_id_map,
+            item_id_map=item_id_map,
+            counts_by_id=counts_by_id,
         )
         response = self.llm.call(prompt)
         if not isinstance(response, dict):
             logger.warning("consistency[%s]: malformed response", stance_type)
             return
 
-        existing_ids = {entry["id"] for entry in catalog_slice}
+        def _resolve_stance(raw_id) -> Optional[str]:
+            """`st_N` (or canonical fallback) → canonical stance_id, or None."""
+            if raw_id in (None, "", "null"):
+                return None
+            if not isinstance(raw_id, str):
+                return None
+            canonical = stance_id_map.get(raw_id)
+            if canonical is not None:
+                return canonical
+            return raw_id if raw_id in existing_ids else None
+
+        def _resolve_item(raw_id) -> Optional[str]:
+            """`it_N` → canonical source_item_id; falls back to canonical
+            string if it already looks like one. None otherwise."""
+            if raw_id in (None, "", "null"):
+                return None
+            if isinstance(raw_id, str) and raw_id.startswith("it_"):
+                try:
+                    return item_id_map.get(int(raw_id[3:]))
+                except ValueError:
+                    return None
+            try:
+                return item_id_map.get(int(raw_id))
+            except (TypeError, ValueError):
+                return str(raw_id) if isinstance(raw_id, str) else None
 
         # Proposals (add / rename) — apply via StanceUpdater-style logic
         # but inline since this step owns the mutations.
@@ -163,15 +211,18 @@ class ConsistencyPassStep:
             if not label:
                 summary.inc(f"{stance_type}_proposal_dropped_empty_label")
                 continue
+            resolved_item_ids = [
+                rid for rid in (_resolve_item(x) for x in (raw.get("source_item_ids") or []))
+                if rid is not None
+            ]
+            resolved_src = _resolve_stance(raw.get("src_stance_id"))
             proposal = StanceProposal(
                 kind=kind if kind in {"add", "rename"} else "add",  # type: ignore[arg-type]
                 label=label,
                 description=description,
                 stance_type=stance_type,
-                source_item_ids=[
-                    str(x) for x in (raw.get("source_item_ids") or [])
-                ],
-                src_stance_id=raw.get("src_stance_id"),
+                source_item_ids=resolved_item_ids,
+                src_stance_id=resolved_src,
             )
             result.proposals.append(proposal)
             if proposal.kind == "add":
@@ -205,8 +256,8 @@ class ConsistencyPassStep:
         for raw in response.get("merge_pairs") or []:
             if not isinstance(raw, dict):
                 continue
-            src_id = raw.get("src_id")
-            dst_id = raw.get("dst_id")
+            src_id = _resolve_stance(raw.get("src_id"))
+            dst_id = _resolve_stance(raw.get("dst_id"))
             if (
                 src_id and dst_id
                 and src_id in existing_ids
@@ -230,7 +281,7 @@ class ConsistencyPassStep:
         for raw in response.get("retire_ids") or []:
             if not isinstance(raw, dict):
                 continue
-            sid = raw.get("stance_id")
+            sid = _resolve_stance(raw.get("stance_id"))
             if sid and sid in existing_ids and catalog.retire(sid):
                 result.retire_ids.append(sid)
                 existing_ids.discard(sid)
@@ -242,8 +293,8 @@ class ConsistencyPassStep:
         for raw in response.get("reroute_pairs") or []:
             if not isinstance(raw, dict):
                 continue
-            from_id = raw.get("from_id")
-            to_id = raw.get("to_id")
+            from_id = _resolve_stance(raw.get("from_id"))
+            to_id = _resolve_stance(raw.get("to_id"))
             if from_id and to_id and from_id != to_id:
                 moved = catalog.reroute(from_id, to_id)
                 if moved:
@@ -307,20 +358,3 @@ class ConsistencyPassStep:
                 row["null"] += 1
         return {"by_type": by_type, "total": len(sample)}
 
-    @staticmethod
-    def _claim_summaries(claim_catalogs: Optional[ClaimCatalogStore]) -> list[dict]:
-        if claim_catalogs is None:
-            return []
-        out = []
-        for (cust, ev_id), cat in claim_catalogs.catalogs.items():
-            top = []
-            for canonical, n, importance_max, is_new in cat.summary()[:5]:
-                top.append({"canonical": canonical, "n": n, "importance_max": importance_max})
-            out.append(
-                {
-                    "event_id": ev_id,
-                    "n_clusters": len(cat.clusters),
-                    "top": top,
-                }
-            )
-        return out

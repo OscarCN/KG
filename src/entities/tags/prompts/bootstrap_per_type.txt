@@ -2,7 +2,7 @@
 Tarea: construir un catálogo de posturas recurrentes de tipo `{stance_type}` que expresan varias publicaciones y son relevantes a una entidad (persona, organización, o entidad en general).
 
 Una postura es una idea que se expresa recurrentemente en publicaciones de redes sociales y noticias, las posturas se guardan en un catálogo; cada postura tiene un `label` corto y una `description`.
-Una ocurrencia es una mención individual de una postura — un item (publicación) ya clasificado con este tipo. Tiene `source_item_id`, `kind`, `brief_summary`, `text` e `importance_hint`.
+Una ocurrencia es una mención individual de una postura — un item (publicación) ya clasificado con este tipo. Tiene `id` (entero 1..N), `kind`, `brief_summary` y `text`. Los comentarios aparecen justo después de su publicación raíz para mantener juntas las ocurrencias del mismo hilo.
 El catálogo se construye agrupando ocurrencias que comparten LA MISMA postura (o similares), para la cual se crea una postura canónica.
 
 Objetivos del catálogo:
@@ -38,30 +38,30 @@ REGLAS
 
 label: frase corta (≤ 8 palabras, español de México) en la forma que pide la guía del tipo.
 description: una o dos oraciones que expliquen qué cubre la postura y la distingan de posturas vecinas.
-source_item_ids: ids de las ocurrencias agrupadas (≥ 2 distintos, tal cual aparecen en la entrada).
+source_item_ids: lista de ids (enteros) de las ocurrencias agrupadas (≥ 2 distintos, tomados tal cual del campo `id` de la entrada).
 
 
 Responde EXCLUSIVAMENTE con JSON:
 
 {
   "entries": [
-    {"label": "...", "description": "...", "source_item_ids": ["...", "..."]}
+    {"label": "...", "description": "...", "source_item_ids": [1, 2]}
   ]
 }
 
-Ejemplo (entidad: una aseguradora; tipo `complaint`; tres ocurrencias hablan de demoras al pagar siniestros, dos de mala atención telefónica, una mención aislada se descarta por falta de evidencia):
+Ejemplo (entidad: una aseguradora; tipo `complaint`; ocurrencias 1, 3 y 5 hablan de demoras al pagar siniestros, 2 y 7 de mala atención telefónica, una mención aislada se descarta por falta de evidencia):
 
 {
   "entries": [
     {
       "label": "demora en pago de siniestros",
       "description": "Asegurados reportan que el reembolso o pago del siniestro tarda semanas más de lo prometido.",
-      "source_item_ids": ["a12", "a37", "a55"]
+      "source_item_ids": [1, 3, 5]
     },
     {
       "label": "mala atención en call center",
       "description": "Quejas por tiempos de espera largos y agentes que no resuelven en la línea de atención.",
-      "source_item_ids": ["a08", "a44"]
+      "source_item_ids": [2, 7]
     }
   ]
 }

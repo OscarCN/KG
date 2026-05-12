@@ -83,7 +83,7 @@ class LocalRunConfig:
     )
     bootstrap_model: str = field(
         default_factory=lambda: _env(
-            "OPENROUTER_TAGS_BOOTSTRAP_MODEL", "minimax/minimax-m2.7"
+            "OPENROUTER_TAGS_BOOTSTRAP_MODEL", "openai/gpt-4o"  # "minimax/minimax-m2.7"
         )
     )
     tagger_model: str = field(
@@ -103,7 +103,7 @@ class LocalRunConfig:
     )
     consistency_model: str = field(
         default_factory=lambda: _env(
-            "OPENROUTER_TAGS_CONSISTENCY_MODEL", "minimax/minimax-m2.7"
+            "OPENROUTER_TAGS_CONSISTENCY_MODEL", "openai/gpt-4o"  # "minimax/minimax-m2.7"
         )
     )
 

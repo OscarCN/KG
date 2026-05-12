@@ -131,6 +131,7 @@ class OpenRouterJsonLlm:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})
         last_exc: Optional[Exception] = None
+        last_raw: Optional[str] = None
         for attempt in range(1, self.retries + 1):
             try:
                 raw = call_openrouter(
@@ -139,6 +140,7 @@ class OpenRouterJsonLlm:
                     response_format={"type": "json_object"},
                     temperature=self.temperature,
                 )
+                last_raw = raw
                 parsed = parse_json_response(raw)
                 if parsed is not None:
                     return parsed
@@ -159,9 +161,92 @@ class OpenRouterJsonLlm:
                 )
             if attempt < self.retries:
                 time.sleep(self.backoff_seconds * attempt)
+        # All retries exhausted — surface the full context and raise.
+        self._raise_failure(messages, last_raw, last_exc)
+        return {}  # unreachable; satisfies the type-checker
+
+    def _raise_failure(
+        self,
+        messages: list[dict],
+        last_raw: Optional[str],
+        last_exc: Optional[Exception],
+    ) -> None:
+        """Dump the prompt + last raw output to stderr, then raise."""
+        import sys as _sys
+
+        border = "=" * 72
+        print(
+            f"\n{border}\n"
+            f"LLM call FAILED after {self.retries} attempts "
+            f"(model={self.model}, temperature={self.temperature})\n"
+            f"{border}",
+            file=_sys.stderr,
+        )
+        print(f"\n--- prompt messages ({len(messages)}) ---", file=_sys.stderr)
+        for m in messages:
+            print(f"\n[role: {m['role']}]", file=_sys.stderr)
+            print(m["content"], file=_sys.stderr)
+        if last_raw is not None:
+            print(f"\n--- last raw response (length={len(last_raw)}) ---",
+                  file=_sys.stderr)
+            print(repr(last_raw) if not last_raw.strip() else last_raw,
+                  file=_sys.stderr)
+        else:
+            print("\n--- no raw response captured (all attempts raised) ---",
+                  file=_sys.stderr)
         if last_exc is not None:
-            raise RuntimeError(f"LLM call failed after {self.retries} attempts") from last_exc
-        return {}
+            print(f"\n--- last exception ---\n{last_exc!r}", file=_sys.stderr)
+        print(f"{border}\n", file=_sys.stderr)
+
+        if last_exc is not None:
+            raise RuntimeError(
+                f"LLM call failed after {self.retries} attempts "
+                f"(model={self.model}); see stderr dump above"
+            ) from last_exc
+        raise RuntimeError(
+            f"LLM returned unparseable JSON after {self.retries} attempts "
+            f"(model={self.model}); see stderr dump above"
+        )
+
+
+class LoggingJsonLlm:
+    """Phase-tagged DEBUG-level dumps of every prompt and response.
+
+    Logger names follow `tags.prompts.<phase>`. Six phases are wired in
+    `run_tags.py` / `make_cached_openrouter`: `bootstrap`, `triage`,
+    `tagging` (stance tagging), `claim_tag` (claim extraction),
+    `claim_group` (claim clustering), `consistency`.
+
+    Enable for one phase:
+        logging.getLogger("tags.prompts.bootstrap").setLevel(logging.DEBUG)
+    Enable for all phases:
+        logging.getLogger("tags.prompts").setLevel(logging.DEBUG)
+
+    Wraps `CachedJsonLlm` as the outermost adapter, so cache HITs are also
+    logged (usually what you want when debugging the LLM-facing payload).
+    """
+
+    def __init__(self, inner: "JsonLlm", *, phase: str):
+        self.inner = inner
+        self.phase = phase
+        self._log = logging.getLogger(f"tags.prompts.{phase}")
+
+    def call(self, prompt: str, *, system: Optional[str] = None) -> dict:
+        if self._log.isEnabledFor(logging.DEBUG):
+            self._log.debug(
+                "[%s] PROMPT (system=%s)\n%s",
+                self.phase,
+                "yes" if system else "no",
+                prompt,
+            )
+        response = self.inner.call(prompt, system=system)
+        if self._log.isEnabledFor(logging.DEBUG):
+            self._log.debug(
+                "[%s] RESPONSE\n%s",
+                self.phase,
+                json.dumps(response, ensure_ascii=False, indent=2, default=json_default),
+            )
+        return response
 
 
 class CachedJsonLlm:
@@ -221,7 +306,13 @@ def make_cached_openrouter(
     model: str,
     extra: Optional[dict] = None,
 ) -> JsonLlm:
-    """Build the standard cached-OpenRouter LLM for a given phase."""
+    """Build the standard cached-OpenRouter LLM for a given phase.
+
+    Layering (outer → inner): `LoggingJsonLlm` → `CachedJsonLlm` →
+    `OpenRouterJsonLlm`. Set `tags.prompts.<phase>` to DEBUG to dump
+    prompts and responses.
+    """
     inner = OpenRouterJsonLlm(model=model)
     cache_dir = cache_dir_for(phase, customer_id)
-    return CachedJsonLlm(inner, cache_dir=cache_dir, model=model, extra=extra)
+    cached = CachedJsonLlm(inner, cache_dir=cache_dir, model=model, extra=extra)
+    return LoggingJsonLlm(cached, phase=phase)

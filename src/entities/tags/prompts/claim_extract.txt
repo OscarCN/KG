@@ -3,7 +3,7 @@ Tarea: extraer afirmaciones fácticas (claims) que sean relevantes para una enti
 
 Un claim es una afirmación que se hace sobre la entidad dentro del evento — algo que se expresa como un hecho concreto, no una opinión.
 Un item es una publicación (artículo, post o comentario); procesa los items que recibas en la entrada — el filtro ya se aplicó antes de mandártelos.
-Un cluster es una agrupación de claims previos sobre el mismo evento; sirve sólo como señal de de-duplicación (no devuelvas su `id`).
+Un cluster es una agrupación de claims previos sobre el mismo evento; sirve sólo como señal de de-duplicación.
 
 Objetivos del extractor:
 - capturar SÓLO afirmaciones fácticas sobre la entidad dentro del evento
@@ -23,7 +23,7 @@ CLIENTE (entidad principal — sólo cuentan claims que le aplican directa o ind
 EVENTO (delimita la cobertura noticiosa de los claims):
 {event}
 
-CLUSTERS YA EXISTENTES (sólo señal de de-duplicación; NO devuelvas su `id`):
+CANONICALS DE CLUSTERS YA EXISTENTES (sólo señal de de-duplicación; lista de frases canónicas):
 {existing_clusters}
 
 ITEMS (publicaciones a procesar, id 1..N):

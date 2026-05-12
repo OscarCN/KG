@@ -2,7 +2,7 @@
 Tarea: clasificar publicaciones según las posturas que expresan y son relevantes a una entidad (persona u organización o entidad en general).
 
 Una postura es una idea que expresa una publicación (artículo, post o comentario) y es relevante para la entidad — una queja, un agradecimiento, una pregunta, una denuncia, un apoyo, etc. Se tipifica en uno de los 9 tipos descritos en la guía.
-Cada fila de la salida liga un item a una postura concreta, con su tipo, un resumen breve, y un nivel de importancia.
+Cada fila de tu respuesta debe ligar un item a una postura concreta, con su tipo, un resumen breve, y un nivel de importancia.
 
 Objetivos del clasificador:
 - identificar TODAS las posturas distintas que cada item le expresa a la entidad (multi-postura por item)

@@ -88,6 +88,50 @@ def stance_catalog_block(snapshot: list[dict]) -> str:
     return json.dumps(snapshot, ensure_ascii=False, indent=2)
 
 
+def stance_catalog_short_block(
+    snapshot: list[dict],
+    *,
+    stance_id_map: dict[str, str],
+    counts_by_id: Optional[dict[str, int]] = None,
+) -> str:
+    """Catalog slice for prompts: short ids `st_N`, no `primary_type`.
+
+    Mutates `stance_id_map` in place (short → canonical stance_id) so the
+    parser can map the LLM's responses back. If `counts_by_id` is provided
+    (canonical stance_id → n_assignments), each row also gets an `n` field
+    so the LLM can see growth pressure (high `n` → maybe split / low `n` →
+    maybe retire). Used by the consistency prompt; `tag_per_type` omits it.
+    """
+    payload: list[dict] = []
+    for i, entry in enumerate(snapshot, start=1):
+        short = f"st_{i}"
+        canonical = entry["id"]
+        stance_id_map[short] = canonical
+        row: dict = {
+            "id": short,
+            "label": entry.get("label", ""),
+            "description": entry.get("description", ""),
+        }
+        if counts_by_id is not None:
+            row["n"] = counts_by_id.get(canonical, 0)
+        payload.append(row)
+    return json.dumps(payload, ensure_ascii=False, indent=2)
+
+
+def post_texts_block(items: list[SourceItem], *, text_limit: int = 1200) -> str:
+    """Just the post/article texts for tag_per_type — no ids, no kinds.
+
+    Filters out `user_comment` items; comments live in the triage_hints
+    block where each carries a `brief_summary` of what it expresses.
+    """
+    texts = [
+        item.short_text(text_limit)
+        for item in items
+        if item.kind != "user_comment"
+    ]
+    return json.dumps(texts, ensure_ascii=False, indent=2, default=json_default)
+
+
 def claim_clusters_block(clusters: list[ClaimCluster]) -> str:
     return json.dumps(
         [
@@ -101,6 +145,35 @@ def claim_clusters_block(clusters: list[ClaimCluster]) -> str:
         ensure_ascii=False,
         indent=2,
     )
+
+
+def claim_clusters_canonicals_block(clusters: list[ClaimCluster]) -> str:
+    """Cluster block for `claim_extract` — canonicals only.
+
+    The extractor uses these purely as a de-dup signal and does NOT echo
+    cluster ids back, so the `id` and `n_members` fields are pure waste.
+    """
+    return json.dumps(
+        [c.canonical for c in clusters], ensure_ascii=False, indent=2
+    )
+
+
+def claim_clusters_short_block(
+    clusters: list[ClaimCluster],
+    *,
+    cluster_id_map: dict[str, str],
+) -> str:
+    """Cluster block for `claim_group` — short `cl_N` ids, no `n_members`.
+
+    Mutates `cluster_id_map` in place (short → canonical) so the parser
+    can map the LLM's `cluster_id`/`src_id`/`dst_id` back.
+    """
+    payload: list[dict] = []
+    for i, c in enumerate(clusters, start=1):
+        short = f"cl_{i}"
+        cluster_id_map[short] = c.id
+        payload.append({"id": short, "canonical": c.canonical})
+    return json.dumps(payload, ensure_ascii=False, indent=2)
 
 
 def raw_claims_block(claims: list[RawClaim], *, id_map: Optional[dict[int, int]] = None) -> str:
@@ -123,6 +196,32 @@ def raw_claims_block(claims: list[RawClaim], *, id_map: Optional[dict[int, int]]
 
 def triage_hints_block(hints: list[TypeTriageItem]) -> str:
     return json.dumps([h.to_dict() for h in hints], ensure_ascii=False, indent=2)
+
+
+def triage_hints_short_block(
+    hints: list[TypeTriageItem],
+    *,
+    id_map: dict[int, str],
+) -> str:
+    """Triage hints for tag_per_type: int ids 1..N, no `stance_type`.
+
+    Mutates `id_map` in place (int → canonical `source_item_id`) so the
+    parser can map the LLM's responses back. The catalog is already
+    type-filtered, so the stance_type field is redundant for the LLM.
+    """
+    payload: list[dict] = []
+    for i, h in enumerate(hints, start=1):
+        id_map[i] = h.source_item_id
+        payload.append(
+            {
+                "id": i,
+                "source_kind": h.source_kind,
+                "brief_summary": h.brief_summary,
+                "importance_hint": h.importance_hint,
+                "text": h.text,
+            }
+        )
+    return json.dumps(payload, ensure_ascii=False, indent=2)
 
 
 def stance_type_guide(stance_type: Optional[StanceType] = None) -> str:
@@ -191,17 +290,27 @@ def tag_prompt_for_type(
     stance_type: StanceType,
     *,
     event: Optional[LinkedEventContext] = None,
-    id_map: Optional[dict[int, str]] = None,
+    triage_id_map: Optional[dict[int, str]] = None,
+    stance_id_map: Optional[dict[str, str]] = None,
 ) -> str:
+    """Token-compact tag prompt.
+
+    - `triage_id_map` (int → canonical `source_item_id`): postura ids.
+    - `stance_id_map` (`st_N` → canonical stance_id): catalog short aliases.
+    Both are mutated in place so the parser can map LLM responses back.
+    Items appear above triage hints as raw post/article text (no ids).
+    """
+    tmap = triage_id_map if triage_id_map is not None else {}
+    smap = stance_id_map if stance_id_map is not None else {}
     return render_prompt(
         load_prompt("tag_per_type"),
         customer=customer_block(customer),
         event=event_block(event),
         stance_type=stance_type,
         stance_type_guide=stance_type_guide(stance_type),
-        catalog_slice=stance_catalog_block(catalog_slice),
-        triage_hints=triage_hints_block(triage_hints),
-        items=items_block(items, id_map=id_map),
+        catalog_slice=stance_catalog_short_block(catalog_slice, stance_id_map=smap),
+        triage_hints=triage_hints_short_block(triage_hints, id_map=tmap),
+        items=post_texts_block(items),
     )
 
 
@@ -221,7 +330,7 @@ def claim_extract_prompt(
         load_prompt("claim_extract"),
         customer=customer_block_with_id(customer),
         event=event_block(event),
-        existing_clusters=claim_clusters_block(existing_clusters),
+        existing_clusters=claim_clusters_canonicals_block(existing_clusters),
         items=items_block(items, id_map=id_map),
     )
 
@@ -233,12 +342,17 @@ def claim_group_prompt(
     existing_clusters: list[ClaimCluster],
     *,
     id_map: Optional[dict[int, int]] = None,
+    cluster_id_map: Optional[dict[str, str]] = None,
 ) -> str:
+    """`cluster_id_map` (`cl_N` → canonical cluster id) is mutated in place
+    so the parser can map the LLM's `cluster_id`/`src_id`/`dst_id` back.
+    """
+    cmap = cluster_id_map if cluster_id_map is not None else {}
     return render_prompt(
         load_prompt("claim_group"),
         customer=customer_block_with_id(customer),
         event=event_block(event),
-        existing_clusters=claim_clusters_block(existing_clusters),
+        existing_clusters=claim_clusters_short_block(existing_clusters, cluster_id_map=cmap),
         claims=raw_claims_block(raw_claims, id_map=id_map),
     )
 
@@ -249,19 +363,28 @@ def consistency_prompt_for_type(
     catalog_slice: list[dict],
     assignment_sample: list[dict],
     item_samples: list[dict],
-    claim_summaries: list[dict],
+    *,
+    stance_id_map: Optional[dict[str, str]] = None,
+    item_id_map: Optional[dict[int, str]] = None,
+    counts_by_id: Optional[dict[str, int]] = None,
 ) -> str:
+    """Token-compact consistency prompt.
+
+    `counts_by_id` (canonical stance_id → total assignments of this type)
+    is shown in the catalog block as an `n` field so the model can flag
+    entries to `retire` (n low) or `split` (n high).
+    """
+    smap = stance_id_map if stance_id_map is not None else {}
     return render_prompt(
         load_prompt("consistency_per_type"),
         customer=customer_block(customer),
         stance_type=stance_type,
         stance_type_guide=stance_type_guide(stance_type),
-        catalog_slice=stance_catalog_block(catalog_slice),
+        catalog_slice=stance_catalog_short_block(
+            catalog_slice, stance_id_map=smap, counts_by_id=counts_by_id
+        ),
         assignments=json.dumps(
             assignment_sample, ensure_ascii=False, indent=2, default=json_default
         ),
         items=json.dumps(item_samples, ensure_ascii=False, indent=2, default=json_default),
-        claim_summaries=json.dumps(
-            claim_summaries, ensure_ascii=False, indent=2, default=json_default
-        ),
     )

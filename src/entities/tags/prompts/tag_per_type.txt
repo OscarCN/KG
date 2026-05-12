@@ -1,9 +1,9 @@
 
 Tarea: clasificar publicaciones en redes sociales y noticias de acuerdo a un catálogo de posturas o ideas recurrentes hacia una entidad (persona u organización),
 
-debes asignar a cada publicación una entrada del catálogo (una postura), proponer añadir nuevas entradas al catálogo, o dejarla fuera si no encaja con ninguna postura o no merece la pena crear una nueva postura en el catálogo
+debes asignar a cada postura una entrada del catálogo, proponer añadir nuevas entradas al catálogo, o marcarla con `stance_id: null` cuando no encaja ni vale la pena agregarla.
 
-se muestran publicaciones que se han clasificado como `{stance_type}`
+se muestran publicaciones que ya se clasificaron con el tipo `{stance_type}`
 
 
 CLIENTE (entidad principal — sólo cuentan posturas que le aplican directa o indirectamente):
@@ -15,59 +15,61 @@ EVENTO (contexto opcional, puede ser null):
 GUÍA DEL TIPO `{stance_type}` (define la forma y nivel de abstracción):
 {stance_type_guide}
 
-CATÁLOGO ACTUAL (entradas existentes del tipo `{stance_type}`):
+CATÁLOGO ACTUAL (entradas existentes del tipo `{stance_type}`; cada una con un id corto `st_N`):
 {catalog_slice}
 
-POSTURAS A ETIQUETAR (resumen ya filtrado al tipo `{stance_type}`):
-{triage_hints}
-
-ITEMS DE CONTEXTO (texto fuente, id local 1..N):
+ITEMS DE CONTEXTO (publicaciones/artículos raíz que originaron las posturas — sirven sólo como contexto):
 {items}
+
+POSTURAS A ETIQUETAR (cada una con id entero local):
+{triage_hints}
 
 
 REGLAS
 
-- Una entrada por asignación publicación-postura; usa el `id` de la publicación.
-- Prefiere reusar una entrada del catálogo cuando cubre la publicación, aunque la redacción difiera; si ninguna encaja no la agregues a la lista.
-- Si una postura repetida o importante no tiene elemento en el catálogo, propón `kind: "add"` con `source_item_ids` que la sustenten (≥ 2 distintos de preferencia).
-- Propón `kind: "rename"` sólo si la postura existente se puede generalizar o ser más explicativa; incluye `src_stance_id` válido del catálogo.
-- Si una publicación no esta relacionada con cliente, déjala fuera de la lista.
+- Una entrada por postura; usa el `id` (entero) de POSTURAS A ETIQUETAR.
+- Prefiere reusar una entrada del catálogo cuando cubre la postura, aunque la redacción difiera.
+- Si una postura es relevante al cliente pero ninguna entrada del catálogo encaja y no merece agregarse, devuélvela con `stance_id: null`.
+- Si una postura no está relacionada con el cliente, omítela por completo.
+- Propón `kind: "add"` SÓLO cuando se cumplen LAS DOS condiciones:
+    1) ≥2 posturas DISTINTAS de este lote sustentan la misma idea (sin contar duplicados del mismo `id`), y
+    2) esa idea cubre un patrón reusable, no un caso aislado.
+  Una sola ocurrencia NUNCA basta para una postura nueva — va con `stance_id: null`. `source_item_ids` debe traer ≥2 ids distintos de POSTURAS A ETIQUETAR; si no llegas a dos, no emitas la propuesta.
+- Cuando dudes entre `add` y `null`, elige `null`. Es mejor dejar la postura sin catálogo y que el pase de consistencia la consolide después que poblar el catálogo con entradas de una sola ocurrencia.
+- Propón `kind: "rename"` sólo si una entrada existente se puede generalizar o redactar mejor; incluye `src_stance_id` válido (`st_N`).
 
-stance_id: id de una postura del CATÁLOGO ACTUAL, o null si nada encaja.
+id: id (entero) de una postura en POSTURAS A ETIQUETAR.
+stance_id: id corto (`st_N`) de una entrada del CATÁLOGO ACTUAL, o null si nada encaja.
 reason: justificación corta (≤ 15 palabras, español de México) de por qué esa entrada (o por qué ninguna).
 label: frase canónica corta (≤ 8 palabras) para una postura nueva o renombrada.
 description: una o dos oraciones que definan qué cubre la postura.
-source_item_ids: ids locales de los items que sustentan una propuesta `add`.
-src_stance_id: id de la entrada existente que se renombra.
+source_item_ids: ids (enteros) de POSTURAS A ETIQUETAR que sustentan una propuesta `add`; obligatorio ≥2 ids distintos.
+src_stance_id: id corto (`st_N`) de la entrada existente que se renombra.
 
 
 Responde EXCLUSIVAMENTE con JSON:
 
 {
   "assignments": [
-    {"id": 1, "stance_id": "<id-existente-o-null>", "reason": "..."}
+    {"id": 1, "stance_id": "st_3", "reason": "..."}
   ],
   "proposals": [
     {"kind": "add", "label": "...", "description": "...", "source_item_ids": [1, 2]},
-    {"kind": "rename", "src_stance_id": "<id>", "label": "...", "description": "..."}
+    {"kind": "rename", "src_stance_id": "st_2", "label": "...", "description": "..."}
   ]
 }
 
-Ejemplo (item 1 cae en una entrada existente; item 2 no encaja en nada del catálogo y la postura se repite, así que se propone añadirla; item 3 va con `stance_id: null` porque la postura es marginal):
+Ejemplo (postura 1 encaja con una entrada existente; posturas 2 y 3 son sobre un patrón nuevo, reciben `stance_id: null` y se propone añadir la postura nueva sustentada por ambas; una cuarta postura ajena al cliente se omite por completo):
 
 {
   "assignments": [
-    {"id": 1, "stance_id": "s_demora_pagos", "reason": "queja por retraso en reembolso"},
+    {"id": 1, "stance_id": "st_4", "reason": "queja por retraso en reembolso"},
     {"id": 2, "stance_id": null, "reason": "patrón nuevo: cobros duplicados"},
+    {"id": 3, "stance_id": null, "reason": "patrón nuevo: cobros duplicados"}
   ],
   "proposals": [
-    {"kind": "add", "label": "cobros duplicados en recibo", "description": "Clientes reportan cargos repetidos en el mismo periodo de facturación.", "source_item_ids": [2]}
+    {"kind": "add", "label": "cobros duplicados en recibo", "description": "Clientes reportan cargos repetidos en el mismo periodo de facturación.", "source_item_ids": [2, 3]}
   ]
 }
 
 Si no hay nada que asignar ni proponer, devuelve {"assignments": [], "proposals": []}.
-
-
-
-
-

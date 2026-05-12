@@ -579,6 +579,7 @@ class TypeTriageItem:
     stance_type: StanceType
     brief_summary: str = ""
     importance_hint: Optional[ImportanceHint] = None
+    text: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return dict(self.__dict__)

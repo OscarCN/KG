@@ -43,6 +43,7 @@ VALID_STANCE_TYPES: frozenset[str] = frozenset(
 VALID_IMPORTANCE_HINTS: frozenset[str] = frozenset({"low", "medium", "high"})
 
 DEFAULT_MAX_ROWS_PER_ITEM = 4
+DEFAULT_HINT_TEXT_LIMIT = 800
 
 
 class TypeTriageStep:
@@ -54,10 +55,12 @@ class TypeTriageStep:
         llm: JsonLlm,
         *,
         max_rows_per_item: int = DEFAULT_MAX_ROWS_PER_ITEM,
+        hint_text_limit: int = DEFAULT_HINT_TEXT_LIMIT,
     ):
         self.customer = customer
         self.llm = llm
         self.max_rows_per_item = max_rows_per_item
+        self.hint_text_limit = hint_text_limit
 
     def triage(
         self,
@@ -71,6 +74,7 @@ class TypeTriageStep:
         id_map: dict[int, str] = {}
         prompt = triage_prompt(self.customer, items, event, id_map=id_map)
         kind_by_id = {item.id: item.kind for item in items}
+        text_by_id = {item.id: item.short_text(self.hint_text_limit) for item in items}
 
         response = self.llm.call(prompt)
         rows = None
@@ -110,6 +114,7 @@ class TypeTriageStep:
                 stance_type=stype,  # type: ignore[arg-type]
                 brief_summary=str(summary or ""),
                 importance_hint=hint,  # type: ignore[arg-type]
+                text=text_by_id.get(canonical, ""),
             )
             per_item_rows.setdefault(canonical, []).append(row)
 

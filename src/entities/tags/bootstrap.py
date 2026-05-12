@@ -116,26 +116,65 @@ class BootstrapStep:
         occurrences: list[TypeTriageItem],
         items_by_id: dict[str, SourceItem],
     ) -> list[tuple[str, str, int]]:
-        """Single-shot LLM call. Returns list of (label, description, evidence_count)."""
-        payload = []
+        """Single-shot LLM call. Returns list of (label, description, evidence_count).
+
+        For token efficiency the LLM sees compact integer ids (1..N); each
+        comment is emitted immediately after its parent post so semantically
+        related items sit together. `importance_hint` is not included.
+        """
+        # Group hints by their parent post (the post itself is its own group
+        # root). post_order preserves first-appearance order across the corpus.
+        by_post: dict[str, list[TypeTriageItem]] = {}
+        post_order: list[str] = []
+        orphan: list[TypeTriageItem] = []
         for hint in occurrences:
             item = items_by_id.get(hint.source_item_id)
+            if item is None:
+                orphan.append(hint)
+                continue
+            if item.kind == "user_comment" and item.parent_source_id:
+                parent = item.parent_source_id
+            else:
+                parent = item.id
+            if parent not in by_post:
+                by_post[parent] = []
+                post_order.append(parent)
+            by_post[parent].append(hint)
+
+        # Inside each group: post/article hints first, then user_comment hints
+        # (stable sort preserves original order within each kind).
+        def _kind_rank(h: TypeTriageItem) -> int:
+            it = items_by_id.get(h.source_item_id)
+            return 1 if (it and it.kind == "user_comment") else 0
+
+        ordered: list[TypeTriageItem] = []
+        for parent in post_order:
+            ordered.extend(sorted(by_post[parent], key=_kind_rank))
+        ordered.extend(orphan)
+
+        # Compact integer id map (1..N) for the prompt; parser will reverse it.
+        # `text` already lives on each TypeTriageItem (populated by the triage
+        # step), so we don't re-look up the SourceItem here.
+        id_map: dict[int, str] = {}
+        payload: list[dict] = []
+        for i, hint in enumerate(ordered, start=1):
+            id_map[i] = hint.source_item_id
             payload.append(
                 {
-                    "source_item_id": hint.source_item_id,
+                    "id": i,
                     "kind": hint.source_kind,
                     "brief_summary": hint.brief_summary,
-                    "text": item.short_text(800) if item else "",
-                    "importance_hint": hint.importance_hint,
+                    "text": hint.text,
                 }
             )
+
         prompt = bootstrap_prompt_for_type(self.customer, stance_type, payload)
         response = self.llm.call(prompt)
         if not isinstance(response, dict):
             logger.warning("bootstrap[%s]: malformed response", stance_type)
             return []
 
-        valid_ids = {h.source_item_id for h in occurrences}
+        valid_canonical = {h.source_item_id for h in occurrences}
         out: list[tuple[str, str, int]] = []
         for raw in response.get("entries") or []:
             if not isinstance(raw, dict):
@@ -144,17 +183,28 @@ class BootstrapStep:
             if not label:
                 continue
             description = str(raw.get("description") or "")
-            ev_ids = [
-                str(x) for x in (raw.get("source_item_ids") or [])
-                if str(x) in valid_ids
-            ]
-            if len(set(ev_ids)) < self.min_evidence:
+            # Map integer ids back to canonical ids; tolerate the legacy
+            # canonical-string format too (in case a cached response still has it).
+            ev_canonical: list[str] = []
+            for x in raw.get("source_item_ids") or []:
+                try:
+                    xi = int(x)
+                except (TypeError, ValueError):
+                    xs = str(x)
+                    if xs in valid_canonical:
+                        ev_canonical.append(xs)
+                    continue
+                canonical = id_map.get(xi)
+                if canonical and canonical in valid_canonical:
+                    ev_canonical.append(canonical)
+            distinct = len(set(ev_canonical))
+            if distinct < self.min_evidence:
                 logger.debug(
                     "bootstrap[%s]: drop entry %r (only %d distinct evidence ids)",
-                    stance_type, label, len(set(ev_ids)),
+                    stance_type, label, distinct,
                 )
                 continue
-            out.append((label, description, len(set(ev_ids))))
+            out.append((label, description, distinct))
             if len(out) >= self.max_per_type:
                 break
         return out

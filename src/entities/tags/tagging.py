@@ -80,7 +80,8 @@ class StanceTagger:
             item.id: item.kind for item in items  # type: ignore[misc]
         }
 
-        id_map: dict[int, str] = {}
+        triage_id_map: dict[int, str] = {}
+        stance_id_map: dict[str, str] = {}
         prompt = tag_prompt_for_type(
             self.customer,
             items,
@@ -88,12 +89,29 @@ class StanceTagger:
             catalog_slice,
             stance_type,
             event=event,
-            id_map=id_map,
+            triage_id_map=triage_id_map,
+            stance_id_map=stance_id_map,
         )
         response = self.llm.call(prompt)
         if not isinstance(response, dict):
             logger.warning("stance tag: malformed response (not an object)")
             return result
+
+        def _resolve_stance_id(raw_stance_id) -> Optional[str]:
+            """Map LLM stance_id back to canonical: short `st_N` →
+            stance_id_map; falls back to canonical id (for cached
+            pre-rename responses); unknown → None."""
+            if raw_stance_id in (None, "", "null"):
+                return None
+            if not isinstance(raw_stance_id, str):
+                return None
+            canonical_short = stance_id_map.get(raw_stance_id)
+            if canonical_short is not None:
+                return canonical_short
+            if raw_stance_id in valid_ids:
+                return raw_stance_id  # backward-compat with canonical ids
+            logger.debug("stance tag: unknown stance_id %s; null-routed", raw_stance_id)
+            return None
 
         # Assignments
         for raw in response.get("assignments") or []:
@@ -107,18 +125,11 @@ class StanceTagger:
             except (TypeError, ValueError):
                 result.dropped_assignments += 1
                 continue
-            canonical = id_map.get(local_id_int)
+            canonical = triage_id_map.get(local_id_int)
             if canonical is None:
                 result.dropped_assignments += 1
                 continue
-            stance_id = raw.get("stance_id")
-            if stance_id == "" or stance_id == "null":
-                stance_id = None
-            if stance_id is not None and stance_id not in valid_ids:
-                # LLM hallucinated an id not in the slice; keep as null
-                # (uncatalogued evidence) so the row still counts.
-                logger.debug("stance tag: unknown stance_id %s; null-routed", stance_id)
-                stance_id = None
+            stance_id = _resolve_stance_id(raw.get("stance_id"))
             assignment = StanceAssignment(
                 source_item_id=canonical,
                 source_kind=kind_by_id.get(canonical, "user_comment"),
@@ -151,11 +162,21 @@ class StanceTagger:
                     sid_int = int(sid)
                 except (TypeError, ValueError):
                     continue
-                canonical = id_map.get(sid_int)
+                canonical = triage_id_map.get(sid_int)
                 if canonical:
                     source_item_ids.append(canonical)
-            src_id = raw.get("src_stance_id")
-            if kind == "rename" and (not src_id or src_id not in valid_ids):
+            src_id = _resolve_stance_id(raw.get("src_stance_id")) if kind == "rename" else None
+            if kind == "rename" and src_id is None:
+                continue
+            # `add` requires ≥2 distinct evidence ids — the prompt says so,
+            # but LLMs slip; we drop the proposal here rather than poison
+            # the catalog with one-shot entries.
+            if kind == "add" and len(set(source_item_ids)) < 2:
+                logger.debug(
+                    "stance tag: drop add-proposal %r (only %d distinct evidence ids)",
+                    label,
+                    len(set(source_item_ids)),
+                )
                 continue
             result.proposals.append(
                 StanceProposal(
@@ -164,7 +185,7 @@ class StanceTagger:
                     description=description,
                     stance_type=stance_type,
                     source_item_ids=source_item_ids,
-                    src_stance_id=src_id if kind == "rename" else None,
+                    src_stance_id=src_id,
                 )
             )
 
@@ -390,17 +411,34 @@ class ClaimUpdater:
         existing_ids = {c.id for c in existing_clusters}
 
         id_map: dict[int, int] = {}
+        cluster_id_map: dict[str, str] = {}
         prompt = claim_group_prompt(
             self.customer,
             event,
             raw_claims,
             existing_clusters,
             id_map=id_map,
+            cluster_id_map=cluster_id_map,
         )
         response = self.llm.call(prompt)
         if not isinstance(response, dict):
             logger.warning("claim group: malformed response (not an object)")
             return summary
+
+        def _resolve_cluster_id(raw_cid) -> Optional[str]:
+            """Map LLM cluster_id back to canonical: `cl_N` →
+            cluster_id_map; fall back to canonical (cached pre-rename
+            responses); unknown → None."""
+            if raw_cid in (None, "", "null"):
+                return None
+            if not isinstance(raw_cid, str):
+                return None
+            canonical_short = cluster_id_map.get(raw_cid)
+            if canonical_short is not None:
+                return canonical_short
+            if raw_cid in existing_ids:
+                return raw_cid
+            return None
 
         # Decisions
         seen_indices: set[int] = set()
@@ -422,8 +460,8 @@ class ClaimUpdater:
             action = raw.get("action")
             claim = raw_claims[idx]
             if action == "assign":
-                cid = raw.get("cluster_id")
-                if cid not in existing_ids:
+                cid = _resolve_cluster_id(raw.get("cluster_id"))
+                if cid is None:
                     summary.inc("decision_dropped_unknown_cluster")
                     continue
                 if catalog.assign(claim, cid):
@@ -449,17 +487,17 @@ class ClaimUpdater:
                 continue
             kind = raw.get("kind")
             if kind == "rename":
-                cid = raw.get("cluster_id")
+                cid = _resolve_cluster_id(raw.get("cluster_id"))
                 new_canonical = str(raw.get("new_canonical") or "").strip()
-                if cid not in existing_ids or not new_canonical:
+                if cid is None or not new_canonical:
                     summary.inc("mutation_rename_invalid")
                     continue
                 if catalog.rename(cid, new_canonical):
                     summary.inc("mutation_renamed")
             elif kind == "merge":
-                src_id = raw.get("src_id")
-                dst_id = raw.get("dst_id")
-                if src_id == dst_id or src_id not in existing_ids or dst_id not in existing_ids:
+                src_id = _resolve_cluster_id(raw.get("src_id"))
+                dst_id = _resolve_cluster_id(raw.get("dst_id"))
+                if src_id is None or dst_id is None or src_id == dst_id:
                     summary.inc("mutation_merge_invalid")
                     continue
                 moved = catalog.merge(src_id, dst_id)
