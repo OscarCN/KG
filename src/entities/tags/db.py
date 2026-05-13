@@ -14,6 +14,7 @@ counter bumps — in one TX and ack only after `conn.commit()` succeeds.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -69,6 +70,18 @@ def _to_iso(value) -> str:
             value = value.replace(tzinfo=timezone.utc)
         return value.isoformat()
     return str(value)
+
+
+def _verbatim_hash(verbatim: str) -> str:
+    """Stable content hash for claim idempotency.
+
+    Backs the `claim_assignments` unique key
+    `(source_item_id, entity_id, org_id, event_id, cluster_id,
+    verbatim_hash)`. SHA-256 hex (64 chars); deterministic and free of
+    extension dependencies (PG 11+ has `sha256()` built in for the
+    matching backfill).
+    """
+    return hashlib.sha256((verbatim or "").encode("utf-8")).hexdigest()
 
 
 # ── Stance catalog ────────────────────────────────────────────────────
@@ -199,8 +212,21 @@ class StanceCatalogRepo:
         return entry
 
     def assign(self, assignment: StanceAssignment) -> bool:
-        """Insert a stance assignment. Returns True on insert, False on
-        conflict / type mismatch (same semantics as the in-memory version)."""
+        """Upsert a stance assignment.
+
+        One row per `(source_item_id, entity_id, org_id, stance_type)`
+        — re-tagging the same item (e.g. a re-crawled article whose
+        triage now lands on a different `stance_id`, or queue
+        redelivery) updates the existing row's `stance_id` / `reason`
+        / `assigned_at` / `event_id` in place. Item-context fields
+        (`source_kind`, `parent_source_id`, `news_type`, `query_id`)
+        stay because they describe the item, not the tagging decision.
+
+        Returns True on either insert or update; False only when the
+        target stance_id is unknown or mismatches the entry's
+        `primary_type` (same validation contract as the in-memory
+        version).
+        """
         self._enrich_assignment_from_context(assignment)
         if assignment.stance_id is not None:
             primary_type = self._primary_type_of(assignment.stance_id)
@@ -221,7 +247,12 @@ class StanceCatalogRepo:
                      entity_id, org_id, query_id, stance_id, stance_type,
                      event_id, reason, assigned_at)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT DO NOTHING
+                ON CONFLICT (source_item_id, entity_id, org_id, stance_type)
+                DO UPDATE SET
+                    stance_id   = EXCLUDED.stance_id,
+                    reason      = EXCLUDED.reason,
+                    assigned_at = EXCLUDED.assigned_at,
+                    event_id    = EXCLUDED.event_id
                 """,
                 (
                     assignment.source_item_id, assignment.source_kind,
@@ -341,6 +372,36 @@ class StanceCatalogRepo:
             )
             return cur.rowcount
 
+    def route_nulls_to_entry(
+        self,
+        stance_type: StanceType,
+        entry_id: str,
+        source_item_ids: Iterable[str],
+    ) -> int:
+        """Re-target null-stance assignments at an existing entry.
+
+        Scoped to one stance_type and a set of source_item_ids — the
+        DB equivalent of the in-memory loop the consistency pass's
+        Stage 2 uses to claim orphan rows for a newly minted entry.
+        Preserves `assigned_at`. Returns the number of rows updated.
+        """
+        ids = list(source_item_ids)
+        if not ids:
+            return 0
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE stance_assignments
+                   SET stance_id = %s
+                 WHERE entity_id = %s AND org_id = %s
+                   AND stance_type = %s
+                   AND stance_id IS NULL
+                   AND source_item_id = ANY(%s)
+                """,
+                (entry_id, self.entity_id, self.org_id, stance_type, ids),
+            )
+            return cur.rowcount
+
     # ── Queries ───────────────────────────────────────────────────────
 
     def iter_entries(
@@ -371,10 +432,15 @@ class StanceCatalogRepo:
 
     @property
     def entries(self) -> dict[str, StanceEntry]:
-        """Compatibility shim for code paths that iterate
-        `catalog.entries.items()` (e.g. `consistency.py:140`). Each call
-        round-trips to DB; consider switching call sites to
-        `iter_entries()` and SQL counts when wiring is finalised."""
+        """Convenience snapshot of the catalog's active entries.
+
+        **Hot-path warning.** Each access issues `SELECT * FROM
+        stance_entries WHERE entity_id=… AND org_id=…`. Safe for
+        one-shot printouts (stats, loop helpers), but anything that
+        loops over it — counts, lookups by id — should call the
+        explicit SQL methods (`count_catalogued_assignments`,
+        `get_entries_by_ids`, `iter_zero_assignment_entries`) instead.
+        """
         return {e.id: e for e in self.iter_entries()}
 
     @property
@@ -386,10 +452,16 @@ class StanceCatalogRepo:
 
     @property
     def assignments(self) -> list[StanceAssignment]:
-        """Full per-`(entity, org)` assignment scan. After retention this
-        is bounded by `assignment_ttl_days`. Used by
-        `consistency.py:135` to count by stance_id; that can be replaced
-        with a SQL aggregate in the follow-up."""
+        """Convenience snapshot of every assignment for this `(entity,
+        org)`.
+
+        **Hot-path warning.** Each access issues a full table scan
+        bounded by `assignment_ttl_days`. Aggregations and filtered
+        scans inside loops should call
+        `count_catalogued_assignments(...)`,
+        `assignments_for(...)`, or `recent_bundle_assignments(...)`
+        instead.
+        """
         with self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
                 """
@@ -403,6 +475,70 @@ class StanceCatalogRepo:
                 (self.entity_id, self.org_id),
             )
             return [_row_to_stance_assignment(r) for r in cur.fetchall()]
+
+    def count_catalogued_assignments(
+        self,
+        *,
+        stance_type: Optional[StanceType] = None,
+    ) -> dict[str, int]:
+        """`{stance_id: count}` for catalogued (non-NULL `stance_id`)
+        assignments. Optional `stance_type` filter. Single SQL
+        aggregation — preferred over walking `assignments` in a Python
+        loop."""
+        clauses = ["entity_id = %s", "org_id = %s", "stance_id IS NOT NULL"]
+        params: list = [self.entity_id, self.org_id]
+        if stance_type is not None:
+            clauses.append("stance_type = %s")
+            params.append(stance_type)
+        sql = f"""
+            SELECT stance_id, COUNT(*) AS n
+              FROM stance_assignments
+             WHERE {' AND '.join(clauses)}
+             GROUP BY stance_id
+        """
+        with self.conn.cursor() as cur:
+            cur.execute(sql, tuple(params))
+            return {sid: int(n) for (sid, n) in cur.fetchall()}
+
+    def iter_zero_assignment_entries(self) -> list[StanceEntry]:
+        """Entries with no catalogued assignments. Used by Stage 1 of
+        the consistency pass to pick retire candidates without a
+        Python-side count + iterate."""
+        with self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT stance_id, label, description, primary_type, aliases, created_at
+                  FROM stance_entries e
+                 WHERE entity_id = %s AND org_id = %s
+                   AND NOT EXISTS (
+                       SELECT 1 FROM stance_assignments
+                        WHERE stance_id = e.stance_id
+                   )
+                """,
+                (self.entity_id, self.org_id),
+            )
+            return [_row_to_stance_entry(r) for r in cur.fetchall()]
+
+    def get_entries_by_ids(
+        self, stance_ids: Iterable[str],
+    ) -> dict[str, StanceEntry]:
+        """Look up a fixed set of entries in one query. Used by Stage 3
+        to prefetch entries referenced by merge proposals so we don't
+        re-scan the whole catalog per id."""
+        ids = list({sid for sid in stance_ids if sid})
+        if not ids:
+            return {}
+        with self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT stance_id, label, description, primary_type, aliases, created_at
+                  FROM stance_entries
+                 WHERE entity_id = %s AND org_id = %s
+                   AND stance_id = ANY(%s)
+                """,
+                (self.entity_id, self.org_id, ids),
+            )
+            return {row["stance_id"]: _row_to_stance_entry(row) for row in cur.fetchall()}
 
     def assignments_for(
         self,
@@ -684,21 +820,30 @@ class ClaimCatalogRepo:
             importance=int(claim.importance or 1),
             importance_reason=str(claim.importance_reason or ""),
         )
+        verbatim_hash = _verbatim_hash(claim.verbatim)
         with self.conn.cursor() as cur:
             cur.execute(
                 """
                 INSERT INTO claim_assignments
                     (source_item_id, source_kind, parent_source_id, news_type,
                      entity_id, org_id, query_id, event_id, cluster_id,
-                     verbatim, importance, importance_reason, extracted_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                     verbatim, verbatim_hash, importance, importance_reason,
+                     extracted_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (source_item_id, entity_id, org_id, event_id,
+                             cluster_id, verbatim_hash)
+                DO NOTHING
                 """,
                 (
                     a.source_item_id, a.source_kind, a.parent_source_id, a.news_type,
                     self.entity_id, self.org_id, a.query_id, self.event_id, cluster_id,
-                    a.verbatim, a.importance, a.importance_reason, a.assigned_at,
+                    a.verbatim, verbatim_hash, a.importance, a.importance_reason,
+                    a.assigned_at,
                 ),
             )
+        # Return the dataclass whether the insert fired or a redelivery
+        # collided with an existing row — the claim *is* in the cluster
+        # either way, so the streaming caller's success branch is correct.
         return a
 
     def create(
@@ -968,12 +1113,11 @@ class EntityStateRepo:
             cur.execute(
                 """
                 SELECT entity_id, org_id,
-                       items_processed_total, items_processed_since_last_pass,
                        bundles_processed_total, bundles_processed_since_last_pass,
                        last_consistency_pass_at, last_consistency_pass_count,
                        bootstrap_completed_at,
                        assignment_ttl_days,
-                       consistency_pass_threshold_items,
+                       consistency_pass_threshold_bundles,
                        consistency_pass_threshold_days
                   FROM tags_entity_state
                  WHERE entity_id = %s AND org_id = %s
@@ -1011,29 +1155,23 @@ class EntityStateRepo:
         entity_id: int,
         org_id: int,
         *,
-        n_items: int = 1,
         n_bundles: int = 1,
     ) -> None:
+        """Add `n_bundles` to the per-`(entity, org)` bundle counters."""
         with self.conn.cursor() as cur:
             cur.execute(
                 """
                 INSERT INTO tags_entity_state
                     (entity_id, org_id,
-                     items_processed_total, items_processed_since_last_pass,
                      bundles_processed_total, bundles_processed_since_last_pass)
-                VALUES (%s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s)
                 ON CONFLICT (entity_id, org_id) DO UPDATE SET
-                    items_processed_total =
-                        tags_entity_state.items_processed_total + EXCLUDED.items_processed_total,
-                    items_processed_since_last_pass =
-                        tags_entity_state.items_processed_since_last_pass + EXCLUDED.items_processed_since_last_pass,
                     bundles_processed_total =
                         tags_entity_state.bundles_processed_total + EXCLUDED.bundles_processed_total,
                     bundles_processed_since_last_pass =
                         tags_entity_state.bundles_processed_since_last_pass + EXCLUDED.bundles_processed_since_last_pass
                 """,
-                (entity_id, org_id, int(n_items), int(n_items),
-                 int(n_bundles), int(n_bundles)),
+                (entity_id, org_id, int(n_bundles), int(n_bundles)),
             )
 
     def mark_bootstrap_complete(self, entity_id: int, org_id: int) -> None:
@@ -1057,7 +1195,6 @@ class EntityStateRepo:
                 ON CONFLICT (entity_id, org_id) DO UPDATE SET
                     last_consistency_pass_at = now(),
                     last_consistency_pass_count = tags_entity_state.last_consistency_pass_count + 1,
-                    items_processed_since_last_pass = 0,
                     bundles_processed_since_last_pass = 0
                 """,
                 (entity_id, org_id),
@@ -1086,12 +1223,10 @@ class EntityStateRepo:
         state = self.load(customer.entity_id, org_id)
         if state is None:
             return customer
-        customer.items_processed_total = int(state["items_processed_total"])
-        customer.items_processed_since_last_pass = int(state["items_processed_since_last_pass"])
         customer.bundles_processed_total = int(state["bundles_processed_total"])
         customer.bundles_processed_since_last_pass = int(state["bundles_processed_since_last_pass"])
         customer.last_consistency_pass_at = state["last_consistency_pass_at"]
         customer.last_consistency_pass_count = int(state["last_consistency_pass_count"])
-        customer.consistency_pass_threshold_items = int(state["consistency_pass_threshold_items"])
+        customer.consistency_pass_threshold_bundles = int(state["consistency_pass_threshold_bundles"])
         customer.consistency_pass_threshold_days = int(state["consistency_pass_threshold_days"])
         return customer

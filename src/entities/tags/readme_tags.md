@@ -114,8 +114,13 @@ bundles. The streaming loop then **skips** the seed window
    root post (optionally including comments), then one LLM call routes
    each claim into an existing event-scoped cluster (or creates a new
    one, or drops it).
-6. **Counter bookkeeping** — increment `customer.items_processed_*` and
-   `customer.bundles_processed_*`. These drive consistency-pass sizing.
+6. **Counter bookkeeping** — increment `customer.bundles_processed_total`
+   and `customer.bundles_processed_since_last_pass`. One increment per
+   bundle; the consistency pass uses
+   `bundles_processed_since_last_pass` to size its window and to decide
+   whether the pass is due (via
+   `Customer.consistency_pass_due` against
+   `consistency_pass_threshold_bundles`).
 
 The streaming pipeline does **not** edit existing entries' labels or
 merge entries — that's the consistency pass's job.
@@ -269,11 +274,19 @@ swapping the in-memory backing for a DB query is a localized change.
 
 | Method | Returns | DB equivalent |
 |---|---|---|
-| `iter_entries(*, types=None)` | Active entries, optionally filtered by `primary_type` | `SELECT * FROM stance_entries WHERE primary_type IN (:types) AND retired_at IS NULL` |
+| `iter_entries(*, types=None)` | Active entries, optionally filtered by `primary_type` | `SELECT * FROM stance_entries WHERE entity_id=… AND org_id=… [AND primary_type = ANY(:types)]` |
 | `assignments_for(*, types, stance_id, event_id)` | Assignments matching the given filters | `SELECT * FROM stance_assignments WHERE …` |
+| `count_catalogued_assignments(*, stance_type=None)` | `{stance_id: count}` for non-NULL `stance_id` rows | `SELECT stance_id, COUNT(*) FROM stance_assignments WHERE … GROUP BY stance_id`. Used by consistency Stage 3 in place of a Python count loop. |
+| `iter_zero_assignment_entries()` | Entries with no catalogued assignments (Stage 1 retire candidates) | `SELECT * FROM stance_entries e WHERE NOT EXISTS (SELECT 1 FROM stance_assignments WHERE stance_id = e.stance_id)` |
+| `get_entries_by_ids(ids)` | `{stance_id: StanceEntry}` for the supplied id set | `SELECT * FROM stance_entries WHERE stance_id = ANY(:ids)`. Used by Stage 3 to prefetch entries referenced by merge proposals. |
 | `summary(*, types, event_id, top_n)` | `(label, count)` rows by count desc | `SELECT label, count(*) FROM stance_assignments JOIN stance_entries USING (stance_id) GROUP BY …` |
 | `snapshot(*, types)` | Compact prompt-ready entry list | Same as `iter_entries` projected to the prompt fields |
 | `recent_bundle_assignments(*, n_bundles, kinds)` | All assignments belonging to the K most-recent post/article bundles | See SQL sketch below |
+
+**Avoid in hot loops.** `StanceCatalogRepo.entries` and
+`StanceCatalogRepo.assignments` are `@property` snapshots — each
+access issues a full scan. They're fine for one-shot stats / printout
+helpers; anything that loops should call the explicit methods above.
 
 `recent_bundle_assignments` is the windowed query used by the
 consistency pass. It groups assignments by `source_item_id` among the
@@ -315,9 +328,9 @@ Tables:
 | Table | Role |
 |---|---|
 | `stance_entries` | Per-`(entity, org)` stance catalog. Hard-deleted when no assignments remain. |
-| `stance_assignments` | One row per `(source_item, entity, org, stance_type, stance_id)`. `stance_id` is nullable — NULL rows are the orphan pool consumed by consistency Stage 2. |
+| `stance_assignments` | One row per `(source_item, entity, org, stance_type)`. `stance_id` is nullable — NULL rows are the orphan pool consumed by consistency Stage 2; a unique index over the four columns (across NULL/non-NULL) plus `ON CONFLICT DO UPDATE` keeps re-tagging idempotent and latest-wins. |
 | `claim_clusters` | Per-`(entity, org, event_id)` claim cluster. No TTL — clusters persist with their event. |
-| `claim_assignments` | One row per extracted `RawClaim` placed into a cluster. |
+| `claim_assignments` | One row per extracted `RawClaim` placed into a cluster. Unique on `(source_item_id, entity_id, org_id, event_id, cluster_id, verbatim_hash)` so a redelivered bundle can't duplicate claims (`verbatim_hash` = sha256 of `verbatim`, computed app-side). |
 | `tags_entity_state` | Per-`(entity, org)` streaming counters + `assignment_ttl_days` (default 4) + consistency-pass thresholds. |
 
 Scope rules:
@@ -343,7 +356,7 @@ acking the queue message.
 SQL mapping:
 
 - `add(…)` → `INSERT INTO stance_entries … ON CONFLICT (entity_id, org_id, primary_type, label) DO NOTHING RETURNING *`
-- `assign(a)` → `INSERT INTO stance_assignments … ON CONFLICT DO NOTHING` (two partial unique indexes — one for `stance_id IS NOT NULL`, one for orphans — enforce idempotency under queue redelivery).
+- `assign(a)` → `INSERT INTO stance_assignments … ON CONFLICT (source_item_id, entity_id, org_id, stance_type) DO UPDATE SET stance_id = EXCLUDED.stance_id, reason = …, assigned_at = …, event_id = …` (one row per item/type; latest tagging decision wins).
 - `merge(src, dst)` → transaction: `UPDATE stance_assignments SET stance_id=:dst WHERE stance_id=:src`, `UPDATE stance_entries SET aliases = aliases || to_jsonb(:src_label) WHERE stance_id=:dst`, `DELETE FROM stance_entries WHERE stance_id=:src`. FK `ON DELETE RESTRICT` guards the ordering.
 - `retire(id)` / `delete(id)` → guarded `DELETE FROM stance_entries WHERE … AND NOT EXISTS (matching assignments)`.
 - `recent_bundle_assignments(…)` → the CTE above.
@@ -614,11 +627,12 @@ at DEBUG — useful when reproducing a past run.
 | `persistence.py` | JSON snapshot read/write for both catalogs. |
 | `db.py` | userdb-backed repo classes (`StanceCatalogRepo`, `ClaimCatalogStoreRepo` / `ClaimCatalogRepo`, `EntityStateRepo`) + `connect_userdb()`. Same method surface as `catalogs.py`, plus `set_bundle_context(bundle, query_id)` for per-message enrichment of `parent_source_id` / `news_type` / `query_id`. |
 | `source_items.py` | `LocalFileSourceItemFetcher` (local fixture) and `ESSourceItemFetcher` (ES `news` index) — both implement `fetch_for_assignments(assignments)` to rebuild `items_seen` for the consistency pass after a worker restart. |
-| `stream.py` | File-simulated, userdb-backed streaming entry point (`run_simulated_stream`). Owns the per-message TX, dispatches retention + consistency passes, and exposes the reset-state IPython snippet as a header comment. Swap `_simulated_message_stream` for a `pika` consumer to flip to RabbitMQ. |
+| `stream.py` | Lean IPython entry point — just `run_simulated_stream` and the reset-state snippet. Imports the per-message machinery from `loop_helpers.py`. |
+| `loop_helpers.py` | Production-shaped message-loop helpers: `build_repos`, `handle_message` (per-message TX), `consistency_pass_due`, `run_consistency_pass` (retention + items-seen rebuild + Stage 1/2/3 + commit), `simulated_message_stream` (local-fixture ingestion — swap for a `pika` consumer in production). |
 | `runner.py` | `LocalRunConfig` + builder helpers for the CLI entrypoints. |
 | `run_tags.py` | IPython driver — Phase 1 → Phase 2 → Phase 3 in one script. |
 | `cli/*.py` | Standalone CLI entrypoints for bootstrap / run / consistency. |
-| `stats.py`, `loop_helpers.py` | Printout helpers for the IPython driver. |
+| `stats.py`, `test_helpers.py` | Printout helpers for the IPython driver (`run_tags.py`). `test_helpers.py` was the file previously named `loop_helpers.py`. |
 | `data_model.md`, `tags_design.md`, `tags_impl_plan.md` | Older design notes; this readme supersedes most of their narrative content. |
 
 ---

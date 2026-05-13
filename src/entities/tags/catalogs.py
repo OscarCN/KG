@@ -91,7 +91,15 @@ class StanceCatalog:
         return self.add_entry(entry)
 
     def assign(self, assignment: StanceAssignment) -> bool:
-        """Append the assignment after validation. Returns True on success."""
+        """Upsert the assignment after validation. Returns True on success.
+
+        Invariant: at most one row per
+        `(source_item_id, entity_id, org_id, stance_type)`. A second
+        tagging attempt for the same item/type — re-crawl, queue
+        redelivery, or a within-pass retag — replaces the existing
+        row in place rather than appending. Matches the DB-backed
+        `StanceCatalogRepo.assign` ON-CONFLICT-DO-UPDATE semantics.
+        """
         if assignment.stance_id is not None:
             entry = self.entries.get(assignment.stance_id)
             if entry is None:
@@ -106,6 +114,13 @@ class StanceCatalog:
                     entry.primary_type,
                 )
                 return False
+        for i, existing in enumerate(self.assignments):
+            if (
+                existing.source_item_id == assignment.source_item_id
+                and existing.stance_type == assignment.stance_type
+            ):
+                self.assignments[i] = assignment
+                return True
         self.assignments.append(assignment)
         return True
 
@@ -148,6 +163,32 @@ class StanceCatalog:
         for a in self.assignments:
             if a.stance_id == from_id:
                 a.stance_id = to_id
+                n += 1
+        return n
+
+    def route_nulls_to_entry(
+        self,
+        stance_type: StanceType,
+        entry_id: str,
+        source_item_ids: Iterable[str],
+    ) -> int:
+        """Re-target null-stance assignments at an existing entry.
+
+        Mirrors `StanceCatalogRepo.route_nulls_to_entry` so the
+        consistency pass's Stage 2 can call one method regardless of
+        backend. Preserves `assigned_at` on the rewritten rows.
+        """
+        targets = set(source_item_ids)
+        if not targets:
+            return 0
+        n = 0
+        for a in self.assignments:
+            if (
+                a.stance_id is None
+                and a.stance_type == stance_type
+                and a.source_item_id in targets
+            ):
+                a.stance_id = entry_id
                 n += 1
         return n
 
@@ -231,6 +272,39 @@ class StanceCatalog:
         ranked = sorted(latest_by_sid.items(), key=lambda kv: kv[1], reverse=True)
         keep_ids = {sid for sid, _ in ranked[:n_bundles]}
         return [a for a in self.assignments if a.source_item_id in keep_ids]
+
+    def count_catalogued_assignments(
+        self,
+        *,
+        stance_type: Optional[StanceType] = None,
+    ) -> dict[str, int]:
+        """`{stance_id: count}` for catalogued (non-None `stance_id`)
+        assignments. Optional `stance_type` filter. Mirrors
+        `StanceCatalogRepo.count_catalogued_assignments` so the
+        consistency pass can call one method regardless of backend."""
+        counts: dict[str, int] = {}
+        for a in self.assignments:
+            if a.stance_id is None:
+                continue
+            if stance_type is not None and a.stance_type != stance_type:
+                continue
+            counts[a.stance_id] = counts.get(a.stance_id, 0) + 1
+        return counts
+
+    def iter_zero_assignment_entries(self) -> list[StanceEntry]:
+        """Entries with no catalogued assignments. Stage 1's retire
+        candidates."""
+        counts = self.count_catalogued_assignments()
+        return [e for e in self.entries.values() if counts.get(e.id, 0) == 0]
+
+    def get_entries_by_ids(
+        self, stance_ids: Iterable[str],
+    ) -> dict[str, StanceEntry]:
+        """Look up a fixed set of entries. Stage 3 prefetches this once
+        per merge proposal so cross-type checks and label lookups don't
+        hit the catalog repeatedly."""
+        wanted = {sid for sid in stance_ids if sid}
+        return {sid: self.entries[sid] for sid in wanted if sid in self.entries}
 
     def assignments_for(
         self,

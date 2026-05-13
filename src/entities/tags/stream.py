@@ -4,19 +4,27 @@ Today this iterates the local linked-fixture (the same one
 `run_tags.py` uses) and routes every bundle through the same pipeline
 class, but every catalog write goes to userdb via the repo classes in
 `db.py`. The RabbitMQ swap-in is the only piece that changes: replace
-`_simulated_message_stream` with a `pika` consumer that yields
-`TagsMessage` instances and acks after the per-bundle commit.
+`loop_helpers.simulated_message_stream` with a `pika` consumer that
+yields `TagsMessage` instances and acks after the per-bundle commit.
 
 Each message is processed in one psycopg2 transaction: stance and
 claim mutations, plus the counter bump on `tags_entity_state`. If the
-worker dies mid-bundle, the message stays unacked and is redelivered;
-the unique partial indexes on `stance_assignments` keep redelivery
-idempotent.
+worker dies mid-bundle, the message stays unacked and is redelivered.
+Redelivery is idempotent: stance writes hit a single unique index on
+`(source_item_id, entity_id, org_id, stance_type)` with
+`ON CONFLICT DO UPDATE` (latest tagging wins, one row per item/type),
+and claim writes hit a unique index on
+`(source_item_id, entity_id, org_id, event_id, cluster_id,
+verbatim_hash)` with `ON CONFLICT DO NOTHING`.
 
 Consistency pass cadence is driven by `tags_entity_state` thresholds
 (see `Customer.consistency_pass_due`). Retention (TTL prune + orphan
 GC) runs at the start of each pass; source-item text for Stages 2 and
 3 is rebuilt via `SourceItemFetcher` (`source_items.py`).
+
+This file is intentionally lean: `run_simulated_stream` is the main
+loop, paste-and-call from IPython. The per-message machinery lives in
+`loop_helpers.py`.
 """
 
 # ────────────────────────────────────────────────────────────────────────
@@ -58,24 +66,17 @@ GC) runs at the start of each pass; source-item text for Stages 2 and
 from __future__ import annotations
 
 import logging
-import math
-from typing import Iterator, Optional
+from typing import Optional
 
-import psycopg2.extensions
-
-from src.entities.tags.consistency import ConsistencyPassStep
-from src.entities.tags.db import (
-    ClaimCatalogStoreRepo,
-    EntityStateRepo,
-    StanceCatalogRepo,
-    connect_userdb,
+from src.entities.tags.db import connect_userdb
+from src.entities.tags.loop_helpers import (
+    build_repos,
+    consistency_pass_due,
+    handle_message,
+    run_consistency_pass,
+    simulated_message_stream,
 )
-from src.entities.tags.models import (
-    Customer,
-    StreamRunStats,
-    TagsMessage,
-)
-from src.entities.tags.retrieval import ArticleBundleRetriever
+from src.entities.tags.models import StreamRunStats
 from src.entities.tags.runner import (
     LocalRunConfig,
     build_consistency_step,
@@ -92,9 +93,6 @@ from src.entities.tags.streaming import StreamingState
 logger = logging.getLogger(__name__)
 
 
-# ── Public entry point ────────────────────────────────────────────────
-
-
 def run_simulated_stream(
     config: LocalRunConfig,
     *,
@@ -105,7 +103,7 @@ def run_simulated_stream(
     source_item_fetcher: Optional[SourceItemFetcher] = None,
     final_consistency_pass: bool = True,
 ) -> StreamRunStats:
-    """File-simulated, userdb-backed streaming run.
+    """File-simulated, userdb-backed streaming run (IPython entry point).
 
     Args:
         config: same `LocalRunConfig` used by `runner.run_local_stream`.
@@ -135,9 +133,7 @@ def run_simulated_stream(
     stats = StreamRunStats()
 
     try:
-        stance_repo, claim_store, state_repo = _build_repos(
-            conn, customer, org_id,
-        )
+        stance_repo, claim_store, state_repo = build_repos(conn, customer, org_id)
         # Hydrate the in-memory Customer with the DB-side counters so
         # `consistency_pass_due()` reflects what's persisted, not what
         # the JSON fixture says.
@@ -152,28 +148,28 @@ def run_simulated_stream(
         pipeline = build_streaming_pipeline(customer, config, state)
         consistency_step = build_consistency_step(customer, config)
 
-        message_stream = _simulated_message_stream(
+        messages = simulated_message_stream(
             config, customer, org_id=org_id, query_id=query_id,
         )
 
-        for i, msg in enumerate(message_stream, start=1):
+        for i, msg in enumerate(messages, start=1):
             if bundle_limit is not None and i > bundle_limit:
                 break
 
-            _handle_message(
+            handle_message(
                 pipeline, stance_repo, claim_store, state_repo, msg, conn,
             )
             stats.bundles_processed = i
             logger.info("[stream %d] processed %s", i, msg.bundle.root.id)
 
-            if _consistency_pass_due(customer, i, consistency_every_n_bundles):
-                _run_consistency_pass(
+            if consistency_pass_due(customer, i, consistency_every_n_bundles):
+                run_consistency_pass(
                     consistency_step, customer, state_repo, stance_repo,
                     source_item_fetcher, org_id, conn, stats,
                 )
 
         if final_consistency_pass and customer.bundles_processed_since_last_pass > 0:
-            _run_consistency_pass(
+            run_consistency_pass(
                 consistency_step, customer, state_repo, stance_repo,
                 source_item_fetcher, org_id, conn, stats,
             )
@@ -182,121 +178,3 @@ def run_simulated_stream(
         conn.close()
 
     return stats
-
-
-# ── Streaming loop helpers ────────────────────────────────────────────
-
-
-def _build_repos(
-    conn: psycopg2.extensions.connection,
-    customer: Customer,
-    org_id: int,
-) -> tuple[StanceCatalogRepo, ClaimCatalogStoreRepo, EntityStateRepo]:
-    stance_repo = StanceCatalogRepo(conn, entity_id=customer.entity_id, org_id=org_id)
-    claim_store = ClaimCatalogStoreRepo(conn, entity_id=customer.entity_id, org_id=org_id)
-    state_repo = EntityStateRepo(conn)
-    state_repo.ensure(customer.entity_id, org_id)
-    return stance_repo, claim_store, state_repo
-
-
-def _handle_message(
-    pipeline,
-    stance_repo: StanceCatalogRepo,
-    claim_store: ClaimCatalogStoreRepo,
-    state_repo: EntityStateRepo,
-    msg: TagsMessage,
-    conn: psycopg2.extensions.connection,
-) -> None:
-    """Process one message in one DB transaction (commit-or-rollback)."""
-    stance_repo.set_bundle_context(msg.bundle, msg.query_id)
-    claim_store.set_bundle_context(msg.bundle, msg.query_id)
-    try:
-        pipeline.process_bundle(msg.bundle)
-        state_repo.bump_streaming(msg.entity_id, msg.org_id, n_items=1, n_bundles=1)
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-
-
-def _consistency_pass_due(
-    customer: Customer,
-    bundles_processed: int,
-    consistency_every_n_bundles: Optional[int],
-) -> bool:
-    if consistency_every_n_bundles is not None:
-        return bundles_processed % consistency_every_n_bundles == 0
-    from datetime import datetime, timezone
-    return customer.consistency_pass_due(datetime.now(timezone.utc))
-
-
-def _run_consistency_pass(
-    consistency_step: ConsistencyPassStep,
-    customer: Customer,
-    state_repo: EntityStateRepo,
-    stance_repo: StanceCatalogRepo,
-    source_item_fetcher: SourceItemFetcher,
-    org_id: int,
-    conn: psycopg2.extensions.connection,
-    stats: StreamRunStats,
-) -> None:
-    """Run retention → fetch source items → run pass → mark state."""
-    try:
-        ttl = state_repo.get_ttl_days(customer.entity_id, org_id)
-        expired = stance_repo.expire_old_assignments(ttl)
-        orphans = stance_repo.gc_orphan_entries()
-        logger.info(
-            "consistency: retention expired=%d orphans=%d (ttl=%dd)",
-            expired, orphans, ttl,
-        )
-
-        bundles_since = max(0, customer.bundles_processed_since_last_pass)
-        n_bundles = math.ceil(bundles_since * 1.25)
-        recent = stance_repo.recent_bundle_assignments(
-            n_bundles=n_bundles, kinds=("article", "user_post"),
-        )
-        items_seen = source_item_fetcher.fetch_for_assignments(recent)
-        logger.info(
-            "consistency: window=%d bundles, %d assignments, %d items fetched",
-            n_bundles, len(recent), len(items_seen),
-        )
-
-        result = consistency_step.run(stance_repo, items_seen)
-        state_repo.mark_consistency_pass(customer.entity_id, org_id)
-        conn.commit()
-
-        stats.consistency_passes += 1
-        if result.summary:
-            stats.per_pass_summaries.append(dict(result.summary.counters))
-            logger.info("consistency pass complete: %s", result.summary.counters)
-    except Exception:
-        conn.rollback()
-        raise
-
-
-# ── Ingestion sources ─────────────────────────────────────────────────
-
-
-def _simulated_message_stream(
-    config: LocalRunConfig,
-    customer: Customer,
-    *,
-    org_id: int,
-    query_id: Optional[int],
-) -> Iterator[TagsMessage]:
-    """Yields one `TagsMessage` per bundle from the local fixture.
-
-    Swap this generator for a `pika`-backed consumer that yields the
-    same shape from the RabbitMQ queue. The processing loop above
-    doesn't care about the message origin.
-    """
-    retriever = ArticleBundleRetriever(
-        config.linked_path, config.events_path, customer=customer,
-    )
-    for bundle in retriever.iter_bundles():
-        yield TagsMessage(
-            bundle=bundle,
-            entity_id=customer.entity_id,
-            org_id=org_id,
-            query_id=query_id,
-        )

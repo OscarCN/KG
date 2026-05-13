@@ -210,16 +210,15 @@ class Customer:
     aliases: list[str] = field(default_factory=list)
     related_entity_ids: list[int] = field(default_factory=list)
 
-    # Consistency-pass state
-    items_processed_total: int = 0
-    items_processed_since_last_pass: int = 0
-    # Bundle counters — one bundle = one root post/article + its comments.
-    # Used by the consistency pass to size its windowed sample.
+    # Consistency-pass state. One bundle = one root post/article + its
+    # comments. The pipeline increments these once per `process_bundle`
+    # call; there is no separate "items" counter because items inside a
+    # bundle are processed together and never independently flushed.
     bundles_processed_total: int = 0
     bundles_processed_since_last_pass: int = 0
     last_consistency_pass_at: Optional[str] = None
     last_consistency_pass_count: int = 0
-    consistency_pass_threshold_items: int = 200
+    consistency_pass_threshold_bundles: int = 200
     consistency_pass_threshold_days: int = 7
 
     @property
@@ -227,7 +226,7 @@ class Customer:
         return f"customer_{self.entity_id}"
 
     def consistency_pass_due(self, now: datetime) -> bool:
-        if self.items_processed_since_last_pass >= self.consistency_pass_threshold_items:
+        if self.bundles_processed_since_last_pass >= self.consistency_pass_threshold_bundles:
             return True
         if self.last_consistency_pass_at is None:
             return False
@@ -252,13 +251,11 @@ class Customer:
             "locations": [loc.to_dict() for loc in self.locations],
             "aliases": list(self.aliases),
             "related_entity_ids": list(self.related_entity_ids),
-            "items_processed_total": self.items_processed_total,
-            "items_processed_since_last_pass": self.items_processed_since_last_pass,
             "bundles_processed_total": self.bundles_processed_total,
             "bundles_processed_since_last_pass": self.bundles_processed_since_last_pass,
             "last_consistency_pass_at": self.last_consistency_pass_at,
             "last_consistency_pass_count": self.last_consistency_pass_count,
-            "consistency_pass_threshold_items": self.consistency_pass_threshold_items,
+            "consistency_pass_threshold_bundles": self.consistency_pass_threshold_bundles,
             "consistency_pass_threshold_days": self.consistency_pass_threshold_days,
         }
 
@@ -282,18 +279,17 @@ class Customer:
             locations=[EntityLocation.from_dict(x) for x in (payload.get("locations") or [])],
             aliases=list(payload.get("aliases") or []),
             related_entity_ids=list(payload.get("related_entity_ids") or []),
-            items_processed_total=int(payload.get("items_processed_total") or 0),
-            items_processed_since_last_pass=int(
-                payload.get("items_processed_since_last_pass") or 0
-            ),
             bundles_processed_total=int(payload.get("bundles_processed_total") or 0),
             bundles_processed_since_last_pass=int(
                 payload.get("bundles_processed_since_last_pass") or 0
             ),
             last_consistency_pass_at=payload.get("last_consistency_pass_at"),
             last_consistency_pass_count=int(payload.get("last_consistency_pass_count") or 0),
-            consistency_pass_threshold_items=int(
-                payload.get("consistency_pass_threshold_items") or 200
+            # Tolerate the pre-rename key (`*_items`) on existing snapshots.
+            consistency_pass_threshold_bundles=int(
+                payload.get("consistency_pass_threshold_bundles")
+                or payload.get("consistency_pass_threshold_items")
+                or 200
             ),
             consistency_pass_threshold_days=int(
                 payload.get("consistency_pass_threshold_days") or 7

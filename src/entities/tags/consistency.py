@@ -110,7 +110,6 @@ class ConsistencyPassStep:
 
         # Update customer counters.
         self.customer.last_consistency_pass_at = now_iso()
-        self.customer.items_processed_since_last_pass = 0
         self.customer.bundles_processed_since_last_pass = 0
 
         result.finished_at = now_iso()
@@ -129,23 +128,17 @@ class ConsistencyPassStep:
 
         Counts are computed over the FULL assignment list (all-time),
         not just the consistency window — an entry that's never been
-        used is dead regardless of recency window. Records each retire
-        in `result.retire_ids` and bumps a per-type summary counter.
+        used is dead regardless of recency window. The candidate set
+        comes from `catalog.iter_zero_assignment_entries()` (one SQL
+        query on the DB backend; the equivalent in-memory walk on the
+        local one). Each retire is recorded in `result.retire_ids` and
+        bumps a per-type summary counter.
         """
-        counts: dict[str, int] = {}
-        for a in catalog.assignments:
-            if a.stance_id:
-                counts[a.stance_id] = counts.get(a.stance_id, 0) + 1
-        # Snapshot before iterating since retire() mutates `entries`.
-        candidates = [
-            (eid, entry.primary_type)
-            for eid, entry in catalog.entries.items()
-            if counts.get(eid, 0) == 0
-        ]
-        for eid, primary_type in candidates:
-            if catalog.retire(eid):
-                result.retire_ids.append(eid)
-                summary.inc(f"{primary_type}_stage1_retire_applied")
+        candidates = list(catalog.iter_zero_assignment_entries())
+        for entry in candidates:
+            if catalog.retire(entry.id):
+                result.retire_ids.append(entry.id)
+                summary.inc(f"{entry.primary_type}_stage1_retire_applied")
         if candidates:
             logger.info(
                 "consistency stage1: retired %d entry(ies) with zero catalogued assignments",
@@ -231,36 +224,16 @@ class ConsistencyPassStep:
                     ))
                     summary.inc(f"{stance_type}_stage2_add_applied")
                 # Route the matching null assignments to this entry.
-                moved = self._route_nulls_to_entry(
-                    catalog, stance_type, target_entry_id, source_item_ids,
+                # Goes through the catalog method so DB-backed and
+                # in-memory backends both persist the rewrite.
+                moved = catalog.route_nulls_to_entry(
+                    stance_type, target_entry_id, source_item_ids,
                 )
                 summary.inc(f"{stance_type}_stage2_nulls_routed", moved)
             logger.info(
                 "consistency stage2[%s]: %d orphans → %d new/matched entries",
                 stance_type, len(null_rows), len(entries),
             )
-
-    @staticmethod
-    def _route_nulls_to_entry(
-        catalog: StanceCatalog,
-        stance_type: StanceType,
-        entry_id: str,
-        source_item_ids: list[str],
-    ) -> int:
-        """Mutate matching null-stance assignments in place. Equivalent
-        to a targeted reroute(None → entry_id) restricted to the given
-        source_item_ids and stance_type. Preserves `assigned_at`."""
-        targets = set(source_item_ids)
-        n = 0
-        for a in catalog.assignments:
-            if (
-                a.stance_id is None
-                and a.stance_type == stance_type
-                and a.source_item_id in targets
-            ):
-                a.stance_id = entry_id
-                n += 1
-        return n
 
     # ── stage 3 ────────────────────────────────────────────────────────
 
@@ -285,10 +258,9 @@ class ConsistencyPassStep:
         existing_ids = {entry["id"] for entry in catalog_slice}
 
         # Per-entry assignment counts (all-time, not just window).
-        counts_by_id: dict[str, int] = {}
-        for a in catalog.assignments:
-            if a.stance_type == stance_type and a.stance_id:
-                counts_by_id[a.stance_id] = counts_by_id.get(a.stance_id, 0) + 1
+        # Single SQL aggregation on the DB backend; equivalent walk
+        # on the in-memory one.
+        counts_by_id = catalog.count_catalogued_assignments(stance_type=stance_type)
 
         # Per-entry sample: up to N {text snippet, reason} pairs.
         samples_by_id: dict[str, list[dict]] = {}
@@ -339,9 +311,17 @@ class ConsistencyPassStep:
                 continue
             dst_id = resolved[-1]
             src_ids = resolved[:-1]
+            # Prefetch all entries referenced by this merge in one
+            # query so the cross-type check and the post-merge dst
+            # description fallback don't hit the catalog repeatedly.
+            entries_map = catalog.get_entries_by_ids({dst_id, *src_ids})
+            dst_entry = entries_map.get(dst_id)
+            if dst_entry is None:
+                summary.inc(f"{stance_type}_stage3_merge_dropped_invalid")
+                continue
             cross_type = any(
-                catalog.entries.get(s) and catalog.entries.get(dst_id)
-                and catalog.entries[s].primary_type != catalog.entries[dst_id].primary_type
+                s in entries_map
+                and entries_map[s].primary_type != dst_entry.primary_type
                 for s in src_ids
             )
             if cross_type:
@@ -350,15 +330,21 @@ class ConsistencyPassStep:
             merged_any = False
             for src_id in src_ids:
                 moved = catalog.merge(src_id, dst_id)
-                if moved or src_id not in catalog.entries:
+                if moved or src_id not in entries_map:
                     result.merge_pairs.append((src_id, dst_id))
                     existing_ids.discard(src_id)
                     merged_any = True
             if merged_any:
                 new_label = str(raw.get("new_label") or "").strip()
                 new_description = str(raw.get("new_description") or "").strip()
-                if new_label and dst_id in catalog.entries:
-                    catalog.rename(dst_id, new_label, new_description or catalog.entries[dst_id].description)
+                if new_label:
+                    # `dst_entry.description` reflects the row before
+                    # merge; merge() only mutates `aliases` on dst, so
+                    # the prefetched description is still correct.
+                    catalog.rename(
+                        dst_id, new_label,
+                        new_description or dst_entry.description,
+                    )
                 summary.inc(f"{stance_type}_stage3_merge_applied")
 
         # rename

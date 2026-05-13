@@ -75,7 +75,7 @@ from src.entities.tags.persistence import (
 )
 from src.entities.tags.retrieval import ArticleBundleRetriever
 from src.entities.tags.runner import LocalRunConfig, load_customer
-from src.entities.tags.loop_helpers import (
+from src.entities.tags.test_helpers import (
     per_entry_counts,
     print_bundle_progress,
     print_catalogs_summary,

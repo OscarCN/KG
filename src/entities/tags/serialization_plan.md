@@ -58,7 +58,7 @@ Lifecycle: inserted by streaming tagger / bootstrap / consistency Stage 2; hard-
 | `assigned_at` | TIMESTAMPTZ NOT NULL DEFAULT now() | |
 
 Constraints:
-- Unique: `(source_item_id, entity_id, org_id, stance_type, stance_id)` — queue redelivery is idempotent via `ON CONFLICT DO NOTHING`. Postgres treats NULL stance_id rows as distinct under this constraint, so a partial unique index is added for the NULL case (see SQL).
+- Unique: `(source_item_id, entity_id, org_id, stance_type)` — at most one row per item per stance type per `(entity, org)`, across NULL and non-NULL `stance_id`. Re-tagging (re-crawl, queue redelivery) flows through `INSERT … ON CONFLICT DO UPDATE` so the latest decision overwrites the previous row's `stance_id` / `reason` / `assigned_at` / `event_id`; item-context columns (`source_kind`, `parent_source_id`, `news_type`, `query_id`) stay because they describe the item, not the decision.
 - FK on `stance_id` → `stance_entries(stance_id)` `ON DELETE RESTRICT` — guards against accidental cascade-delete; app code must clean assignments before removing an entry.
 
 Indexes:
@@ -103,11 +103,13 @@ No TTL — clusters persist for the lifetime of the event.
 | `event_id` | TEXT NOT NULL | |
 | `cluster_id` | TEXT NOT NULL | FK → `claim_clusters(cluster_id)` `ON DELETE RESTRICT` |
 | `verbatim` | TEXT NOT NULL | |
+| `verbatim_hash` | TEXT NOT NULL | sha256 hex of `verbatim`; backs the idempotency unique index. Computed app-side by `db.py::_verbatim_hash`. |
 | `importance` | INTEGER NOT NULL DEFAULT 1 | 1/2/3 |
 | `importance_reason` | TEXT NOT NULL DEFAULT '' | |
 | `extracted_at` | TIMESTAMPTZ NOT NULL DEFAULT now() | |
 
-Indexes:
+Indexes / constraints:
+- Unique: `idx_claim_assignments_uniq (source_item_id, entity_id, org_id, event_id, cluster_id, verbatim_hash)` — backs `INSERT … ON CONFLICT DO NOTHING` so a redelivered bundle (RabbitMQ at-least-once) can't duplicate claims.
 - `idx_claim_assignments_cluster (cluster_id)`.
 - `idx_claim_assignments_scope (entity_id, org_id, event_id)`.
 - `idx_claim_assignments_recent (entity_id, org_id, extracted_at DESC)`.
@@ -120,15 +122,13 @@ No TTL on claim assignments either.
 |---|---|---|
 | `entity_id` | INTEGER NOT NULL | |
 | `org_id` | INTEGER NOT NULL | |
-| `items_processed_total` | INTEGER NOT NULL DEFAULT 0 | |
-| `items_processed_since_last_pass` | INTEGER NOT NULL DEFAULT 0 | |
-| `bundles_processed_total` | INTEGER NOT NULL DEFAULT 0 | |
-| `bundles_processed_since_last_pass` | INTEGER NOT NULL DEFAULT 0 | |
+| `bundles_processed_total` | INTEGER NOT NULL DEFAULT 0 | one bundle = one root post/article + its comments (incremented once per `process_bundle` call) |
+| `bundles_processed_since_last_pass` | INTEGER NOT NULL DEFAULT 0 | zeroed by `mark_consistency_pass` |
 | `last_consistency_pass_at` | TIMESTAMPTZ NULL | |
 | `last_consistency_pass_count` | INTEGER NOT NULL DEFAULT 0 | |
 | `bootstrap_completed_at` | TIMESTAMPTZ NULL | streaming refuses to start until set |
 | `assignment_ttl_days` | INTEGER NOT NULL DEFAULT 4 | stance retention only; configurable per `(entity, org)` |
-| `consistency_pass_threshold_items` | INTEGER NOT NULL DEFAULT 200 | |
+| `consistency_pass_threshold_bundles` | INTEGER NOT NULL DEFAULT 200 | drives `Customer.consistency_pass_due` against `bundles_processed_since_last_pass` |
 | `consistency_pass_threshold_days` | INTEGER NOT NULL DEFAULT 7 | |
 
 Constraints:

@@ -158,9 +158,10 @@ class StreamingTagsPipeline:
             )
         result.event_tag_results = event_results
 
-        # 5. Counters
-        self.state.customer.items_processed_total += 1
-        self.state.customer.items_processed_since_last_pass += 1
+        # 5. Counters — one increment per bundle. There is no separate
+        # "items" counter because every item in a bundle is processed
+        # in this same call; the counter tracks `process_bundle` calls,
+        # which is what `consistency_pass_due` checks against.
         self.state.customer.bundles_processed_total += 1
         self.state.customer.bundles_processed_since_last_pass += 1
         return result
