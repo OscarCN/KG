@@ -189,6 +189,49 @@ class StanceCatalog:
         items = counter.most_common(top_n) if top_n else counter.most_common()
         return items
 
+    def recent_bundle_assignments(
+        self,
+        *,
+        n_bundles: int,
+        kinds: Iterable[str] = ("article", "user_post"),
+    ) -> list[StanceAssignment]:
+        """Window the assignments to the K most-recent bundles.
+
+        A bundle is identified by a unique `source_item_id` among
+        assignments whose `source_kind` is in `kinds` (default: posts
+        and articles, excluding comments). We rank those source ids by
+        `max(assigned_at)` descending, take the top `n_bundles`, and
+        return EVERY assignment (any kind, any stance_id including
+        null) belonging to that source-id set.
+
+        Maps cleanly to SQL later:
+            WITH recent AS (
+                SELECT source_item_id, MAX(assigned_at) AS last_at
+                FROM stance_assignments
+                WHERE source_kind IN (:kinds)
+                GROUP BY source_item_id
+                ORDER BY last_at DESC
+                LIMIT :n_bundles
+            )
+            SELECT a.* FROM stance_assignments a
+            JOIN recent USING (source_item_id);
+        """
+        if n_bundles <= 0:
+            return []
+        wanted_kinds = set(kinds)
+        latest_by_sid: dict[str, str] = {}
+        for a in self.assignments:
+            if a.source_kind not in wanted_kinds:
+                continue
+            prev = latest_by_sid.get(a.source_item_id)
+            if prev is None or a.assigned_at > prev:
+                latest_by_sid[a.source_item_id] = a.assigned_at
+        if not latest_by_sid:
+            return []
+        ranked = sorted(latest_by_sid.items(), key=lambda kv: kv[1], reverse=True)
+        keep_ids = {sid for sid, _ in ranked[:n_bundles]}
+        return [a for a in self.assignments if a.source_item_id in keep_ids]
+
     def assignments_for(
         self,
         *,

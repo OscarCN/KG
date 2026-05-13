@@ -56,7 +56,7 @@ logging.getLogger("src.entities.tags").setLevel(logging.INFO)
 # logging.getLogger("tags.prompts.tagging").setLevel(logging.DEBUG)     # StanceTagger (tag_per_type)
 logging.getLogger("tags.prompts.claim_tag").setLevel(logging.DEBUG)   # ClaimTagger (extraction)
 logging.getLogger("tags.prompts.claim_group").setLevel(logging.DEBUG) # ClaimUpdater (grouping)
-# logging.getLogger("tags.prompts.consistency").setLevel(logging.DEBUG) # ConsistencyPassStep
+logging.getLogger("tags.prompts.consistency").setLevel(logging.DEBUG) # ConsistencyPassStep
 
 from src.entities.tags.bootstrap import BootstrapStep
 from src.entities.tags.catalogs import ClaimCatalogStore, StanceCatalog
@@ -130,7 +130,6 @@ BOOTSTRAP_BUNDLE_LIMIT: int = 70    # how many bundles the bootstrap LLM call se
 CATALOG_SUMMARY_EVERY: Optional[int] = 40   # print stance + claim summary every N bundles (None = off)
 
 # Consistency-pass knobs
-CONSISTENCY_SAMPLE_SIZE: int = 300
 CONSISTENCY_AT_BUNDLE: Optional[int] = 120   # trigger mid-stream consistency at this bundle index (None = off)
 
 
@@ -144,7 +143,6 @@ config = LocalRunConfig(
     catalog_path=None,
     include_comments=INCLUDE_COMMENTS_IN_CLAIMS,
     snapshot_top_n=SNAPSHOT_TOP_N,
-    sample_size=CONSISTENCY_SAMPLE_SIZE,
 )
 print(f"models: triage={config.triage_model}")
 print(f"        bootstrap={config.bootstrap_model}")
@@ -214,7 +212,9 @@ claim_tagger = ClaimTagger(customer, claim_tagger_llm, include_comments=INCLUDE_
 claim_updater = ClaimUpdater(customer, claim_updater_llm)
 bootstrap_step = BootstrapStep(customer, triage_step, bootstrap_llm)
 consistency_step = ConsistencyPassStep(
-    customer, consistency_llm, sample_size=CONSISTENCY_SAMPLE_SIZE
+    customer,
+    consistency_llm,
+    bootstrap_step=bootstrap_step,
 )
 
 
@@ -222,13 +222,16 @@ consistency_step = ConsistencyPassStep(
 
 bootstrap_path: Path = TAGS_OUTPUT_DIR / customer.slug / "bootstrap.json"
 stance_catalog: StanceCatalog
-bootstrapped_now: bool = True   # whether Phase 1 ran in this session
+bootstrapped_now: bool = False             # whether Phase 1 LLM ran THIS session
+bootstrap_window_covered: bool = False     # whether bundles[:BOOTSTRAP_BUNDLE_LIMIT] are already tagged
 
 if bootstrap_path.exists():
     stance_catalog = load_stance_catalog(bootstrap_path)
+    bootstrap_window_covered = True
     print()
     print(f"Loaded existing bootstrap catalog from {bootstrap_path} "
-          f"({len(stance_catalog.entries)} entries)")
+          f"({len(stance_catalog.entries)} entries, "
+          f"{len(stance_catalog.assignments)} assignments)")
 elif BOOTSTRAP_IF_MISSING and bundles:
     bootstrap_bundles = bundles[:BOOTSTRAP_BUNDLE_LIMIT]
     print()
@@ -236,8 +239,10 @@ elif BOOTSTRAP_IF_MISSING and bundles:
           f"{len(bootstrap_bundles)} of {len(bundles)} bundles …")
     stance_catalog = bootstrap_step.run(bootstrap_bundles)
     save_stance_catalog(stance_catalog, bootstrap_path)
-    print(f"  produced {len(stance_catalog.entries)} entries → {bootstrap_path}")
+    print(f"  produced {len(stance_catalog.entries)} entries, "
+          f"{len(stance_catalog.assignments)} assignments → {bootstrap_path}")
     bootstrapped_now = True
+    bootstrap_window_covered = True
 else:
     stance_catalog = StanceCatalog(customer.entity_id)
     if not bundles:
@@ -271,10 +276,15 @@ if RUN_STREAMING and bundles:
         bootstrapped_now=bootstrapped_now,
         bootstrap_bundle_limit=BOOTSTRAP_BUNDLE_LIMIT,
     )
+    # Skip bundles bootstrap already covered (their items are tagged in
+    # the catalog already, including null-stance rows for un-clustered
+    # triage hints — see bootstrap.py). Set `streaming_start` manually
+    # to resume from a higher bundle index after an interruption.
+    streaming_start = BOOTSTRAP_BUNDLE_LIMIT if bootstrap_window_covered else 0
     print()
-    print(f"Streaming {len(bundles)} bundles …")
-    i = 0
-    for i, bundle in enumerate(bundles[i:], start=i+1):
+    print(f"Streaming bundles {streaming_start + 1}..{len(bundles)} "
+          f"({len(bundles) - streaming_start} of {len(bundles)}) …")
+    for i, bundle in enumerate(bundles[streaming_start:], start=streaming_start + 1):
         before_counts = per_entry_counts(state.stance_catalog)
         result = pipeline.process_bundle(bundle)
         stats.absorb(result)
@@ -285,6 +295,7 @@ if RUN_STREAMING and bundles:
             snapshot_top_n=SNAPSHOT_TOP_N,
         )
         if CONSISTENCY_AT_BUNDLE is not None and i == CONSISTENCY_AT_BUNDLE:
+            assert False
             run_consistency_pass_at_bundle(state, consistency_step, index=i)
         if CATALOG_SUMMARY_EVERY and i % CATALOG_SUMMARY_EVERY == 0:
             print()
@@ -306,8 +317,7 @@ if RUN_CONSISTENCY:
         print(f"  counters: {consistency_result.summary.counters}")
     print(f"  proposals applied: {len(consistency_result.proposals)}  "
           f"merges: {len(consistency_result.merge_pairs)}  "
-          f"retires: {len(consistency_result.retire_ids)}  "
-          f"reroutes: {len(consistency_result.reroute_pairs)}")
+          f"retires: {len(consistency_result.retire_ids)}")
 
 
 # ── 8. Persist + summary ─────────────────────────────────────────────────────

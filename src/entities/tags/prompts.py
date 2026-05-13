@@ -88,6 +88,33 @@ def stance_catalog_block(snapshot: list[dict]) -> str:
     return json.dumps(snapshot, ensure_ascii=False, indent=2)
 
 
+def stance_catalog_hygiene_block(
+    snapshot: list[dict],
+    *,
+    stance_id_map: dict[str, str],
+    counts_by_id: dict[str, int],
+    samples_by_id: dict[str, list[dict]],
+) -> str:
+    """Catalog slice for the hygiene prompt: short `st_N` ids, `n`
+    catalogued-assignments counter, and `samples` (item text snippet +
+    reason) per entry. Mutates `stance_id_map` in place."""
+    payload: list[dict] = []
+    for i, entry in enumerate(snapshot, start=1):
+        short = f"st_{i}"
+        canonical = entry["id"]
+        stance_id_map[short] = canonical
+        payload.append(
+            {
+                "id": short,
+                "label": entry.get("label", ""),
+                "description": entry.get("description", ""),
+                "n": counts_by_id.get(canonical, 0),
+                "samples": samples_by_id.get(canonical, []),
+            }
+        )
+    return json.dumps(payload, ensure_ascii=False, indent=2)
+
+
 def stance_catalog_short_block(
     snapshot: list[dict],
     *,
@@ -357,34 +384,31 @@ def claim_group_prompt(
     )
 
 
-def consistency_prompt_for_type(
+def hygiene_prompt_for_type(
     customer: Customer,
     stance_type: StanceType,
     catalog_slice: list[dict],
-    assignment_sample: list[dict],
-    item_samples: list[dict],
     *,
     stance_id_map: Optional[dict[str, str]] = None,
-    item_id_map: Optional[dict[int, str]] = None,
     counts_by_id: Optional[dict[str, int]] = None,
+    samples_by_id: Optional[dict[str, list[dict]]] = None,
 ) -> str:
-    """Token-compact consistency prompt.
+    """Hygiene-pass prompt: merge_pairs + rename only, no items array.
 
-    `counts_by_id` (canonical stance_id → total assignments of this type)
-    is shown in the catalog block as an `n` field so the model can flag
-    entries to `retire` (n low) or `split` (n high).
+    `counts_by_id` (canonical stance_id → n assignments) and
+    `samples_by_id` (canonical stance_id → [{text, reason}]) are embedded
+    per-entry so the LLM can judge similarity from real usage.
     """
     smap = stance_id_map if stance_id_map is not None else {}
     return render_prompt(
-        load_prompt("consistency_per_type"),
+        load_prompt("hygiene_per_type"),
         customer=customer_block(customer),
         stance_type=stance_type,
         stance_type_guide=stance_type_guide(stance_type),
-        catalog_slice=stance_catalog_short_block(
-            catalog_slice, stance_id_map=smap, counts_by_id=counts_by_id
+        catalog_slice=stance_catalog_hygiene_block(
+            catalog_slice,
+            stance_id_map=smap,
+            counts_by_id=counts_by_id or {},
+            samples_by_id=samples_by_id or {},
         ),
-        assignments=json.dumps(
-            assignment_sample, ensure_ascii=False, indent=2, default=json_default
-        ),
-        items=json.dumps(item_samples, ensure_ascii=False, indent=2, default=json_default),
     )

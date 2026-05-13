@@ -1,21 +1,23 @@
-"""Periodic consistency pass (design §5.7).
+"""Periodic consistency pass — three stages per active stance type.
 
-Steps:
-    1. Stratified sample of recent assignments by `stance_type`. Oversample
-       `stance_id is None` rows (they're the main growth signal).
-    2. Group sample by `stance_type` (no re-triage — type already on each row).
-    3. Per active type, ONE consolidation LLM call → proposals + merge_pairs
-       + retire_ids + reroute_pairs.
-    4. Validate, then apply directly via `StanceCatalog` methods (no
-       adjudicator LLM — mirrors §5.4).
+Stage 1 — Deterministic retire (no LLM): retire entries with zero
+    all-time catalogued assignments.
+Stage 2 — Orphan bootstrap (one LLM call per type): cluster null-stance
+    assignments in the recent-bundle window into new entries, reusing
+    BootstrapStep._bootstrap_one_type.
+Stage 3 — Hygiene (one LLM call per type): merge near-duplicate entries
+    and rename entries with poor labels. Input: catalog entries with per-
+    entry `n` and a small sample of {text, reason} pairs. No full items
+    array, no full assignments array, no add/retire/reroute.
 """
 
 from __future__ import annotations
 
 import logging
-import random
+import math
 from typing import Optional
 
+from src.entities.tags.bootstrap import BootstrapStep
 from src.entities.tags.catalogs import StanceCatalog
 from src.entities.tags.llm import JsonLlm
 from src.entities.tags.models import (
@@ -26,19 +28,19 @@ from src.entities.tags.models import (
     StanceProposal,
     StanceType,
     StepSummary,
+    TypeTriageItem,
     now_iso,
 )
-from src.entities.tags.prompts import consistency_prompt_for_type
+from src.entities.tags.prompts import hygiene_prompt_for_type
 from src.entities.tags.streaming import STANCE_BEARING_ACTIVE_TYPES
 
 
 logger = logging.getLogger(__name__)
 
 
-DEFAULT_SAMPLE_SIZE = 300
-DEFAULT_NULL_OVERSAMPLE_FACTOR = 2.0
 DEFAULT_ITEM_SAMPLES_PER_CALL = 30
-DEFAULT_ASSIGNMENTS_PER_CALL = 80
+DEFAULT_WINDOW_MULTIPLIER = 1.25
+DEFAULT_HYGIENE_SAMPLES_PER_ENTRY = 5
 
 
 class ConsistencyPassStep:
@@ -47,15 +49,15 @@ class ConsistencyPassStep:
         customer: Customer,
         llm: JsonLlm,
         *,
-        sample_size: int = DEFAULT_SAMPLE_SIZE,
-        null_oversample_factor: float = DEFAULT_NULL_OVERSAMPLE_FACTOR,
-        rng_seed: Optional[int] = None,
+        bootstrap_step: Optional[BootstrapStep] = None,
+        window_multiplier: float = DEFAULT_WINDOW_MULTIPLIER,
     ):
         self.customer = customer
         self.llm = llm
-        self.sample_size = sample_size
-        self.null_oversample_factor = null_oversample_factor
-        self.rng = random.Random(rng_seed)
+        # Stage 2 (orphan bootstrap) reuses BootstrapStep's clustering
+        # logic; if None, Stage 2 is skipped.
+        self.bootstrap_step = bootstrap_step
+        self.window_multiplier = window_multiplier
 
     def run(
         self,
@@ -66,295 +68,325 @@ class ConsistencyPassStep:
         result.started_at = now_iso()
         summary = StepSummary(name="consistency_pass")
 
-        # 1. Sample stratified by stance_type.
-        sample = self._stratified_sample(catalog.assignments)
-        result.sample_size = len(sample)
-        result.sample_strategy = self._sample_strategy_summary(sample)
+        # Stage 1 — deterministic retire (no LLM). Entries with zero
+        # catalogued assignments are dropped before any LLM stage runs.
+        # Cheap, eliminates obvious dead entries from later prompts.
+        self._stage1_deterministic_retire(catalog, result, summary)
 
-        # 2. Group by stance_type.
-        per_type: dict[StanceType, list[StanceAssignment]] = {}
-        for a in sample:
-            per_type.setdefault(a.stance_type, []).append(a)
+        # Window: most recent K bundles (= unique post/article
+        # source_item_ids). Sized by 1.25× the bundles processed since
+        # the last consistency pass. Comments are excluded for now —
+        # they're folded in later.
+        bundles_since = max(0, self.customer.bundles_processed_since_last_pass)
+        n_bundles = math.ceil(bundles_since * self.window_multiplier)
+        window = catalog.recent_bundle_assignments(
+            n_bundles=n_bundles,
+            kinds=("article", "user_post"),
+        )
+        window_per_type: dict[StanceType, list[StanceAssignment]] = {}
+        for a in window:
+            window_per_type.setdefault(a.stance_type, []).append(a)
+        logger.info(
+            "consistency window: %d bundles, %d assignments (since last pass: %d bundles)",
+            n_bundles, len(window), bundles_since,
+        )
 
-        # 3 + 4. Per active type, run consolidation, validate, apply.
-        for stance_type in STANCE_BEARING_ACTIVE_TYPES:
-            assignments_for_type = per_type.get(stance_type) or []
-            if not assignments_for_type:
-                continue
-            self._run_one_type(
-                catalog,
-                stance_type,
-                assignments_for_type,
-                items_seen,
-                result,
-                summary,
+        # Stage 2 — orphan bootstrap. Cluster null-stance assignments in
+        # the window into new entries; route the nulls to those entries.
+        if self.bootstrap_step is not None:
+            self._stage2_orphan_bootstrap(
+                catalog, items_seen, window_per_type, result, summary,
             )
 
-        # 5. Update customer counters.
+        # Stage 3 — hygiene (merge + rename only). One LLM call per type.
+        # Inputs: catalog entries with per-entry `n` and a small sample of
+        # {text, reason} pairs drawn from the window. No items array, no
+        # full assignments array, no add/retire/reroute.
+        for stance_type in STANCE_BEARING_ACTIVE_TYPES:
+            type_window = window_per_type.get(stance_type) or []
+            self._stage3_hygiene(
+                catalog, items_seen, stance_type, type_window, result, summary,
+            )
+
+        # Update customer counters.
         self.customer.last_consistency_pass_at = now_iso()
-        self.customer.last_consistency_pass_count = result.sample_size
         self.customer.items_processed_since_last_pass = 0
+        self.customer.bundles_processed_since_last_pass = 0
 
         result.finished_at = now_iso()
         result.summary = summary
         return result
 
-    # ── per-type runner ────────────────────────────────────────────────
+    # ── stages ─────────────────────────────────────────────────────────
 
-    def _run_one_type(
+    def _stage1_deterministic_retire(
         self,
         catalog: StanceCatalog,
-        stance_type: StanceType,
-        assignments: list[StanceAssignment],
-        items_seen: dict[str, SourceItem],
         result: ConsistencyPassResult,
         summary: StepSummary,
     ) -> None:
+        """Retire entries with zero catalogued assignments. No LLM.
+
+        Counts are computed over the FULL assignment list (all-time),
+        not just the consistency window — an entry that's never been
+        used is dead regardless of recency window. Records each retire
+        in `result.retire_ids` and bumps a per-type summary counter.
+        """
+        counts: dict[str, int] = {}
+        for a in catalog.assignments:
+            if a.stance_id:
+                counts[a.stance_id] = counts.get(a.stance_id, 0) + 1
+        # Snapshot before iterating since retire() mutates `entries`.
+        candidates = [
+            (eid, entry.primary_type)
+            for eid, entry in catalog.entries.items()
+            if counts.get(eid, 0) == 0
+        ]
+        for eid, primary_type in candidates:
+            if catalog.retire(eid):
+                result.retire_ids.append(eid)
+                summary.inc(f"{primary_type}_stage1_retire_applied")
+        if candidates:
+            logger.info(
+                "consistency stage1: retired %d entry(ies) with zero catalogued assignments",
+                len(candidates),
+            )
+
+    def _stage2_orphan_bootstrap(
+        self,
+        catalog: StanceCatalog,
+        items_seen: dict[str, SourceItem],
+        window_per_type: dict[StanceType, list[StanceAssignment]],
+        result: ConsistencyPassResult,
+        summary: StepSummary,
+    ) -> None:
+        """Cluster null-stance assignments in the window into new
+        entries via the same code path as Phase-1 bootstrap.
+
+        For each stance type:
+        1. Collect null-stance assignments in the window.
+        2. If below `min_evidence`, skip (no LLM call).
+        3. Rebuild `TypeTriageItem`s from those assignments (the
+           assignment carries everything we need except `text`, which
+           comes from `items_seen`).
+        4. Call `BootstrapStep._bootstrap_one_type` to cluster.
+        5. For each new entry, add to catalog and re-route the
+           matching null assignments to the new entry (in place,
+           preserving `assigned_at`).
+        """
+        assert self.bootstrap_step is not None  # gated by caller
+        for stance_type in STANCE_BEARING_ACTIVE_TYPES:
+            assignments_for_type = window_per_type.get(stance_type) or []
+            null_rows = [a for a in assignments_for_type if a.stance_id is None]
+            if len(null_rows) < self.bootstrap_step.min_evidence:
+                if null_rows:
+                    summary.inc(
+                        f"{stance_type}_stage2_skipped_small_orphan_pool",
+                        len(null_rows),
+                    )
+                continue
+            # Reconstruct triage-item shape for the existing bootstrap helper.
+            triage_hints: list[TypeTriageItem] = []
+            for a in null_rows:
+                item = items_seen.get(a.source_item_id)
+                text = item.short_text(800) if item else ""
+                triage_hints.append(TypeTriageItem(
+                    source_item_id=a.source_item_id,
+                    source_kind=a.source_kind,
+                    stance_type=stance_type,
+                    brief_summary=a.reason,
+                    importance_hint=None,
+                    text=text,
+                ))
+            entries = self.bootstrap_step._bootstrap_one_type(
+                stance_type, triage_hints, items_seen,
+            )
+            for label, description, source_item_ids in entries:
+                # De-dup against an existing entry of the same type with
+                # the same normalized label (Stage 3 will catch the rest).
+                norm = label.strip().lower()
+                existing = next(
+                    (
+                        e for e in catalog.iter_entries(types=[stance_type])
+                        if e.label.strip().lower() == norm
+                    ),
+                    None,
+                )
+                if existing is not None:
+                    summary.inc(f"{stance_type}_stage2_add_already_exists")
+                    target_entry_id = existing.id
+                else:
+                    entry = catalog.add(
+                        label=label,
+                        description=description,
+                        primary_type=stance_type,
+                    )
+                    target_entry_id = entry.id
+                    result.proposals.append(StanceProposal(
+                        kind="add",
+                        label=label,
+                        description=description,
+                        stance_type=stance_type,
+                        source_item_ids=source_item_ids,
+                    ))
+                    summary.inc(f"{stance_type}_stage2_add_applied")
+                # Route the matching null assignments to this entry.
+                moved = self._route_nulls_to_entry(
+                    catalog, stance_type, target_entry_id, source_item_ids,
+                )
+                summary.inc(f"{stance_type}_stage2_nulls_routed", moved)
+            logger.info(
+                "consistency stage2[%s]: %d orphans → %d new/matched entries",
+                stance_type, len(null_rows), len(entries),
+            )
+
+    @staticmethod
+    def _route_nulls_to_entry(
+        catalog: StanceCatalog,
+        stance_type: StanceType,
+        entry_id: str,
+        source_item_ids: list[str],
+    ) -> int:
+        """Mutate matching null-stance assignments in place. Equivalent
+        to a targeted reroute(None → entry_id) restricted to the given
+        source_item_ids and stance_type. Preserves `assigned_at`."""
+        targets = set(source_item_ids)
+        n = 0
+        for a in catalog.assignments:
+            if (
+                a.stance_id is None
+                and a.stance_type == stance_type
+                and a.source_item_id in targets
+            ):
+                a.stance_id = entry_id
+                n += 1
+        return n
+
+    # ── stage 3 ────────────────────────────────────────────────────────
+
+    def _stage3_hygiene(
+        self,
+        catalog: StanceCatalog,
+        items_seen: dict[str, SourceItem],
+        stance_type: StanceType,
+        type_window: list[StanceAssignment],
+        result: ConsistencyPassResult,
+        summary: StepSummary,
+    ) -> None:
+        """Hygiene pass: merge_pairs + rename only. One LLM call per type.
+
+        Builds per-entry {text, reason} samples from the window assignments
+        (capped at DEFAULT_HYGIENE_SAMPLES_PER_ENTRY), then calls the
+        hygiene_per_type prompt.  No items array, no full assignments array.
+        """
         catalog_slice = catalog.snapshot(types=[stance_type])
+        if not catalog_slice:
+            return
         existing_ids = {entry["id"] for entry in catalog_slice}
 
-        # Build the item id-map first: int `it_N` → canonical source_item_id.
-        # Then express assignments referencing those ints (and `st_N` for
-        # their stance_id) so the LLM never has to echo a long string back.
-        sample_item_ids = list({a.source_item_id for a in assignments})[
-            :DEFAULT_ITEM_SAMPLES_PER_CALL
-        ]
-        item_id_map: dict[int, str] = {}
-        canonical_to_short_item: dict[str, str] = {}
-        item_payload: list[dict] = []
-        for sid in sample_item_ids:
-            item = items_seen.get(sid)
-            if item is None:
-                continue
-            short = f"it_{len(item_payload) + 1}"
-            item_id_map[len(item_payload) + 1] = item.id
-            canonical_to_short_item[item.id] = short
-            item_payload.append({"id": short, "text": item.short_text(800)})
-
-        # Stance short-id map is populated by the prompt builder; we need
-        # the inverse (canonical → `st_N`) for assignment_payload here, so
-        # we mirror what the builder will do.
-        stance_id_map: dict[str, str] = {
-            f"st_{i + 1}": entry["id"] for i, entry in enumerate(catalog_slice)
-        }
-        canonical_to_short_stance: dict[str, str] = {
-            v: k for k, v in stance_id_map.items()
-        }
-
-        assignment_payload = []
-        for a in assignments[:DEFAULT_ASSIGNMENTS_PER_CALL]:
-            row: dict = {
-                "item_id": canonical_to_short_item.get(a.source_item_id),
-                "stance_id": canonical_to_short_stance.get(a.stance_id) if a.stance_id else None,
-                "reason": a.reason,
-            }
-            assignment_payload.append(row)
-
-        # Per-entry assignment counts over the FULL catalog (not just the
-        # sample) — gives the model the growth signal it needs to choose
-        # between `split` (big n, distinguishable subideas) and `retire`
-        # (small n, stale).
+        # Per-entry assignment counts (all-time, not just window).
         counts_by_id: dict[str, int] = {}
         for a in catalog.assignments:
             if a.stance_type == stance_type and a.stance_id:
                 counts_by_id[a.stance_id] = counts_by_id.get(a.stance_id, 0) + 1
 
-        prompt = consistency_prompt_for_type(
+        # Per-entry sample: up to N {text snippet, reason} pairs.
+        samples_by_id: dict[str, list[dict]] = {}
+        for a in type_window:
+            if not a.stance_id:
+                continue
+            bucket = samples_by_id.setdefault(a.stance_id, [])
+            if len(bucket) >= DEFAULT_HYGIENE_SAMPLES_PER_ENTRY:
+                continue
+            item = items_seen.get(a.source_item_id)
+            text = item.short_text(300) if item else ""
+            bucket.append({"text": text, "reason": a.reason or ""})
+
+        stance_id_map: dict[str, str] = {}
+        prompt = hygiene_prompt_for_type(
             self.customer,
             stance_type,
             catalog_slice,
-            assignment_payload,
-            item_payload,
             stance_id_map=stance_id_map,
-            item_id_map=item_id_map,
             counts_by_id=counts_by_id,
+            samples_by_id=samples_by_id,
         )
         response = self.llm.call(prompt)
         if not isinstance(response, dict):
-            logger.warning("consistency[%s]: malformed response", stance_type)
+            logger.warning("consistency stage3[%s]: malformed response", stance_type)
             return
 
-        def _resolve_stance(raw_id) -> Optional[str]:
-            """`st_N` (or canonical fallback) → canonical stance_id, or None."""
-            if raw_id in (None, "", "null"):
-                return None
-            if not isinstance(raw_id, str):
+        def _resolve(raw_id) -> Optional[str]:
+            if raw_id in (None, "", "null") or not isinstance(raw_id, str):
                 return None
             canonical = stance_id_map.get(raw_id)
             if canonical is not None:
                 return canonical
             return raw_id if raw_id in existing_ids else None
 
-        def _resolve_item(raw_id) -> Optional[str]:
-            """`it_N` → canonical source_item_id; falls back to canonical
-            string if it already looks like one. None otherwise."""
-            if raw_id in (None, "", "null"):
-                return None
-            if isinstance(raw_id, str) and raw_id.startswith("it_"):
-                try:
-                    return item_id_map.get(int(raw_id[3:]))
-                except ValueError:
-                    return None
-            try:
-                return item_id_map.get(int(raw_id))
-            except (TypeError, ValueError):
-                return str(raw_id) if isinstance(raw_id, str) else None
-
-        # Proposals (add / rename) — apply via StanceUpdater-style logic
-        # but inline since this step owns the mutations.
-        for raw in response.get("proposals") or []:
+        # merges (N-way: ids[-1] survives, absorbs all others)
+        for raw in response.get("merges") or []:
             if not isinstance(raw, dict):
                 continue
-            kind = raw.get("kind")
-            label = str(raw.get("label") or "").strip()
-            description = str(raw.get("description") or "")
-            if not label:
-                summary.inc(f"{stance_type}_proposal_dropped_empty_label")
+            raw_ids = raw.get("ids") or []
+            if not isinstance(raw_ids, list) or len(raw_ids) < 2:
+                summary.inc(f"{stance_type}_stage3_merge_dropped_invalid")
                 continue
-            resolved_item_ids = [
-                rid for rid in (_resolve_item(x) for x in (raw.get("source_item_ids") or []))
-                if rid is not None
-            ]
-            resolved_src = _resolve_stance(raw.get("src_stance_id"))
-            proposal = StanceProposal(
-                kind=kind if kind in {"add", "rename"} else "add",  # type: ignore[arg-type]
-                label=label,
-                description=description,
-                stance_type=stance_type,
-                source_item_ids=resolved_item_ids,
-                src_stance_id=resolved_src,
+            resolved = [_resolve(rid) for rid in raw_ids]
+            resolved = [r for r in resolved if r and r in existing_ids]
+            if len(resolved) < 2:
+                summary.inc(f"{stance_type}_stage3_merge_dropped_invalid")
+                continue
+            dst_id = resolved[-1]
+            src_ids = resolved[:-1]
+            cross_type = any(
+                catalog.entries.get(s) and catalog.entries.get(dst_id)
+                and catalog.entries[s].primary_type != catalog.entries[dst_id].primary_type
+                for s in src_ids
             )
-            result.proposals.append(proposal)
-            if proposal.kind == "add":
-                norm = proposal.label.strip().lower()
-                existing_match = next(
-                    (
-                        e
-                        for e in catalog.iter_entries(types=[stance_type])
-                        if e.label.strip().lower() == norm
-                    ),
-                    None,
-                )
-                if existing_match is not None:
-                    summary.inc(f"{stance_type}_proposal_add_already_exists")
-                    continue
-                entry = catalog.add(
-                    label=proposal.label,
-                    description=proposal.description,
-                    primary_type=stance_type,
-                )
-                existing_ids.add(entry.id)
-                summary.inc(f"{stance_type}_proposal_add_accepted")
-            else:  # rename
-                src = proposal.src_stance_id
-                if src and src in existing_ids and catalog.rename(src, proposal.label, description):
-                    summary.inc(f"{stance_type}_proposal_rename_accepted")
-                else:
-                    summary.inc(f"{stance_type}_proposal_rename_dropped")
-
-        # merge_pairs (intra-type)
-        for raw in response.get("merge_pairs") or []:
-            if not isinstance(raw, dict):
+            if cross_type:
+                summary.inc(f"{stance_type}_stage3_merge_dropped_cross_type")
                 continue
-            src_id = _resolve_stance(raw.get("src_id"))
-            dst_id = _resolve_stance(raw.get("dst_id"))
-            if (
-                src_id and dst_id
-                and src_id in existing_ids
-                and dst_id in existing_ids
-                and src_id != dst_id
-            ):
-                src_entry = catalog.entries.get(src_id)
-                dst_entry = catalog.entries.get(dst_id)
-                if src_entry and dst_entry and src_entry.primary_type != dst_entry.primary_type:
-                    summary.inc(f"{stance_type}_merge_dropped_cross_type")
-                    continue
+            merged_any = False
+            for src_id in src_ids:
                 moved = catalog.merge(src_id, dst_id)
                 if moved or src_id not in catalog.entries:
                     result.merge_pairs.append((src_id, dst_id))
                     existing_ids.discard(src_id)
-                    summary.inc(f"{stance_type}_merge_applied")
-            else:
-                summary.inc(f"{stance_type}_merge_dropped_invalid")
+                    merged_any = True
+            if merged_any:
+                new_label = str(raw.get("new_label") or "").strip()
+                new_description = str(raw.get("new_description") or "").strip()
+                if new_label and dst_id in catalog.entries:
+                    catalog.rename(dst_id, new_label, new_description or catalog.entries[dst_id].description)
+                summary.inc(f"{stance_type}_stage3_merge_applied")
 
-        # retire_ids
-        for raw in response.get("retire_ids") or []:
+        # rename
+        for raw in response.get("rename") or []:
             if not isinstance(raw, dict):
                 continue
-            sid = _resolve_stance(raw.get("stance_id"))
-            if sid and sid in existing_ids and catalog.retire(sid):
-                result.retire_ids.append(sid)
-                existing_ids.discard(sid)
-                summary.inc(f"{stance_type}_retire_applied")
-            else:
-                summary.inc(f"{stance_type}_retire_dropped_invalid")
-
-        # reroute_pairs
-        for raw in response.get("reroute_pairs") or []:
-            if not isinstance(raw, dict):
-                continue
-            from_id = _resolve_stance(raw.get("from_id"))
-            to_id = _resolve_stance(raw.get("to_id"))
-            if from_id and to_id and from_id != to_id:
-                moved = catalog.reroute(from_id, to_id)
-                if moved:
-                    result.reroute_pairs.append((from_id, to_id))
-                    summary.inc(f"{stance_type}_reroute_applied")
+            src_id = _resolve(raw.get("src_stance_id"))
+            label = str(raw.get("label") or "").strip()
+            description = str(raw.get("description") or "")
+            if src_id and label and src_id in existing_ids:
+                if catalog.rename(src_id, label, description):
+                    result.proposals.append(StanceProposal(
+                        kind="rename",
+                        label=label,
+                        description=description,
+                        stance_type=stance_type,
+                        src_stance_id=src_id,
+                    ))
+                    summary.inc(f"{stance_type}_stage3_rename_applied")
                 else:
-                    summary.inc(f"{stance_type}_reroute_no_change")
+                    summary.inc(f"{stance_type}_stage3_rename_dropped")
             else:
-                summary.inc(f"{stance_type}_reroute_dropped_invalid")
+                summary.inc(f"{stance_type}_stage3_rename_dropped_invalid")
 
-    # ── helpers ────────────────────────────────────────────────────────
-
-    def _stratified_sample(
-        self, assignments: list[StanceAssignment]
-    ) -> list[StanceAssignment]:
-        """Sample stratified by stance_type, oversampling null-stance rows."""
-        if not assignments:
-            return []
-        if len(assignments) <= self.sample_size:
-            return list(assignments)
-
-        by_type: dict[StanceType, list[StanceAssignment]] = {}
-        for a in assignments:
-            by_type.setdefault(a.stance_type, []).append(a)
-
-        types = [t for t in by_type if by_type[t]]
-        per_type_quota = max(1, self.sample_size // max(1, len(types)))
-
-        out: list[StanceAssignment] = []
-        for t, rows in by_type.items():
-            null_rows = [r for r in rows if r.stance_id is None]
-            cat_rows = [r for r in rows if r.stance_id is not None]
-
-            null_quota = min(
-                len(null_rows),
-                int(per_type_quota * self.null_oversample_factor / (1 + self.null_oversample_factor) + 0.5),
-            )
-            cat_quota = min(len(cat_rows), per_type_quota - null_quota)
-
-            self.rng.shuffle(null_rows)
-            self.rng.shuffle(cat_rows)
-            out.extend(null_rows[:null_quota])
-            out.extend(cat_rows[:cat_quota])
-
-        # If we under-quota'd, top up randomly from the remainder.
-        if len(out) < self.sample_size:
-            picked_ids = set(id(a) for a in out)
-            remainder = [a for a in assignments if id(a) not in picked_ids]
-            self.rng.shuffle(remainder)
-            out.extend(remainder[: self.sample_size - len(out)])
-        return out[: self.sample_size]
-
-    @staticmethod
-    def _sample_strategy_summary(sample: list[StanceAssignment]) -> dict:
-        by_type: dict[str, dict[str, int]] = {}
-        for a in sample:
-            t = a.stance_type
-            row = by_type.setdefault(t, {"total": 0, "null": 0})
-            row["total"] += 1
-            if a.stance_id is None:
-                row["null"] += 1
-        return {"by_type": by_type, "total": len(sample)}
+        logger.info(
+            "consistency stage3[%s]: merges=%d renames=%d",
+            stance_type,
+            sum(1 for p in result.merge_pairs),
+            sum(1 for p in result.proposals if p.kind == "rename" and p.stance_type == stance_type),
+        )
 

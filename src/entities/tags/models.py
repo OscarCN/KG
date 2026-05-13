@@ -213,6 +213,10 @@ class Customer:
     # Consistency-pass state
     items_processed_total: int = 0
     items_processed_since_last_pass: int = 0
+    # Bundle counters — one bundle = one root post/article + its comments.
+    # Used by the consistency pass to size its windowed sample.
+    bundles_processed_total: int = 0
+    bundles_processed_since_last_pass: int = 0
     last_consistency_pass_at: Optional[str] = None
     last_consistency_pass_count: int = 0
     consistency_pass_threshold_items: int = 200
@@ -250,6 +254,8 @@ class Customer:
             "related_entity_ids": list(self.related_entity_ids),
             "items_processed_total": self.items_processed_total,
             "items_processed_since_last_pass": self.items_processed_since_last_pass,
+            "bundles_processed_total": self.bundles_processed_total,
+            "bundles_processed_since_last_pass": self.bundles_processed_since_last_pass,
             "last_consistency_pass_at": self.last_consistency_pass_at,
             "last_consistency_pass_count": self.last_consistency_pass_count,
             "consistency_pass_threshold_items": self.consistency_pass_threshold_items,
@@ -279,6 +285,10 @@ class Customer:
             items_processed_total=int(payload.get("items_processed_total") or 0),
             items_processed_since_last_pass=int(
                 payload.get("items_processed_since_last_pass") or 0
+            ),
+            bundles_processed_total=int(payload.get("bundles_processed_total") or 0),
+            bundles_processed_since_last_pass=int(
+                payload.get("bundles_processed_since_last_pass") or 0
             ),
             last_consistency_pass_at=payload.get("last_consistency_pass_at"),
             last_consistency_pass_count=int(payload.get("last_consistency_pass_count") or 0),
@@ -631,12 +641,9 @@ class ConsistencyPassResult:
     customer_id: int
     started_at: str = field(default_factory=now_iso)
     finished_at: str = ""
-    sample_size: int = 0
-    sample_strategy: dict[str, Any] = field(default_factory=dict)
     proposals: list[StanceProposal] = field(default_factory=list)
     merge_pairs: list[tuple[str, str]] = field(default_factory=list)
     retire_ids: list[str] = field(default_factory=list)
-    reroute_pairs: list[tuple[str, str]] = field(default_factory=list)
     decisions: list[StanceDecision] = field(default_factory=list)
     summary: Optional[StepSummary] = None
 
@@ -645,12 +652,9 @@ class ConsistencyPassResult:
             "customer_id": self.customer_id,
             "started_at": self.started_at,
             "finished_at": self.finished_at,
-            "sample_size": self.sample_size,
-            "sample_strategy": self.sample_strategy,
             "proposals": [p.to_dict() for p in self.proposals],
             "merge_pairs": [list(p) for p in self.merge_pairs],
             "retire_ids": list(self.retire_ids),
-            "reroute_pairs": [list(p) for p in self.reroute_pairs],
             "decisions": [d.to_dict() for d in self.decisions],
             "summary": self.summary.to_dict() if self.summary else None,
         }

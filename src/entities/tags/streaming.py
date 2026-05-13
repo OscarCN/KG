@@ -161,6 +161,8 @@ class StreamingTagsPipeline:
         # 5. Counters
         self.state.customer.items_processed_total += 1
         self.state.customer.items_processed_since_last_pass += 1
+        self.state.customer.bundles_processed_total += 1
+        self.state.customer.bundles_processed_since_last_pass += 1
         return result
 
     # ── helpers ────────────────────────────────────────────────────────

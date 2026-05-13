@@ -31,7 +31,6 @@ def main() -> int:
     parser.add_argument("--catalog", required=True, type=Path,
                         help="streaming snapshot (data/tags/<slug>/run_<ts>.json)")
     parser.add_argument("--out-dir", required=True, type=Path)
-    parser.add_argument("--sample-size", type=int, default=300)
     args = parser.parse_args()
 
     config = LocalRunConfig(
@@ -41,7 +40,6 @@ def main() -> int:
         events_path=Path("/dev/null"),
         output_dir=args.out_dir,
         catalog_path=args.catalog,
-        sample_size=args.sample_size,
     )
     run_local_consistency(config)
     return 0

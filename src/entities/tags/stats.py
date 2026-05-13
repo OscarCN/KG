@@ -102,7 +102,8 @@ def print_catalog_overview(
     *,
     description_limit: int = 80,
 ) -> None:
-    """Print every entry in the catalog grouped by `primary_type`.
+    """Print every entry in the catalog grouped by `primary_type`,
+    annotated with its number of catalogued assignments (`n=…`).
 
     Useful right after bootstrapping (when assignments are still empty so
     `print_top_stances_by_type` has nothing to show).
@@ -110,6 +111,11 @@ def print_catalog_overview(
     by_type: dict[str, list] = {}
     for entry in stance_catalog.entries.values():
         by_type.setdefault(entry.primary_type, []).append(entry)
+
+    counts_by_id: dict[str, int] = {}
+    for a in stance_catalog.assignments:
+        if a.stance_id:
+            counts_by_id[a.stance_id] = counts_by_id.get(a.stance_id, 0) + 1
 
     total = len(stance_catalog.entries)
     if total == 0:
@@ -122,12 +128,18 @@ def print_catalog_overview(
         t for t in by_type if t not in _CATALOG_OVERVIEW_TYPE_ORDER
     ]
     for t in ordered_types:
-        entries = sorted(by_type.get(t) or [], key=lambda e: e.label.lower())
+        entries = by_type.get(t) or []
         if not entries:
             continue
-        print(f"  {t}  ({len(entries)} entries)")
+        entries = sorted(
+            entries,
+            key=lambda e: (-counts_by_id.get(e.id, 0), e.label.lower()),
+        )
+        type_total = sum(counts_by_id.get(e.id, 0) for e in entries)
+        print(f"  {t}  ({len(entries)} entries, {type_total} assignments)")
         for e in entries:
-            print(f"    • {e.label}")
+            n = counts_by_id.get(e.id, 0)
+            print(f"    • [n={n}] {e.label}")
             if e.description:
                 desc = " ".join(e.description.split())
                 if len(desc) > description_limit:

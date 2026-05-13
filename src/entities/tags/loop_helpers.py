@@ -204,12 +204,10 @@ def run_consistency_pass_at_bundle(
     entries_after = len(state.stance_catalog.entries)
     asgn_after = len(state.stance_catalog.assignments)
     print(f"  entradas:     {entries_before} → {entries_after}")
-    print(f"  asignaciones: {asgn_before} → {asgn_after}  "
-          f"(reroute puede mover, no crear)")
+    print(f"  asignaciones: {asgn_before} → {asgn_after}")
     print(f"  proposals: {len(result.proposals)}  "
           f"merges: {len(result.merge_pairs)}  "
-          f"retires: {len(result.retire_ids)}  "
-          f"reroutes: {len(result.reroute_pairs)}")
+          f"retires: {len(result.retire_ids)}")
     if result.summary:
         print(f"  counters: {dict(result.summary.counters)}")
     print()

@@ -73,7 +73,6 @@ class LocalRunConfig:
 
     include_comments: bool = False
     snapshot_top_n: int = 10
-    sample_size: int = 300
     bootstrap_corpus_limit: Optional[int] = None
 
     triage_model: str = field(
@@ -163,7 +162,10 @@ def build_bootstrap_step(customer: Customer, config: LocalRunConfig) -> Bootstra
 
 def build_consistency_step(customer: Customer, config: LocalRunConfig) -> ConsistencyPassStep:
     llm = _cached_llm("consistency", customer.entity_id, config.consistency_model)
-    return ConsistencyPassStep(customer, llm, sample_size=config.sample_size)
+    bootstrap = build_bootstrap_step(customer, config)
+    return ConsistencyPassStep(
+        customer, llm, bootstrap_step=bootstrap
+    )
 
 
 # ── Top-level orchestration ────────────────────────────────────────────
