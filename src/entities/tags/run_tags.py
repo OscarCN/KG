@@ -295,7 +295,6 @@ if RUN_STREAMING and bundles:
             snapshot_top_n=SNAPSHOT_TOP_N,
         )
         if CONSISTENCY_AT_BUNDLE is not None and i == CONSISTENCY_AT_BUNDLE:
-            assert False
             run_consistency_pass_at_bundle(state, consistency_step, index=i)
         if CATALOG_SUMMARY_EVERY and i % CATALOG_SUMMARY_EVERY == 0:
             print()

@@ -1,4 +1,0 @@
-Clasifica ideas de postura hacia el cliente.
-No elijas entradas de catalogo y no extraigas claims.
-Devuelve JSON con la clave triage.
-

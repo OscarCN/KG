@@ -301,113 +301,161 @@ bundles.
 
 ## DB mapping
 
-Each in-memory shape maps cleanly to a relational table. Rough
-column sketch:
+Each in-memory shape maps cleanly to a relational table in **userdb**,
+following the same `(entity_id, org_id, query_id)` convention as
+`entities_documents_sentiments_org`. Schema lives in
+[`serialization_plan.md`](./serialization_plan.md); the standalone
+migration is [`media-backend-paid/docs/social_tags_schema_update_userdb.sql`](../../../media-backend-paid/docs/social_tags_schema_update_userdb.sql)
+and the userdb source of truth is `media-backend-paid/db/user_db/schema.sql`
+(see [`DATABASE_POSTGRES.md`](../../../media-backend-paid/docs/DATABASE_POSTGRES.md)
+§ Tags subsystem).
 
-```sql
--- StanceEntry
-CREATE TABLE stance_entries (
-    id              TEXT PRIMARY KEY,        -- "complaint__demora-pago__a1b2c3"
-    customer_id     INT  NOT NULL,
-    label           TEXT NOT NULL,
-    description     TEXT NOT NULL DEFAULT '',
-    primary_type    TEXT NOT NULL,           -- StanceType
-    created_at      TIMESTAMPTZ NOT NULL,
-    retired_at      TIMESTAMPTZ,             -- NULL = active
-    aliases         JSONB NOT NULL DEFAULT '[]',
-    origin_event_id TEXT
-);
-CREATE INDEX ON stance_entries (customer_id, primary_type) WHERE retired_at IS NULL;
+Tables:
 
--- StanceAssignment
-CREATE TABLE stance_assignments (
-    source_item_id TEXT NOT NULL,
-    source_kind    TEXT NOT NULL,            -- 'article' | 'user_post' | 'user_comment'
-    customer_id    INT  NOT NULL,
-    stance_id      TEXT,                     -- nullable
-    stance_type    TEXT NOT NULL,
-    event_id       TEXT,
-    reason         TEXT NOT NULL DEFAULT '',
-    assigned_at    TIMESTAMPTZ NOT NULL,
-    PRIMARY KEY (source_item_id, customer_id, stance_type, stance_id)
-);
-CREATE INDEX ON stance_assignments (customer_id, stance_type, assigned_at DESC);
-CREATE INDEX ON stance_assignments (stance_id);
+| Table | Role |
+|---|---|
+| `stance_entries` | Per-`(entity, org)` stance catalog. Hard-deleted when no assignments remain. |
+| `stance_assignments` | One row per `(source_item, entity, org, stance_type, stance_id)`. `stance_id` is nullable — NULL rows are the orphan pool consumed by consistency Stage 2. |
+| `claim_clusters` | Per-`(entity, org, event_id)` claim cluster. No TTL — clusters persist with their event. |
+| `claim_assignments` | One row per extracted `RawClaim` placed into a cluster. |
+| `tags_entity_state` | Per-`(entity, org)` streaming counters + `assignment_ttl_days` (default 4) + consistency-pass thresholds. |
 
--- Customer counters (joined onto kgdb.entities)
-ALTER TABLE entities ADD COLUMN bundles_processed_total              INT DEFAULT 0;
-ALTER TABLE entities ADD COLUMN bundles_processed_since_last_pass    INT DEFAULT 0;
-ALTER TABLE entities ADD COLUMN items_processed_total                INT DEFAULT 0;
-ALTER TABLE entities ADD COLUMN items_processed_since_last_pass      INT DEFAULT 0;
-ALTER TABLE entities ADD COLUMN last_consistency_pass_at             TIMESTAMPTZ;
-```
+Scope rules:
 
-Equivalent shape for `ClaimCluster` / `ClaimAssignment` keyed by
-`(customer_id, event_id)`.
+- Stances and claims are scoped per `(entity_id, org_id)`. `query_id` is denormalised on each assignment row for traceability — not part of any catalog key.
+- `entity_id` references `kgdb.entities_alias.original_entity_id` (cross-DB, app-level only).
+- Stance TTL is configurable per `(entity, org)`; default 4 days (range 3–5). Claims have no TTL.
 
 ### How the DB switch looks in code
 
-Replace the in-memory `StanceCatalog` with a `StanceCatalogRepo` that
-exposes the **same** method names but issues SQL:
+[`db.py`](./db.py) implements the repos with the **same** method
+surface as `catalogs.py`:
 
-- `add(…)` → `INSERT … RETURNING *`
-- `assign(a)` → `INSERT INTO stance_assignments …`
-- `merge(src, dst)` → transaction: `UPDATE stance_assignments SET stance_id=:dst WHERE stance_id=:src`, then `UPDATE stance_entries SET aliases = aliases || :src_label WHERE id = :dst`, then `DELETE FROM stance_entries WHERE id = :src` (or set `retired_at`).
-- `recent_bundle_assignments(…)` → the windowed SQL above.
+- `StanceCatalogRepo(conn, *, entity_id, org_id)` — drop-in for `StanceCatalog`.
+- `ClaimCatalogStoreRepo(conn, *, entity_id, org_id)` and `ClaimCatalogRepo(conn, *, entity_id, org_id, event_id)` — drop-ins for `ClaimCatalogStore` / `ClaimCatalog`.
+- `EntityStateRepo(conn)` — counter / threshold / consistency-pass timestamp persistence.
+- `connect_userdb()` — psycopg2 connection from `USERDB_*` env vars.
+
+The repos do **not** commit — the caller (the message handler) owns
+the transaction lifecycle: one transaction per bundle, commit before
+acking the queue message.
+
+SQL mapping:
+
+- `add(…)` → `INSERT INTO stance_entries … ON CONFLICT (entity_id, org_id, primary_type, label) DO NOTHING RETURNING *`
+- `assign(a)` → `INSERT INTO stance_assignments … ON CONFLICT DO NOTHING` (two partial unique indexes — one for `stance_id IS NOT NULL`, one for orphans — enforce idempotency under queue redelivery).
+- `merge(src, dst)` → transaction: `UPDATE stance_assignments SET stance_id=:dst WHERE stance_id=:src`, `UPDATE stance_entries SET aliases = aliases || to_jsonb(:src_label) WHERE stance_id=:dst`, `DELETE FROM stance_entries WHERE stance_id=:src`. FK `ON DELETE RESTRICT` guards the ordering.
+- `retire(id)` / `delete(id)` → guarded `DELETE FROM stance_entries WHERE … AND NOT EXISTS (matching assignments)`.
+- `recent_bundle_assignments(…)` → the CTE above.
+
+Retention (run at consistency-pass start):
+```sql
+DELETE FROM stance_assignments
+ WHERE entity_id = :e AND org_id = :o
+   AND assigned_at < now() - (:ttl || ' days')::interval;
+
+DELETE FROM stance_entries
+ WHERE entity_id = :e AND org_id = :o
+   AND NOT EXISTS (SELECT 1 FROM stance_assignments
+                    WHERE stance_id = stance_entries.stance_id);
+```
 
 The streaming pipeline, bootstrap step, and consistency pass don't
-need to change — they only ever call these methods.
+need to change — they only ever call the catalog method surface.
 
-### Where bundles come from in the DB world
+### Bundle-context enrichment
 
-In the local fixture, `ArticleBundleRetriever` reads two JSON files
-(linked docs + events store) and yields `ArticleBundle`s. In the DB
-world the equivalent is a query that, for one customer:
+`StanceCatalogRepo` and `ClaimCatalogStoreRepo` each expose
+`set_bundle_context(bundle, query_id)`. The streaming consumer calls
+it once per message; subsequent `assign(...)` / `create(...)` calls
+auto-fill the dimensions the tagger doesn't know about
+(`parent_source_id` from `item.parent_source_id`, `news_type` from
+`item.metadata['news_type']`, `query_id` from the message) by looking
+up each assignment's `source_item_id` against the bundle's items.
 
-1. Selects post/article rows from the source store (Elasticsearch or
-   a `posts` table) that haven't been tagged yet for this customer,
-   ordered by `created_at`.
-2. For each root: joins its comments and the linked events from
-   `event_links` / `events`.
-3. Yields one `ArticleBundle` per root.
+This is the reason the streaming-side tagger code (`tagging.py`,
+`bootstrap.py`) doesn't need to know about org/query/news-type
+dimensions: the repo enriches at write time. Non-streaming callers
+(tests, scripts, the consistency pass) can ignore the hook entirely —
+when context isn't set, `assign()` writes whatever the dataclass
+already carries.
 
-The customer-side equivalent of "what's left to process" is:
+### Streaming entry point
 
-```sql
--- Bundles still owed to a customer
-SELECT p.url AS source_id
-FROM posts p
-LEFT JOIN stance_assignments sa
-  ON sa.source_item_id = p.url AND sa.customer_id = :customer
-WHERE p.customer_id = :customer
-  AND sa.source_item_id IS NULL
-ORDER BY p.created_at;
-```
+[`stream.py`](./stream.py) is the runtime around the DB-backed repos.
+The public function is `run_simulated_stream(config, *, org_id,
+query_id=…, …)`:
 
-### Selecting past items for consistency passes
+1. Open one userdb connection (`connect_userdb()`).
+2. Build `StanceCatalogRepo` / `ClaimCatalogStoreRepo` /
+   `EntityStateRepo` scoped to `(entity_id, org_id)`.
+3. Hydrate the in-memory `Customer` from `tags_entity_state`
+   (`apply_counters_to`) so `consistency_pass_due()` reflects what's
+   actually persisted, not the JSON fixture.
+4. Pull messages from `_simulated_message_stream` (yields
+   `TagsMessage` per local-fixture bundle).
+5. For each message:
+   - `stance_repo.set_bundle_context(bundle, query_id)` and same on
+     the claim store.
+   - `pipeline.process_bundle(bundle)` — the tagger calls `repo.add`,
+     `repo.assign`, `repo.rename`, etc. via the catalog method
+     surface; SQL flushes as it goes, but the transaction stays open.
+   - `state_repo.bump_streaming(entity_id, org_id)` increments the
+     persisted counters.
+   - `conn.commit()` — the bundle is now durable. In production this
+     is followed by acking the RabbitMQ message; if the worker dies
+     before commit, the message is redelivered and the partial-unique
+     indexes make redelivery idempotent.
+6. If the consistency pass is due, run retention →
+   `stance_repo.recent_bundle_assignments(…)` →
+   `SourceItemFetcher.fetch_for_assignments(recent)` to rebuild
+   `items_seen` from ES (or the local file) → `step.run(…)` →
+   `state_repo.mark_consistency_pass(…)` → commit.
 
-The consistency pass already uses `recent_bundle_assignments` — that
-query gives it everything it needs. No need to re-fetch source-item
-text from a separate store, **as long as** the items themselves are
-either still in `state.items_seen` or readable from the source store.
-The pass uses `items_seen.get(source_item_id)` to fetch text for the
-hygiene samples; the DB equivalent is a join against the posts table.
+The message envelope is `TagsMessage` (`models.py`) carrying
+`(bundle, entity_id, org_id, query_id)`. Swapping
+`_simulated_message_stream` for a `pika` consumer that yields the
+same shape is the only change needed to flip to the real queue — the
+processing loop doesn't care about the message origin.
 
-### Wiring catalogs from assignments
+### Source-item text recovery for the consistency pass
 
-When the system restarts, the catalog is reconstructed from its rows:
+`StreamingState.items_seen` is process-local. After a worker restart
+it's empty, so the consistency pass needs to rebuild text for the
+recent-bundle window from somewhere else. [`source_items.py`](./source_items.py)
+provides two `SourceItemFetcher` implementations:
+
+- `LocalFileSourceItemFetcher(linked_path)` — re-reads the same
+  `linked.json` the retriever uses; serves all lookups from a flat
+  in-memory index keyed by `source_item_id`.
+- `ESSourceItemFetcher(index="news", connection_alias="medios3conn")`
+  — one `terms` query on `url` per pass against the ES `news` index.
+  Comments are embedded on each parent post (`doc.comments[…]`); the
+  fetcher flattens them into individual `SourceItem`s keyed by
+  comment id.
+
+Both expose `fetch_for_assignments(assignments)` →
+`dict[source_item_id, SourceItem]` shaped exactly like the in-memory
+`items_seen`. `_run_consistency_pass` in `stream.py` invokes the
+fetcher with the recent-bundle window so Stage 2 (orphan bootstrap)
+and Stage 3 (hygiene sampling) see actual text, not just the brief
+`reason` strings stored on each assignment row.
+
+### State on restart
+
+No load-time reconstruction step exists. The repos are query-backed —
+`iter_entries`, `assignments`, `recent_bundle_assignments` each issue
+SQL on demand. On worker restart:
 
 ```python
-# In-memory snapshot (current)
-stance_catalog, claim_catalogs = load_snapshot(path)
-
-# DB equivalent (future)
-stance_catalog = StanceCatalogRepo(db, customer_id=…)
-# entries, retired_entries, assignments are query-backed, not loaded
+stance_repo = StanceCatalogRepo(conn, entity_id=…, org_id=…)
+state_repo  = EntityStateRepo(conn)
+state_repo.apply_counters_to(customer, org_id)  # hydrate Customer counters
 ```
 
-The `to_dict` / `from_dict` round-trip already mirrors the shape that a
-SQL backing store would expose.
+That's it — the catalog is "live"; the next `process_bundle` call
+issues whatever SELECTs the streaming step needs and the writes flow
+through the same `assign()`/`add()` methods.
 
 ---
 
@@ -551,7 +599,7 @@ at DEBUG — useful when reproducing a past run.
 
 | File | Role |
 |---|---|
-| `models.py` | All dataclasses (`Customer`, `SourceItem`, `ArticleBundle`, `StanceEntry`, `StanceAssignment`, …) and enums. |
+| `models.py` | All dataclasses (`Customer`, `SourceItem`, `ArticleBundle`, `StanceEntry`, `StanceAssignment`, `ClaimAssignment`, `TagsMessage`, `StreamRunStats`, …) and enums. |
 | `catalogs.py` | `StanceCatalog`, `ClaimCatalog`, `ClaimCatalogStore`. The repository surface — the only thing that mutates catalog state. |
 | `retrieval.py` | `ArticleBundleRetriever` — reads the pre-linked fixture and yields `ArticleBundle`s. |
 | `triage.py` | `TypeTriageStep` — classifies items into typed rows. |
@@ -564,6 +612,9 @@ at DEBUG — useful when reproducing a past run.
 | `prompts/style_guide.md` | The full prompt-writing style guide. |
 | `llm.py` | `JsonLlm` protocol, `OpenRouterJsonLlm`, `CachedJsonLlm`, `LoggingJsonLlm`, prompt-load helpers. |
 | `persistence.py` | JSON snapshot read/write for both catalogs. |
+| `db.py` | userdb-backed repo classes (`StanceCatalogRepo`, `ClaimCatalogStoreRepo` / `ClaimCatalogRepo`, `EntityStateRepo`) + `connect_userdb()`. Same method surface as `catalogs.py`, plus `set_bundle_context(bundle, query_id)` for per-message enrichment of `parent_source_id` / `news_type` / `query_id`. |
+| `source_items.py` | `LocalFileSourceItemFetcher` (local fixture) and `ESSourceItemFetcher` (ES `news` index) — both implement `fetch_for_assignments(assignments)` to rebuild `items_seen` for the consistency pass after a worker restart. |
+| `stream.py` | File-simulated, userdb-backed streaming entry point (`run_simulated_stream`). Owns the per-message TX, dispatches retention + consistency passes, and exposes the reset-state IPython snippet as a header comment. Swap `_simulated_message_stream` for a `pika` consumer to flip to RabbitMQ. |
 | `runner.py` | `LocalRunConfig` + builder helpers for the CLI entrypoints. |
 | `run_tags.py` | IPython driver — Phase 1 → Phase 2 → Phase 3 in one script. |
 | `cli/*.py` | Standalone CLI entrypoints for bootstrap / run / consistency. |
@@ -588,7 +639,12 @@ at DEBUG — useful when reproducing a past run.
    them (a viral post can have hundreds of comments and dominate the
    sample).
 
-3. **DB-backed `StanceCatalogRepo`.** Replace the in-memory dicts
-   with a SQL implementation behind the same method names. The hot
-   query is `recent_bundle_assignments`; everything else is a
-   straightforward CRUD mapping.
+3. **Real RabbitMQ consumer.** The userdb repos
+   ([`db.py`](./db.py)), the source-item fetcher
+   ([`source_items.py`](./source_items.py)), and a file-simulated
+   streaming loop ([`stream.py`](./stream.py)) are in place. The
+   loop runs end-to-end against userdb, including retention and the
+   ES-backed `items_seen` rebuild for the consistency pass. Still to
+   do: replace `_simulated_message_stream` in `stream.py` with a
+   `pika` consumer that yields the same `TagsMessage` shape and acks
+   after each per-bundle commit.

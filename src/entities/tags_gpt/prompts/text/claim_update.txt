@@ -1,4 +1,0 @@
-Agrupa claims en clusters existentes o crea clusters nuevos.
-Puedes sugerir rename o merge.
-Devuelve JSON con decisions y mutations.
-

@@ -317,6 +317,31 @@ class ArticleBundle:
         return [self.root, *self.comments]
 
 
+@dataclass
+class TagsMessage:
+    """One queue message: a bundle plus the scope it should be written under.
+
+    In the simulated stream this is built from the local fixture; in
+    production the RabbitMQ consumer parses it from the message body.
+    `(entity_id, org_id, query_id)` matches the userdb persistence
+    scope used by the repos in `db.py`.
+    """
+
+    bundle: ArticleBundle
+    entity_id: int
+    org_id: int
+    query_id: Optional[int] = None
+
+
+@dataclass
+class StreamRunStats:
+    """Counters returned by a streaming run for visibility / tests."""
+
+    bundles_processed: int = 0
+    consistency_passes: int = 0
+    per_pass_summaries: list[dict[str, int]] = field(default_factory=list)
+
+
 # ── Stance ──────────────────────────────────────────────────────────────
 
 
@@ -364,6 +389,11 @@ class StanceAssignment:
     event_id: Optional[str] = None
     reason: str = ""
     assigned_at: str = field(default_factory=now_iso)
+    # Userdb persistence dimensions — None in local in-memory runs.
+    org_id: Optional[int] = None
+    query_id: Optional[int] = None
+    parent_source_id: Optional[str] = None
+    news_type: Optional[str] = None
 
     def to_dict(self) -> dict[str, Any]:
         return dict(self.__dict__)
@@ -380,6 +410,10 @@ class StanceAssignment:
             event_id=payload.get("event_id"),
             reason=str(payload.get("reason") or ""),
             assigned_at=str(payload.get("assigned_at") or now_iso()),
+            org_id=payload.get("org_id"),
+            query_id=payload.get("query_id"),
+            parent_source_id=payload.get("parent_source_id"),
+            news_type=payload.get("news_type"),
         )
 
 
@@ -535,6 +569,13 @@ class ClaimAssignment:
     customer_id: int
     verbatim: str
     assigned_at: str = field(default_factory=now_iso)
+    # Userdb persistence dimensions + RawClaim fields collapsed onto the row.
+    org_id: Optional[int] = None
+    query_id: Optional[int] = None
+    parent_source_id: Optional[str] = None
+    news_type: Optional[str] = None
+    importance: int = 1
+    importance_reason: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return dict(self.__dict__)
@@ -549,6 +590,12 @@ class ClaimAssignment:
             customer_id=int(payload["customer_id"]),
             verbatim=str(payload.get("verbatim") or ""),
             assigned_at=str(payload.get("assigned_at") or now_iso()),
+            org_id=payload.get("org_id"),
+            query_id=payload.get("query_id"),
+            parent_source_id=payload.get("parent_source_id"),
+            news_type=payload.get("news_type"),
+            importance=int(payload.get("importance") or 1),
+            importance_reason=str(payload.get("importance_reason") or ""),
         )
 
 

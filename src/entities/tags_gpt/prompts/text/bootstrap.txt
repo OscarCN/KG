@@ -1,4 +1,0 @@
-Crea un catalogo inicial para un tipo de postura.
-Cada entrada necesita label, description y evidence_source_item_ids.
-Devuelve JSON con la clave entries.
-

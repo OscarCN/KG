@@ -1,4 +1,0 @@
-Consolida un solo tipo de postura.
-No fusiones entradas de tipos distintos.
-Devuelve JSON con proposals, merge_pairs, retire_ids y reroute_pairs.
-

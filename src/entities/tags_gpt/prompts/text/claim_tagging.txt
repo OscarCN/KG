@@ -1,4 +1,0 @@
-Extrae afirmaciones factuales sobre el evento que afectan al cliente.
-No asignes clusters en este paso.
-Devuelve JSON con la clave claims.
-
