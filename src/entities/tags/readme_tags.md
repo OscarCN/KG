@@ -339,6 +339,12 @@ Scope rules:
 - `entity_id` references `kgdb.entities_alias.original_entity_id` (cross-DB, app-level only).
 - Stance TTL is configurable per `(entity, org)`; default 4 days (range 3–5). Claims have no TTL.
 
+Column conventions (`stance_assignments`, `claim_assignments`):
+
+- **`parent_source_id` is the post-level URL** — parent post URL for `user_comment` rows, the row's own `source_item_id` for root rows (`article` / `user_post`). This **diverges from `entities_documents_sentiments_org.parent_doc_id`** (which is NULL for roots): the tags-side convention exists so per-post aggregations (`GROUP BY parent_source_id`, "all assignments for post X" → `WHERE parent_source_id = :url`) need no `COALESCE` and no `IS NULL` branching. Filled at write time by `StanceCatalogRepo._enrich_assignment_from_context` and `ClaimCatalogRepo._ctx_for`.
+- **`news_type` is inherited from the parent post** for comment rows. Comment items only carry comment-level fields in their metadata (`comment_id`, `comment_text`, …), so the enrichment walks one step up to the parent post to pull its network identifier. Root rows read it from their own metadata directly.
+- **`query_id` is denormalised attribution**, not catalog key. Filled from the per-message context (streaming) or the bootstrap `query_id` parameter (Phase 1).
+
 ### How the DB switch looks in code
 
 [`db.py`](./db.py) implements the repos with the **same** method

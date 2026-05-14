@@ -234,7 +234,7 @@ elif BOOTSTRAP_IF_MISSING and all_bundles:
         f"[bootstrap] running Phase 1 on {len(_bootstrap_corpus)} of "
         f"{len(all_bundles)} bundles …"
     )
-    bootstrap_step.run(_bootstrap_corpus, catalog=stance_repo)
+    bootstrap_step.run(_bootstrap_corpus, catalog=stance_repo, query_id=QUERY_ID)
     state_repo.mark_bootstrap_complete(customer.entity_id, ORG_ID)
     conn.commit()
     bootstrapped_now = True

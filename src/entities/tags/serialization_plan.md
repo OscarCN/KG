@@ -46,8 +46,8 @@ Lifecycle: inserted by streaming tagger / bootstrap / consistency Stage 2; hard-
 | `record_id` | BIGSERIAL PK | |
 | `source_item_id` | TEXT NOT NULL | post URL or comment id |
 | `source_kind` | TEXT NOT NULL | `article` / `user_post` / `user_comment` |
-| `parent_source_id` | TEXT NULL | parent post id when `source_kind='user_comment'` |
-| `news_type` | TEXT NULL | mirrors `entities_documents_sentiments_org.news_type` |
+| `parent_source_id` | TEXT NULL | Post-level URL. For `source_kind='user_comment'` → the parent post's URL; for root rows (`article` / `user_post`) → the row's own `source_item_id`. **Diverges from `entities_documents_sentiments_org.parent_doc_id`** (which is NULL for roots) so per-post aggregations don't need `COALESCE`. |
+| `news_type` | TEXT NULL | Social-network identifier (`facebook` / `instagram` / `x` / `linkedin` / `tiktok` / `news` / `impreso` / `radio` / `tv`). Comment rows inherit the parent post's `news_type` since the comment's own metadata doesn't carry it. |
 | `entity_id` | INTEGER NOT NULL | → `entities_alias.original_entity_id` |
 | `org_id` | INTEGER NOT NULL | |
 | `query_id` | INTEGER NULL | → `user_searches.query_id`; denormalised, not in unique key |
@@ -95,8 +95,8 @@ No TTL — clusters persist for the lifetime of the event.
 | `record_id` | BIGSERIAL PK | |
 | `source_item_id` | TEXT NOT NULL | |
 | `source_kind` | TEXT NOT NULL | |
-| `parent_source_id` | TEXT NULL | comment → parent post |
-| `news_type` | TEXT NULL | mirrors sentiment-org table |
+| `parent_source_id` | TEXT NULL | Post-level URL. Comment → parent post URL; root → own `source_item_id`. Same convention as `stance_assignments.parent_source_id` (diverges from `entities_documents_sentiments_org`). |
+| `news_type` | TEXT NULL | Social-network identifier. Comment rows inherit the parent post's `news_type`. |
 | `entity_id` | INTEGER NOT NULL | |
 | `org_id` | INTEGER NOT NULL | |
 | `query_id` | INTEGER NULL | traceability |

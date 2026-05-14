@@ -72,6 +72,17 @@ class StanceCatalog:
         self.entries[entry.id] = entry
         return entry
 
+    def set_items_context(self, items_by_id, query_id=None) -> None:
+        """No-op on the in-memory backend. Present so callers like
+        `BootstrapStep.run` can wire enrichment context unconditionally;
+        the DB-backed `StanceCatalogRepo` uses it to fill
+        `parent_source_id` / `news_type` / `query_id` at write time."""
+        return None
+
+    def clear_bundle_context(self) -> None:
+        """No-op on the in-memory backend (see `set_items_context`)."""
+        return None
+
     def add(
         self,
         label: str,

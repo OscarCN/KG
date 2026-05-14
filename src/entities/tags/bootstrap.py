@@ -59,12 +59,18 @@ class BootstrapStep:
         corpus: Iterable[ArticleBundle],
         *,
         catalog: Optional[StanceCatalog] = None,
+        query_id: Optional[int] = None,
     ) -> StanceCatalog:
         """Seed `catalog` from `corpus`. If `catalog` is None, a fresh
         in-memory `StanceCatalog` is created (the local-driver default);
         pass a `StanceCatalogRepo` to write bootstrap rows straight into
         userdb. The method surface used here (`add`, `assign`) is the
-        same on both backends."""
+        same on both backends.
+
+        `query_id` is stamped onto every bootstrap-time
+        `stance_assignments` row via the catalog's items context
+        (no-op for the in-memory backend; DB repo fills it on write).
+        """
         if catalog is None:
             catalog = StanceCatalog(customer_id=self.customer.entity_id)
 
@@ -84,6 +90,11 @@ class BootstrapStep:
             len(items_by_id),
             len(all_triaged),
         )
+
+        # Wire enrichment context once for the whole bootstrap. The
+        # DB-backed repo uses this to fill `parent_source_id` /
+        # `news_type` / `query_id` on every assignment written below.
+        catalog.set_items_context(items_by_id, query_id=query_id)
 
         # 2. Drop tag-only types and group by stance_type.
         per_type: dict[StanceType, list[TypeTriageItem]] = {}

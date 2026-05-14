@@ -127,20 +127,49 @@ class StanceCatalogRepo:
         self._bundle_items = {item.id: item for item in bundle.all_items}
         self._bundle_query_id = query_id
 
+    def set_items_context(
+        self,
+        items_by_id: dict[str, SourceItem],
+        query_id: Optional[int] = None,
+    ) -> None:
+        """Multi-bundle variant of `set_bundle_context` — used by
+        `BootstrapStep.run` to load every item from the seed corpus at
+        once so the bootstrap-time `assign()` calls can enrich
+        `parent_source_id` / `news_type` / `query_id` the same way
+        streaming does."""
+        self._bundle_items = dict(items_by_id)
+        self._bundle_query_id = query_id
+
     def clear_bundle_context(self) -> None:
         self._bundle_items = {}
         self._bundle_query_id = None
 
     def _enrich_assignment_from_context(self, a: StanceAssignment) -> None:
         """Fill missing dimension fields on `a` from the current bundle
-        context. No-op when context isn't set."""
+        context. No-op when context isn't set.
+
+        `parent_source_id` always resolves to the **post-level URL**:
+        the parent post for comments, or the row's own
+        `source_item_id` for root posts / articles. That lets queries
+        group/join on a single column without `COALESCE` — at the cost
+        of mildly stretching the "parent" name (a root row points at
+        itself).
+
+        Comments inherit `news_type` from their parent post: their own
+        metadata only carries comment-level fields, but the post-level
+        network type is stored on the parent's metadata.
+        """
         if self._bundle_items:
             item = self._bundle_items.get(a.source_item_id)
             if item is not None:
                 if a.parent_source_id is None:
-                    a.parent_source_id = item.parent_source_id
-                if a.news_type is None and item.metadata:
-                    nt = item.metadata.get("news_type")
+                    a.parent_source_id = item.parent_source_id or item.id
+                if a.news_type is None:
+                    nt = (item.metadata or {}).get("news_type")
+                    if not isinstance(nt, str) and item.parent_source_id:
+                        parent = self._bundle_items.get(item.parent_source_id)
+                        if parent and parent.metadata:
+                            nt = parent.metadata.get("news_type")
                     if isinstance(nt, str):
                         a.news_type = nt
         if a.query_id is None:
@@ -822,18 +851,27 @@ class ClaimCatalogRepo:
     def _ctx_for(self, claim: RawClaim) -> tuple[Optional[int], Optional[str], Optional[str]]:
         """Resolve `(query_id, parent_source_id, news_type)` from the
         current bundle context. Each tuple element is None if the
-        context is unset or doesn't carry that field."""
+        context is unset or doesn't carry that field.
+
+        Comment-level claims inherit `news_type` from the parent post
+        (their own metadata only carries comment-level fields).
+        """
         query_id = self._bundle_query_id
         parent_source_id: Optional[str] = None
         news_type: Optional[str] = None
         if self._bundle_items:
             item = self._bundle_items.get(claim.source_item_id)
             if item is not None:
-                parent_source_id = item.parent_source_id
-                if item.metadata:
-                    nt = item.metadata.get("news_type")
-                    if isinstance(nt, str):
-                        news_type = nt
+                # See `StanceCatalogRepo._enrich_assignment_from_context` —
+                # post-level URL: parent for comments, self for roots.
+                parent_source_id = item.parent_source_id or item.id
+                nt = (item.metadata or {}).get("news_type")
+                if not isinstance(nt, str) and item.parent_source_id:
+                    parent = self._bundle_items.get(item.parent_source_id)
+                    if parent and parent.metadata:
+                        nt = parent.metadata.get("news_type")
+                if isinstance(nt, str):
+                    news_type = nt
         return query_id, parent_source_id, news_type
 
     # ── Mutations ─────────────────────────────────────────────────────
