@@ -1,10 +1,10 @@
-"""Message-loop helpers for `stream.run_simulated_stream`.
+"""Message-loop helpers for `stream.py`.
 
 This file holds the production-shaped per-message plumbing that the
-streaming entry point in `stream.py` calls into. Split out so that
+streaming script in `stream.py` calls into. Split out so that
 `stream.py` can stay a thin, IPython-pasteable orchestration script
-focused on setup + main loop. Swapping `_simulated_message_stream`
-for a `pika` consumer is the one line that flips this from
+focused on setup + main loop. Swapping `simulated_message_stream`
+for a `pika` consumer is the one change that flips this from
 file-simulated to RabbitMQ-driven.
 
 Not to be confused with `test_helpers.py`, which holds the

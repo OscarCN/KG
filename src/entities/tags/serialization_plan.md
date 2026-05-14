@@ -177,7 +177,7 @@ Claims are untouched.
 3. **`media-backend-paid/db/user_db/schema.sql`** — same DDL folded in as the source-of-truth schema (new environments get it for free on first reflect).
 4. **`src/entities/tags/db.py`** — `StanceCatalogRepo`, `ClaimCatalogStoreRepo` / `ClaimCatalogRepo`, `EntityStateRepo`, `connect_userdb()`. Drop-in replacement for the in-memory catalogs.
 5. **`src/entities/tags/source_items.py`** — `LocalFileSourceItemFetcher` (used by the simulated stream) and `ESSourceItemFetcher` (production path). Both implement `fetch_for_assignments(assignments) -> dict[id, SourceItem]`.
-6. **`src/entities/tags/stream.py`** — file-simulated, userdb-backed streaming entry point (`run_simulated_stream`). Swap `_simulated_message_stream` for a `pika` consumer to flip to production.
+6. **`src/entities/tags/stream.py`** — file-simulated, userdb-backed streaming entry point. Top-level paste-and-step IPython script (no function wrapping); per-message helpers live in `loop_helpers.py`. Swap `simulated_message_stream` for a `pika` consumer to flip to production.
 
 ## Minor in-memory model cleanup (out of scope, noted for later)
 

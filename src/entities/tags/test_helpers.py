@@ -4,7 +4,7 @@ Pre-loop accounting, per-bundle diff prints, mid-stream consistency
 trigger. Distinct from `stats.py` (which holds cumulative-summary
 printers used by the post-streaming summary block too) and from
 `loop_helpers.py` (which holds the production-shaped message-loop
-helpers used by `stream.run_simulated_stream`).
+helpers used by `stream.py`).
 """
 
 from __future__ import annotations

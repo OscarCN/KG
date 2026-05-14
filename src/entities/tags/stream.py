@@ -1,30 +1,31 @@
 """Streaming entry point — userdb-backed, file-simulated for now.
 
-Today this iterates the local linked-fixture (the same one
-`run_tags.py` uses) and routes every bundle through the same pipeline
-class, but every catalog write goes to userdb via the repo classes in
-`db.py`. The RabbitMQ swap-in is the only piece that changes: replace
-`loop_helpers.simulated_message_stream` with a `pika` consumer that
-yields `TagsMessage` instances and acks after the per-bundle commit.
+This is a script, not a library: paste the whole file (or selected
+cells) into IPython and the names live in module scope so you can poke
+at `customer`, `stance_repo`, `state_repo`, `messages`, etc. between
+bundles.
 
-Each message is processed in one psycopg2 transaction: stance and
-claim mutations, plus the counter bump on `tags_entity_state`. If the
-worker dies mid-bundle, the message stays unacked and is redelivered.
-Redelivery is idempotent: stance writes hit a single unique index on
-`(source_item_id, entity_id, org_id, stance_type)` with
-`ON CONFLICT DO UPDATE` (latest tagging wins, one row per item/type),
-and claim writes hit a unique index on
-`(source_item_id, entity_id, org_id, event_id, cluster_id,
-verbatim_hash)` with `ON CONFLICT DO NOTHING`.
+Phases:
+- Phase 1 (bootstrap): one-shot seed of the per-`(entity, org)` stance
+  catalog from `BOOTSTRAP_BUNDLE_LIMIT` bundles. Runs only if
+  `tags_entity_state.bootstrap_completed_at` is NULL. Writes go
+  through `bootstrap_step.run(..., catalog=stance_repo)` — same
+  catalog method surface as the streaming loop, so every `add` /
+  `assign` lands in userdb.
+- Phase 2 (streaming): the main loop below. One bundle = one psycopg2
+  transaction (stance + claim mutations + counter bump on
+  `tags_entity_state`). Redelivery is idempotent via the unique
+  indexes on `stance_assignments` (`ON CONFLICT DO UPDATE`) and
+  `claim_assignments` (`ON CONFLICT DO NOTHING`).
+- Phase 3 (consistency pass): retention (TTL prune + orphan GC) →
+  recent-bundle window → `SourceItemFetcher.fetch_for_assignments` →
+  Stages 1/2/3 → `mark_consistency_pass`. Fires when
+  `consistency_pass_due()` says so (per-`(entity, org)` thresholds
+  in `tags_entity_state`).
 
-Consistency pass cadence is driven by `tags_entity_state` thresholds
-(see `Customer.consistency_pass_due`). Retention (TTL prune + orphan
-GC) runs at the start of each pass; source-item text for Stages 2 and
-3 is rebuilt via `SourceItemFetcher` (`source_items.py`).
-
-This file is intentionally lean: `run_simulated_stream` is the main
-loop, paste-and-call from IPython. The per-message machinery lives in
-`loop_helpers.py`.
+The per-message machinery lives in `loop_helpers.py`. To flip from
+file-simulated to RabbitMQ, swap `simulated_message_stream` there
+for a `pika`-backed generator yielding `TagsMessage`.
 """
 
 # ────────────────────────────────────────────────────────────────────────
@@ -35,38 +36,71 @@ loop, paste-and-call from IPython. The per-message machinery lives in
 # separate cells so you can do either independently.
 #
 #     # ── 1. wipe the userdb tags tables ─────────────────────────────
-#     from src.entities.tags.db import connect_userdb
-#     conn = connect_userdb()
-#     with conn.cursor() as cur:
-#         cur.execute(
-#             "TRUNCATE "
-#             "  public.stance_assignments, "
-#             "  public.stance_entries, "
-#             "  public.claim_assignments, "
-#             "  public.claim_clusters, "
-#             "  public.tags_entity_state "
-#             "RESTART IDENTITY CASCADE;"
-#         )
-#     conn.commit()
-#     conn.close()
+#     # `RESTART IDENTITY` is intentionally omitted — it requires
+#     # ownership of the *_record_id_seq sequences, not just USAGE, and
+#     # the `backend` role doesn't own them. The record_ids keep
+#     # counting across resets; nothing user-facing references them so
+#     # this is fine for smoke tests.
+'''
+     from src.entities.tags.db import connect_userdb
+     _c = connect_userdb()
+     with _c.cursor() as cur:
+         cur.execute(
+             "TRUNCATE "
+             "  public.stance_assignments, "
+             "  public.stance_entries, "
+             "  public.claim_assignments, "
+             "  public.claim_clusters, "
+             "  public.tags_entity_state "
+             "CASCADE;"
+         )
+     _c.commit()
+     _c.close()
+'''
 #
 #     # ── 2. wipe the LLM cache directories on disk ─────────────────
 #     import shutil
 #     from pathlib import Path
-#     PROJECT_ROOT = Path("/Users/oscarcuellar/ocn/media/kg/kg")
-#     for d in (PROJECT_ROOT / "cache").iterdir():
+#     for d in (Path("/Users/oscarcuellar/ocn/media/kg/kg/cache")).iterdir():
 #         if d.name.startswith("tags_"):
 #             shutil.rmtree(d, ignore_errors=True)
 #             print(f"removed {d}")
-#
-# After running both, the next `run_simulated_stream(...)` call starts
-# from a clean slate.
 # ────────────────────────────────────────────────────────────────────────
 
 from __future__ import annotations
 
 import logging
+import sys
+from pathlib import Path
 from typing import Optional
+
+from dotenv import load_dotenv
+
+# Ensure the project root is on sys.path so `src.*` imports resolve when
+# this file is run directly (`ipython src/entities/tags/stream.py`).
+_PROJECT_ROOT = Path(
+    "/Users/oscarcuellar/ocn/media/kg/kg/src/entities/tags/stream.py"
+).resolve().parents[3]
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
+
+load_dotenv(_PROJECT_ROOT / ".env.local")
+
+logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
+logging.getLogger("src.entities.tags").setLevel(logging.INFO)
+
+# Per-phase prompt+response loggers. Set one (or several) to DEBUG to
+# dump the full payload for that phase. Uncomment whatever you want to
+# debug.
+#
+# logging.getLogger("tags.prompts").setLevel(logging.DEBUG)             # all six at once
+# logging.getLogger("tags.prompts.bootstrap").setLevel(logging.DEBUG)   # BootstrapStep
+# logging.getLogger("tags.prompts.triage").setLevel(logging.DEBUG)      # TypeTriageStep
+# logging.getLogger("tags.prompts.tagging").setLevel(logging.DEBUG)     # StanceTagger (tag_per_type)
+# logging.getLogger("tags.prompts.claim_tag").setLevel(logging.DEBUG)   # ClaimTagger (extraction)
+# logging.getLogger("tags.prompts.claim_group").setLevel(logging.DEBUG) # ClaimUpdater (grouping)
+# logging.getLogger("tags.prompts.consistency").setLevel(logging.DEBUG) # ConsistencyPassStep
+
 
 from src.entities.tags.db import connect_userdb
 from src.entities.tags.loop_helpers import (
@@ -74,107 +108,210 @@ from src.entities.tags.loop_helpers import (
     consistency_pass_due,
     handle_message,
     run_consistency_pass,
-    simulated_message_stream,
 )
-from src.entities.tags.models import StreamRunStats
+from src.entities.tags.models import StreamRunStats, TagsMessage
+from src.entities.tags.retrieval import ArticleBundleRetriever
 from src.entities.tags.runner import (
     LocalRunConfig,
+    build_bootstrap_step,
     build_consistency_step,
     build_streaming_pipeline,
     load_customer,
 )
-from src.entities.tags.source_items import (
-    LocalFileSourceItemFetcher,
-    SourceItemFetcher,
-)
+from src.entities.tags.source_items import LocalFileSourceItemFetcher
 from src.entities.tags.streaming import StreamingState
 
 
-logger = logging.getLogger(__name__)
+# ── Paths ─────────────────────────────────────────────────────────────
+
+CUSTOMER_FIXTURE: Path = _PROJECT_ROOT / "data" / "tags" / "customer_75.json"
+
+# Pre-linked fixture (output of `scripts/build_linked_fixture.py`). The
+# sibling event store is auto-derived as `<stem>__events.json`.
+LINKED_FIXTURE: Path = (
+    _PROJECT_ROOT
+    / "data"
+    / "linked"
+    / "ayuntamiento_qro_20260506_175946.json"
+)
+EVENTS_FIXTURE: Path = LINKED_FIXTURE.with_name(f"{LINKED_FIXTURE.stem}__events.json")
+
+TAGS_OUTPUT_DIR: Path = _PROJECT_ROOT / "data" / "tags"
 
 
-def run_simulated_stream(
-    config: LocalRunConfig,
-    *,
-    org_id: int,
-    query_id: Optional[int] = None,
-    bundle_limit: Optional[int] = None,
-    consistency_every_n_bundles: Optional[int] = None,
-    source_item_fetcher: Optional[SourceItemFetcher] = None,
-    final_consistency_pass: bool = True,
-) -> StreamRunStats:
-    """File-simulated, userdb-backed streaming run (IPython entry point).
+# ── Streaming knobs (edit before re-running) ──────────────────────────
 
-    Args:
-        config: same `LocalRunConfig` used by `runner.run_local_stream`.
-            `customer_path`, `linked_path`, `events_path`, and the LLM
-            model knobs are all read.
-        org_id: customer org context (mandatory). Every assignment row
-            is tagged with this.
-        query_id: optional saved-search id for traceability.
-        bundle_limit: stop after this many bundles (for smoke tests).
-        consistency_every_n_bundles: if set, run a consistency pass
-            every N bundles. If None, defer to
-            `customer.consistency_pass_due()` after each bundle.
-        source_item_fetcher: where to read raw item text for the
-            consistency pass. Defaults to a local-file fetcher over
-            `config.linked_path`; pass `ESSourceItemFetcher()` to
-            exercise the production path.
-        final_consistency_pass: run one last pass after the stream
-            drains (default True).
+ORG_ID: int = 93
+QUERY_ID: Optional[int] = 183
 
-    Returns: `StreamRunStats` with counts.
-    """
-    if source_item_fetcher is None:
-        source_item_fetcher = LocalFileSourceItemFetcher(config.linked_path)
+# Phase 1 — bootstrap (only runs when tags_entity_state.bootstrap_completed_at
+# is NULL for this (entity, org); set BOOTSTRAP_IF_MISSING=False to skip
+# even on a fresh install).
+BOOTSTRAP_IF_MISSING: bool = True
+BOOTSTRAP_BUNDLE_LIMIT: int = 100
 
-    customer = load_customer(config.customer_path)
-    conn = connect_userdb()
-    stats = StreamRunStats()
+# Phase 2 — streaming.
+BUNDLE_LIMIT: Optional[int] = None  # cap remaining bundles after bootstrap; None = all
 
-    try:
-        stance_repo, claim_store, state_repo = build_repos(conn, customer, org_id)
-        # Hydrate the in-memory Customer with the DB-side counters so
-        # `consistency_pass_due()` reflects what's persisted, not what
-        # the JSON fixture says.
-        state_repo.apply_counters_to(customer, org_id)
-        conn.commit()
+# Phase 3 — consistency-pass cadence. If set, fires every N bundles
+# regardless of the per-customer thresholds. If None, defer to
+# `customer.consistency_pass_due()` (which reads the thresholds from
+# `tags_entity_state`).
+CONSISTENCY_EVERY_N_BUNDLES: Optional[int] = 30
+FINAL_CONSISTENCY_PASS: bool = True
 
-        state = StreamingState(
-            customer=customer,
-            stance_catalog=stance_repo,
-            claim_catalogs=claim_store,
+INCLUDE_COMMENTS_IN_CLAIMS: bool = False
+
+
+# ── Build the LocalRunConfig (env-var-driven model defaults) ──────────
+
+config = LocalRunConfig(
+    customer_path=CUSTOMER_FIXTURE,
+    linked_path=LINKED_FIXTURE,
+    events_path=EVENTS_FIXTURE,
+    output_dir=TAGS_OUTPUT_DIR,
+    include_comments=INCLUDE_COMMENTS_IN_CLAIMS,
+)
+print(f"models: triage={config.triage_model}")
+print(f"        bootstrap={config.bootstrap_model}")
+print(f"        tagger={config.tagger_model}")
+print(f"        claim_tagger={config.claim_tagger_model}")
+print(f"        claim_updater={config.claim_updater_model}")
+print(f"        consistency={config.consistency_model}")
+
+
+# ── Setup ─────────────────────────────────────────────────────────────
+
+customer = load_customer(config.customer_path)
+source_item_fetcher = LocalFileSourceItemFetcher(config.linked_path)
+conn = connect_userdb()
+stats = StreamRunStats()
+
+stance_repo, claim_store, state_repo = build_repos(conn, customer, ORG_ID)
+
+# Hydrate the in-memory Customer with the DB-side counters so
+# `consistency_pass_due()` reflects what's persisted, not what the JSON
+# fixture says.
+state_repo.apply_counters_to(customer, ORG_ID)
+conn.commit()
+
+state = StreamingState(
+    customer=customer,
+    stance_catalog=stance_repo,
+    claim_catalogs=claim_store,
+)
+pipeline = build_streaming_pipeline(customer, config, state)
+bootstrap_step = build_bootstrap_step(customer, config)
+consistency_step = build_consistency_step(customer, config)
+
+retriever = ArticleBundleRetriever(
+    config.linked_path, config.events_path, customer=customer,
+)
+all_bundles = list(retriever.iter_bundles())
+
+print(
+    f"customer entity_id={customer.entity_id}  org_id={ORG_ID}  "
+    f"bundles_total_so_far={customer.bundles_processed_total}  "
+    f"since_last_pass={customer.bundles_processed_since_last_pass}  "
+    f"corpus_size={len(all_bundles)}"
+)
+
+
+# ── Phase 1 — bootstrap (one-shot per (entity, org)) ──────────────────
+
+_state_row = state_repo.load(customer.entity_id, ORG_ID) or {}
+already_bootstrapped = _state_row.get("bootstrap_completed_at") is not None
+bootstrapped_now = False
+
+if already_bootstrapped:
+    print(
+        f"[bootstrap] already done at {_state_row['bootstrap_completed_at']} — "
+        f"skipping Phase 1"
+    )
+elif BOOTSTRAP_IF_MISSING and all_bundles:
+    _bootstrap_corpus = all_bundles[:BOOTSTRAP_BUNDLE_LIMIT]
+    print(
+        f"[bootstrap] running Phase 1 on {len(_bootstrap_corpus)} of "
+        f"{len(all_bundles)} bundles …"
+    )
+    bootstrap_step.run(_bootstrap_corpus, catalog=stance_repo)
+    state_repo.mark_bootstrap_complete(customer.entity_id, ORG_ID)
+    conn.commit()
+    bootstrapped_now = True
+    print(f"[bootstrap] committed — userdb now has the seed catalog")
+else:
+    print(
+        "[bootstrap] starting from empty catalog "
+        "(BOOTSTRAP_IF_MISSING=False or no bundles)"
+    )
+
+
+# ── Phase 2 — streaming setup ─────────────────────────────────────────
+#
+# If bootstrap just ran on bundles[:BOOTSTRAP_BUNDLE_LIMIT], skip that
+# window in streaming — those items already have assignments. On reruns
+# where bootstrap was already done, we don't know what's been streamed
+# since (the DB has it but we'd duplicate-LLM the bundles); set
+# BUNDLE_LIMIT to a small number while exploring.
+
+_streaming_start = BOOTSTRAP_BUNDLE_LIMIT if bootstrapped_now else 0
+_streaming_bundles = all_bundles[_streaming_start:]
+if BUNDLE_LIMIT is not None:
+    _streaming_bundles = _streaming_bundles[:BUNDLE_LIMIT]
+
+# Generator of `TagsMessage`. Stays paused between bundles — IPython
+# can call `msg = next(messages)` to step one at a time, or the loop
+# below to drain the rest.
+messages = (
+    TagsMessage(
+        bundle=b,
+        entity_id=customer.entity_id,
+        org_id=ORG_ID,
+        query_id=QUERY_ID,
+    )
+    for b in _streaming_bundles
+)
+print(f"[stream] {len(_streaming_bundles)} bundles to stream")
+
+
+# ── Main loop ─────────────────────────────────────────────────────────
+#
+# For step-by-step debugging in IPython, skip this loop and call
+# `next(messages)` + `handle_message(...)` yourself between
+# inspections. The loop below drains the rest of the stream when you
+# want to fast-forward.
+#
+#     msg = next(messages)
+#     handle_message(pipeline, stance_repo, claim_store, state_repo, msg, conn)
+#     # inspect: state, customer, stats, or query userdb directly
+#     # repeat ...
+
+for i, msg in enumerate(messages, start=1):
+    handle_message(pipeline, stance_repo, claim_store, state_repo, msg, conn)
+    stats.bundles_processed = i
+    print(f"[stream {i}/{len(_streaming_bundles)}] processed {msg.bundle.root.id}")
+
+    if consistency_pass_due(customer, i, CONSISTENCY_EVERY_N_BUNDLES):
+        run_consistency_pass(
+            consistency_step, customer, state_repo, stance_repo,
+            source_item_fetcher, ORG_ID, conn, stats,
         )
-        pipeline = build_streaming_pipeline(customer, config, state)
-        consistency_step = build_consistency_step(customer, config)
 
-        messages = simulated_message_stream(
-            config, customer, org_id=org_id, query_id=query_id,
-        )
 
-        for i, msg in enumerate(messages, start=1):
-            if bundle_limit is not None and i > bundle_limit:
-                break
+# ── Phase 3 — final consistency pass ──────────────────────────────────
 
-            handle_message(
-                pipeline, stance_repo, claim_store, state_repo, msg, conn,
-            )
-            stats.bundles_processed = i
-            logger.info("[stream %d] processed %s", i, msg.bundle.root.id)
+if FINAL_CONSISTENCY_PASS and customer.bundles_processed_since_last_pass > 0:
+    run_consistency_pass(
+        consistency_step, customer, state_repo, stance_repo,
+        source_item_fetcher, ORG_ID, conn, stats,
+    )
 
-            if consistency_pass_due(customer, i, consistency_every_n_bundles):
-                run_consistency_pass(
-                    consistency_step, customer, state_repo, stance_repo,
-                    source_item_fetcher, org_id, conn, stats,
-                )
+print(
+    f"done. bundles={stats.bundles_processed} "
+    f"consistency_passes={stats.consistency_passes}"
+)
 
-        if final_consistency_pass and customer.bundles_processed_since_last_pass > 0:
-            run_consistency_pass(
-                consistency_step, customer, state_repo, stance_repo,
-                source_item_fetcher, org_id, conn, stats,
-            )
-
-    finally:
-        conn.close()
-
-    return stats
+# Close the userdb connection by hand when you're finished poking
+# around (uncomment when shutting down the IPython session):
+#
+#     conn.close()

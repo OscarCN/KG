@@ -125,10 +125,39 @@ class StanceCatalog:
         return True
 
     def rename(self, stance_id: str, new_label: str, new_description: str = "") -> bool:
+        """Rename an entry, or fold it into a colliding sibling.
+
+        If another active entry already has the target
+        `(primary_type, label)`, this is an implicit merge — the
+        source's assignments are routed there and the source is
+        removed. Matches `StanceCatalogRepo.rename` so both backends
+        preserve the unique-label-per-`(entity, org, primary_type)`
+        invariant the DB enforces.
+        """
         entry = self.entries.get(stance_id)
         if entry is None:
             return False
-        if entry.label and entry.label != new_label:
+        if entry.label == new_label:
+            if new_description:
+                entry.description = new_description
+            return True
+        collision = next(
+            (
+                e for e in self.entries.values()
+                if e.id != stance_id
+                and e.primary_type == entry.primary_type
+                and e.label == new_label
+            ),
+            None,
+        )
+        if collision is not None:
+            logger.info(
+                "rename collision on label=%r — merging %s into existing %s",
+                new_label, stance_id, collision.id,
+            )
+            self.merge(stance_id, collision.id)
+            return True
+        if entry.label:
             entry.aliases.append(entry.label)
         entry.label = new_label
         if new_description:

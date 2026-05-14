@@ -266,6 +266,60 @@ class StanceCatalogRepo:
             return cur.rowcount > 0
 
     def rename(self, stance_id: str, new_label: str, new_description: str = "") -> bool:
+        """Rename an entry, or — if `new_label` collides with another
+        entry of the same `(entity_id, org_id, primary_type)` — fold
+        the source into the colliding entry via `merge(src, dst)`.
+
+        The merge fallback is what makes the LLM's rename proposals
+        safe: when the tagger says "rename X to Y" and Y already
+        exists, that's effectively "X and Y are the same idea, treat
+        them as one." Returns True if either rename or merge was
+        applied; False only when `stance_id` doesn't exist.
+        """
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT label, primary_type
+                  FROM stance_entries
+                 WHERE stance_id = %s AND entity_id = %s AND org_id = %s
+                """,
+                (stance_id, self.entity_id, self.org_id),
+            )
+            row = cur.fetchone()
+            if row is None:
+                return False
+            old_label, primary_type = row[0], row[1]
+
+            # Trivial no-op rename — only update description if provided.
+            if old_label == new_label:
+                if new_description:
+                    cur.execute(
+                        "UPDATE stance_entries SET description = %s "
+                        "WHERE stance_id = %s",
+                        (new_description, stance_id),
+                    )
+                return True
+
+            # Collision? Look for an existing entry under the target label.
+            cur.execute(
+                """
+                SELECT stance_id FROM stance_entries
+                 WHERE entity_id = %s AND org_id = %s
+                   AND primary_type = %s AND label = %s
+                """,
+                (self.entity_id, self.org_id, primary_type, new_label),
+            )
+            collision = cur.fetchone()
+
+        if collision is not None and collision[0] != stance_id:
+            logger.info(
+                "rename collision on label=%r — merging %s into existing %s",
+                new_label, stance_id, collision[0],
+            )
+            self.merge(stance_id, collision[0])
+            return True
+
+        # No collision — straightforward rename.
         with self.conn.cursor() as cur:
             cur.execute(
                 """

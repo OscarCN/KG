@@ -54,8 +54,19 @@ class BootstrapStep:
         self.min_evidence = min_evidence
         self.max_per_type = max_per_type
 
-    def run(self, corpus: Iterable[ArticleBundle]) -> StanceCatalog:
-        catalog = StanceCatalog(customer_id=self.customer.entity_id)
+    def run(
+        self,
+        corpus: Iterable[ArticleBundle],
+        *,
+        catalog: Optional[StanceCatalog] = None,
+    ) -> StanceCatalog:
+        """Seed `catalog` from `corpus`. If `catalog` is None, a fresh
+        in-memory `StanceCatalog` is created (the local-driver default);
+        pass a `StanceCatalogRepo` to write bootstrap rows straight into
+        userdb. The method surface used here (`add`, `assign`) is the
+        same on both backends."""
+        if catalog is None:
+            catalog = StanceCatalog(customer_id=self.customer.entity_id)
 
         # 1. Triage every item across the corpus.
         items_by_id: dict[str, SourceItem] = {}

@@ -396,40 +396,39 @@ already carries.
 ### Streaming entry point
 
 [`stream.py`](./stream.py) is the runtime around the DB-backed repos.
-The public function is `run_simulated_stream(config, *, org_id,
-query_id=…, …)`:
+It is **a script, not a library** — top-level code only, paste-and-step
+in IPython. The module-level flow:
 
-1. Open one userdb connection (`connect_userdb()`).
-2. Build `StanceCatalogRepo` / `ClaimCatalogStoreRepo` /
-   `EntityStateRepo` scoped to `(entity_id, org_id)`.
-3. Hydrate the in-memory `Customer` from `tags_entity_state`
-   (`apply_counters_to`) so `consistency_pass_due()` reflects what's
-   actually persisted, not the JSON fixture.
-4. Pull messages from `_simulated_message_stream` (yields
-   `TagsMessage` per local-fixture bundle).
-5. For each message:
-   - `stance_repo.set_bundle_context(bundle, query_id)` and same on
-     the claim store.
-   - `pipeline.process_bundle(bundle)` — the tagger calls `repo.add`,
-     `repo.assign`, `repo.rename`, etc. via the catalog method
-     surface; SQL flushes as it goes, but the transaction stays open.
-   - `state_repo.bump_streaming(entity_id, org_id)` increments the
-     persisted counters.
-   - `conn.commit()` — the bundle is now durable. In production this
-     is followed by acking the RabbitMQ message; if the worker dies
-     before commit, the message is redelivered and the partial-unique
-     indexes make redelivery idempotent.
-6. If the consistency pass is due, run retention →
-   `stance_repo.recent_bundle_assignments(…)` →
-   `SourceItemFetcher.fetch_for_assignments(recent)` to rebuild
-   `items_seen` from ES (or the local file) → `step.run(…)` →
-   `state_repo.mark_consistency_pass(…)` → commit.
+1. Edit knobs at the top — `ORG_ID`, `QUERY_ID`, `BUNDLE_LIMIT`,
+   `CONSISTENCY_EVERY_N_BUNDLES`, fixture paths.
+2. `config = LocalRunConfig(...)` — same shape `run_tags.py` uses.
+3. `customer = load_customer(...)` and `conn = connect_userdb()`.
+4. `stance_repo, claim_store, state_repo = build_repos(conn, customer, ORG_ID)`.
+5. `state_repo.apply_counters_to(customer, ORG_ID)` — hydrate the
+   in-memory `Customer` from `tags_entity_state` so
+   `consistency_pass_due()` reflects what's persisted, not the JSON
+   fixture.
+6. `pipeline = build_streaming_pipeline(customer, config, state)` and
+   `consistency_step = build_consistency_step(customer, config)`.
+7. `messages = simulated_message_stream(...)` — generator that yields
+   `TagsMessage` per local-fixture bundle. Stays paused between
+   bundles so you can `msg = next(messages)` one at a time, or drain
+   it via the `for` loop further down to fast-forward.
+8. The main loop calls `handle_message(...)` per message: sets the
+   per-bundle context on both repos, runs `pipeline.process_bundle`,
+   bumps `tags_entity_state` counters, commits. On commit, the
+   bundle is durable. Redelivery is idempotent via the unique
+   indexes on `stance_assignments` and `claim_assignments`.
+9. If `consistency_pass_due(...)` returns True, `run_consistency_pass`
+   handles retention → recent-bundle window → ES/local item fetch →
+   Stages 1–3 → `mark_consistency_pass` → commit.
 
 The message envelope is `TagsMessage` (`models.py`) carrying
 `(bundle, entity_id, org_id, query_id)`. Swapping
-`_simulated_message_stream` for a `pika` consumer that yields the
-same shape is the only change needed to flip to the real queue — the
-processing loop doesn't care about the message origin.
+`simulated_message_stream` (in `loop_helpers.py`) for a `pika`
+consumer that yields the same shape is the only change needed to
+flip to the real queue — the main loop doesn't care about the
+message origin.
 
 ### Source-item text recovery for the consistency pass
 
@@ -627,7 +626,7 @@ at DEBUG — useful when reproducing a past run.
 | `persistence.py` | JSON snapshot read/write for both catalogs. |
 | `db.py` | userdb-backed repo classes (`StanceCatalogRepo`, `ClaimCatalogStoreRepo` / `ClaimCatalogRepo`, `EntityStateRepo`) + `connect_userdb()`. Same method surface as `catalogs.py`, plus `set_bundle_context(bundle, query_id)` for per-message enrichment of `parent_source_id` / `news_type` / `query_id`. |
 | `source_items.py` | `LocalFileSourceItemFetcher` (local fixture) and `ESSourceItemFetcher` (ES `news` index) — both implement `fetch_for_assignments(assignments)` to rebuild `items_seen` for the consistency pass after a worker restart. |
-| `stream.py` | Lean IPython entry point — just `run_simulated_stream` and the reset-state snippet. Imports the per-message machinery from `loop_helpers.py`. |
+| `stream.py` | Paste-and-step IPython script — top-level setup + main loop, no function wrapping. Edit `ORG_ID` / `BUNDLE_LIMIT` / paths at the top and run; use `next(messages)` for single-stepping. Reset-state snippet is in the header comment. Imports the per-message machinery from `loop_helpers.py`. |
 | `loop_helpers.py` | Production-shaped message-loop helpers: `build_repos`, `handle_message` (per-message TX), `consistency_pass_due`, `run_consistency_pass` (retention + items-seen rebuild + Stage 1/2/3 + commit), `simulated_message_stream` (local-fixture ingestion — swap for a `pika` consumer in production). |
 | `runner.py` | `LocalRunConfig` + builder helpers for the CLI entrypoints. |
 | `run_tags.py` | IPython driver — Phase 1 → Phase 2 → Phase 3 in one script. |
@@ -655,10 +654,11 @@ at DEBUG — useful when reproducing a past run.
 
 3. **Real RabbitMQ consumer.** The userdb repos
    ([`db.py`](./db.py)), the source-item fetcher
-   ([`source_items.py`](./source_items.py)), and a file-simulated
-   streaming loop ([`stream.py`](./stream.py)) are in place. The
-   loop runs end-to-end against userdb, including retention and the
-   ES-backed `items_seen` rebuild for the consistency pass. Still to
-   do: replace `_simulated_message_stream` in `stream.py` with a
-   `pika` consumer that yields the same `TagsMessage` shape and acks
-   after each per-bundle commit.
+   ([`source_items.py`](./source_items.py)), the per-message helpers
+   ([`loop_helpers.py`](./loop_helpers.py)) and the file-simulated
+   driver script ([`stream.py`](./stream.py)) are in place. The
+   pipeline runs end-to-end against userdb, including retention and
+   the ES-backed `items_seen` rebuild for the consistency pass. Still
+   to do: replace `simulated_message_stream` in `loop_helpers.py`
+   with a `pika` consumer that yields the same `TagsMessage` shape
+   and acks after each per-bundle commit.
