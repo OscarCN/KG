@@ -217,6 +217,13 @@ AYUNTAMIENTO_QRO_REQUEST: dict = {
     "page_size": 1000,
 }
 
+FELIFER_REQUEST: dict = {
+    "doctype": "news",
+    "period": "w",
+    "entity_id": 76,
+    "sort": "date_created",
+    "page_size": 1000,
+}
 
 def fetch_ayuntamiento_qro(
     limit: Optional[int] = None,
@@ -224,6 +231,17 @@ def fetch_ayuntamiento_qro(
     """Run the default Ayuntamiento de Querétaro query (entity_id=75)."""
     return fetch_docs(
         AYUNTAMIENTO_QRO_REQUEST,
+        fields=NEWS_FIELDS,
+        limit=limit,
+    )
+
+
+def fetch_felifer(
+    limit: Optional[int] = None,
+) -> list[dict]:
+    """Run the Felifer query (entity_id=76)."""
+    return fetch_docs(
+        FELIFER_REQUEST,
         fields=NEWS_FIELDS,
         limit=limit,
     )
@@ -242,11 +260,16 @@ _QUERIES = {
         "legislative_gto",
         "legislative_initiative_gto",
     ),
+    "felifer": (
+        fetch_felifer,
+        "felifer",
+        "felifer",
+    ),
 }
 
 
 if __name__ == "__main__":
-    query_name = os.environ.get("GET_DATA_QUERY", "ayuntamiento_qro")
+    query_name = os.environ.get("GET_DATA_QUERY", "felifer")
     if query_name not in _QUERIES:
         raise SystemExit(
             f"Unknown GET_DATA_QUERY={query_name!r}. "

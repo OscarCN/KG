@@ -47,14 +47,29 @@ def build_repos(
     conn: psycopg2.extensions.connection,
     customer: Customer,
     org_id: int,
+    *,
+    simulate_assigned_at_from_document: bool = False,
 ) -> tuple[StanceCatalogRepo, ClaimCatalogStoreRepo, EntityStateRepo]:
     """Build the three userdb-backed repos scoped to `(entity_id, org_id)`.
 
     `state_repo.ensure(...)` inserts a default `tags_entity_state` row
     if one doesn't yet exist — safe to call on every run.
+
+    `simulate_assigned_at_from_document` is the backfill-testing knob:
+    when True, every `stance_assignments.assigned_at` and
+    `claim_assignments.extracted_at` row written by these repos uses
+    the bundle item's `created_at` (article `date_created`) instead of
+    wall-clock now. Comments inherit their parent post's `created_at`.
+    Off by default — live streaming wants wall-clock.
     """
-    stance_repo = StanceCatalogRepo(conn, entity_id=customer.entity_id, org_id=org_id)
-    claim_store = ClaimCatalogStoreRepo(conn, entity_id=customer.entity_id, org_id=org_id)
+    stance_repo = StanceCatalogRepo(
+        conn, entity_id=customer.entity_id, org_id=org_id,
+        simulate_assigned_at_from_document=simulate_assigned_at_from_document,
+    )
+    claim_store = ClaimCatalogStoreRepo(
+        conn, entity_id=customer.entity_id, org_id=org_id,
+        simulate_assigned_at_from_document=simulate_assigned_at_from_document,
+    )
     state_repo = EntityStateRepo(conn)
     state_repo.ensure(customer.entity_id, org_id)
     return stance_repo, claim_store, state_repo
@@ -119,11 +134,18 @@ def run_consistency_pass(
     org_id: int,
     conn: psycopg2.extensions.connection,
     stats: StreamRunStats,
+    *,
+    window_max_age_days: Optional[int] = 3,
 ) -> None:
     """Retention → fetch source items → run pass → mark state.
 
     Whole pass lives in one TX: a failure rolls retention back and
     leaves the counters untouched, so the next pass re-attempts.
+
+    `window_max_age_days` caps the consistency window: bundles whose
+    most-recent assignment is older than that cutoff are excluded even
+    if K hasn't been filled. Default 3d — tighter than the assignment
+    TTL so the LLM operates on what's actually current.
     """
     try:
         ttl = state_repo.get_ttl_days(customer.entity_id, org_id)
@@ -137,12 +159,14 @@ def run_consistency_pass(
         bundles_since = max(0, customer.bundles_processed_since_last_pass)
         n_bundles = math.ceil(bundles_since * 1.25)
         recent = stance_repo.recent_bundle_assignments(
-            n_bundles=n_bundles, kinds=("article", "user_post"),
+            n_bundles=n_bundles,
+            kinds=("article", "user_post"),
+            max_age_days=window_max_age_days,
         )
         items_seen = source_item_fetcher.fetch_for_assignments(recent)
         logger.info(
-            "consistency: window=%d bundles, %d assignments, %d items fetched",
-            n_bundles, len(recent), len(items_seen),
+            "consistency: window K=%d max_age=%s days, %d assignments, %d items fetched",
+            n_bundles, window_max_age_days, len(recent), len(items_seen),
         )
 
         result = consistency_step.run(stance_repo, items_seen)

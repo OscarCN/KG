@@ -124,15 +124,23 @@ from src.entities.tags.streaming import StreamingState
 
 # ── Paths ─────────────────────────────────────────────────────────────
 
-CUSTOMER_FIXTURE: Path = _PROJECT_ROOT / "data" / "tags" / "customer_75.json"
+CUSTOMER_FIXTURE: Path = _PROJECT_ROOT / "data" / "tags" / "customer_76.json"
 
-# Pre-linked fixture (output of `scripts/build_linked_fixture.py`). The
-# sibling event store is auto-derived as `<stem>__events.json`.
+# Input fixture. Two supported shapes — same loader (`ArticleBundleRetriever`)
+# handles both:
+#   • Pre-linked fixture (output of `scripts/build_linked_fixture.py`):
+#     docs carry `event_ids`, and a sibling `<stem>__events.json` exists.
+#     Claim extraction runs per linked event.
+#   • Raw news fixture (output of `PoC/get_data.py`): no `event_ids`, no
+#     sibling events file. Bundles yield empty `linked_events`, so the
+#     streaming pipeline only runs the stance side (triage + tagging);
+#     claim extraction is skipped. Useful for testing the stance loop in
+#     isolation.
 LINKED_FIXTURE: Path = (
     _PROJECT_ROOT
     / "data"
-    / "linked"
-    / "ayuntamiento_qro_20260506_175946.json"
+    / "felifer"
+    / "felifer_20260514_145913.json"  # ← update to the actual timestamp written by get_data
 )
 EVENTS_FIXTURE: Path = LINKED_FIXTURE.with_name(f"{LINKED_FIXTURE.stem}__events.json")
 
@@ -142,7 +150,7 @@ TAGS_OUTPUT_DIR: Path = _PROJECT_ROOT / "data" / "tags"
 # ── Streaming knobs (edit before re-running) ──────────────────────────
 
 ORG_ID: int = 93
-QUERY_ID: Optional[int] = 183
+QUERY_ID: Optional[int] = 185
 
 # Phase 1 — bootstrap (only runs when tags_entity_state.bootstrap_completed_at
 # is NULL for this (entity, org); set BOOTSTRAP_IF_MISSING=False to skip
@@ -157,8 +165,23 @@ BUNDLE_LIMIT: Optional[int] = None  # cap remaining bundles after bootstrap; Non
 # regardless of the per-customer thresholds. If None, defer to
 # `customer.consistency_pass_due()` (which reads the thresholds from
 # `tags_entity_state`).
-CONSISTENCY_EVERY_N_BUNDLES: Optional[int] = 30
+CONSISTENCY_EVERY_N_BUNDLES: Optional[int] = 40
 FINAL_CONSISTENCY_PASS: bool = True
+
+# Max age (in days) for any bundle in the consistency-pass window.
+# Bundles whose most-recent assignment is older than this are excluded
+# even if K hasn't been filled, so the LLM stages only see recent
+# material. Set to None to disable the cutoff (rely on K alone).
+CONSISTENCY_WINDOW_MAX_AGE_DAYS: Optional[int] = 3
+
+# Backfill mode: when True, the userdb repos stamp every
+# `stance_assignments.assigned_at` and `claim_assignments.extracted_at`
+# with the bundle item's `created_at` (article `date_created`) rather
+# than wall-clock. Lets the 3-day consistency-window cutoff above behave
+# correctly when replaying a static corpus all at once — without this,
+# every row gets a "just now" timestamp and the age cutoff is a no-op.
+# Set False for real live streaming.
+SIMULATE_ASSIGNED_AT_FROM_DOCUMENT: bool = True
 
 INCLUDE_COMMENTS_IN_CLAIMS: bool = False
 
@@ -187,7 +210,10 @@ source_item_fetcher = LocalFileSourceItemFetcher(config.linked_path)
 conn = connect_userdb()
 stats = StreamRunStats()
 
-stance_repo, claim_store, state_repo = build_repos(conn, customer, ORG_ID)
+stance_repo, claim_store, state_repo = build_repos(
+    conn, customer, ORG_ID,
+    simulate_assigned_at_from_document=SIMULATE_ASSIGNED_AT_FROM_DOCUMENT,
+)
 
 # Hydrate the in-memory Customer with the DB-side counters so
 # `consistency_pass_due()` reflects what's persisted, not what the JSON
@@ -295,6 +321,7 @@ for i, msg in enumerate(messages, start=1):
         run_consistency_pass(
             consistency_step, customer, state_repo, stance_repo,
             source_item_fetcher, ORG_ID, conn, stats,
+            window_max_age_days=CONSISTENCY_WINDOW_MAX_AGE_DAYS,
         )
 
 

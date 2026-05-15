@@ -100,6 +100,7 @@ class StanceCatalogRepo:
         *,
         entity_id: int,
         org_id: int,
+        simulate_assigned_at_from_document: bool = False,
     ):
         self.conn = conn
         self.entity_id = entity_id
@@ -116,6 +117,13 @@ class StanceCatalogRepo:
         # whatever the dataclass already carries.
         self._bundle_items: dict[str, SourceItem] = {}
         self._bundle_query_id: Optional[int] = None
+        # Backfill-testing knob: when True, `assign()` overwrites the
+        # dataclass's `assigned_at` with the bundle item's `created_at`
+        # (article `date_created`), so the row's timestamp tracks the
+        # simulated stream time rather than wall-clock. Comments inherit
+        # their parent post's `created_at`. Off by default — live
+        # streaming wants wall-clock.
+        self._simulate_assigned_at = simulate_assigned_at_from_document
 
     def set_bundle_context(
         self, bundle: ArticleBundle, query_id: Optional[int] = None,
@@ -172,6 +180,14 @@ class StanceCatalogRepo:
                             nt = parent.metadata.get("news_type")
                     if isinstance(nt, str):
                         a.news_type = nt
+                if self._simulate_assigned_at:
+                    sim = item.created_at
+                    if not sim and item.parent_source_id:
+                        parent = self._bundle_items.get(item.parent_source_id)
+                        if parent:
+                            sim = parent.created_at
+                    if sim:
+                        a.assigned_at = sim
         if a.query_id is None:
             a.query_id = self._bundle_query_id
 
@@ -702,9 +718,14 @@ class StanceCatalogRepo:
         *,
         n_bundles: int,
         kinds: Iterable[str] = ("article", "user_post"),
+        max_age_days: Optional[int] = None,
     ) -> list[StanceAssignment]:
         """Window assignments to the K most-recent bundles (= unique
         post/article `source_item_id`s) for this `(entity, org)`.
+
+        When `max_age_days` is set, also drop bundles whose most-recent
+        assignment is older than that many days — the result is at most
+        K bundles, possibly fewer.
 
         Mirrors the CTE in `readme_tags.md` § DB mapping.
         """
@@ -720,6 +741,8 @@ class StanceCatalogRepo:
                      WHERE entity_id = %s AND org_id = %s
                        AND source_kind = ANY(%s)
                      GROUP BY source_item_id
+                    HAVING %s::int IS NULL
+                        OR MAX(assigned_at) >= now() - (%s::text || ' days')::interval
                      ORDER BY last_at DESC
                      LIMIT %s
                 )
@@ -730,7 +753,9 @@ class StanceCatalogRepo:
                   JOIN recent r USING (source_item_id)
                  WHERE a.entity_id = %s AND a.org_id = %s
                 """,
-                (self.entity_id, self.org_id, kind_list, int(n_bundles),
+                (self.entity_id, self.org_id, kind_list,
+                 max_age_days, max_age_days,
+                 int(n_bundles),
                  self.entity_id, self.org_id),
             )
             return [_row_to_stance_assignment(r) for r in cur.fetchall()]
@@ -827,6 +852,7 @@ class ClaimCatalogRepo:
         entity_id: int,
         org_id: int,
         event_id: str,
+        simulate_assigned_at_from_document: bool = False,
     ):
         self.conn = conn
         self.entity_id = entity_id
@@ -839,6 +865,10 @@ class ClaimCatalogRepo:
         # which forwards the items + query_id to every repo it hands out.
         self._bundle_items: dict[str, SourceItem] = {}
         self._bundle_query_id: Optional[int] = None
+        # See `StanceCatalogRepo._simulate_assigned_at` — same backfill
+        # knob, mirrored here so `claim_assignments.extracted_at`
+        # tracks the simulated stream time too.
+        self._simulate_assigned_at = simulate_assigned_at_from_document
 
     def set_bundle_context(
         self,
@@ -874,6 +904,25 @@ class ClaimCatalogRepo:
                     news_type = nt
         return query_id, parent_source_id, news_type
 
+    def _assigned_at_for(self, source_item_id: str) -> str:
+        """Resolve the timestamp written to `claim_assignments.extracted_at`.
+
+        Backfill mode (`_simulate_assigned_at=True`): the bundle item's
+        `created_at` (article `date_created`); comments fall back to
+        their parent post's `created_at`. Live mode: wall-clock now.
+        """
+        if self._simulate_assigned_at and self._bundle_items:
+            item = self._bundle_items.get(source_item_id)
+            if item is not None:
+                sim = item.created_at
+                if not sim and item.parent_source_id:
+                    parent = self._bundle_items.get(item.parent_source_id)
+                    if parent:
+                        sim = parent.created_at
+                if sim:
+                    return sim
+        return now_iso()
+
     # ── Mutations ─────────────────────────────────────────────────────
 
     def assign(
@@ -904,7 +953,7 @@ class ClaimCatalogRepo:
             event_id=self.event_id,
             customer_id=self.entity_id,
             verbatim=claim.verbatim,
-            assigned_at=now_iso(),
+            assigned_at=self._assigned_at_for(claim.source_item_id),
             org_id=self.org_id,
             query_id=query_id,
             parent_source_id=parent_source_id,
@@ -1112,6 +1161,7 @@ class ClaimCatalogStoreRepo:
         *,
         entity_id: int,
         org_id: int,
+        simulate_assigned_at_from_document: bool = False,
     ):
         self.conn = conn
         self.entity_id = entity_id
@@ -1121,6 +1171,7 @@ class ClaimCatalogStoreRepo:
         # repos without an extra wiring step.
         self._bundle_items: dict[str, SourceItem] = {}
         self._bundle_query_id: Optional[int] = None
+        self._simulate_assigned_at = simulate_assigned_at_from_document
 
     def set_bundle_context(
         self, bundle: ArticleBundle, query_id: Optional[int] = None,
@@ -1135,6 +1186,7 @@ class ClaimCatalogStoreRepo:
     def _build_repo(self, event_id: str) -> ClaimCatalogRepo:
         repo = ClaimCatalogRepo(
             self.conn, entity_id=self.entity_id, org_id=self.org_id, event_id=event_id,
+            simulate_assigned_at_from_document=self._simulate_assigned_at,
         )
         if self._bundle_items or self._bundle_query_id is not None:
             repo.set_bundle_context(self._bundle_items, self._bundle_query_id)

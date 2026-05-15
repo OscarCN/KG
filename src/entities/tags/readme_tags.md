@@ -136,14 +136,22 @@ type, sized by a **bundle window**:
 
 ```
 K = ceil(customer.bundles_processed_since_last_pass * 1.25)
-window = catalog.recent_bundle_assignments(n_bundles=K,
-                                           kinds=("article","user_post"))
+window = catalog.recent_bundle_assignments(
+    n_bundles=K,
+    kinds=("article","user_post"),
+    max_age_days=3,   # cutoff: drop bundles older than this even if K isn't filled
+)
 ```
 
 The window is the K most-recent unique post/article source_item_ids
-(comments excluded for now) ranked by `max(assigned_at)`. It returns
+(comments excluded for now) ranked by `max(assigned_at)`, additionally
+restricted to bundles whose most-recent assignment is within
+`max_age_days` of now (default 3d — tighter than the assignment TTL,
+so the LLM stages only see what's actually current). The call returns
 every assignment (all kinds, all stance_ids including null) for that
-source-id set. Stages 2 and 3 each operate on `window_per_type`.
+source-id set; the result is **at most** K bundles and may be fewer if
+the age cutoff bites. Stages 2 and 3 each operate on
+`window_per_type`.
 
 - **Stage 1 — Deterministic retire (no LLM).** For each entry,
   count `assignments` over **all time** (not just the window). Any
@@ -290,8 +298,10 @@ helpers; anything that loops should call the explicit methods above.
 
 `recent_bundle_assignments` is the windowed query used by the
 consistency pass. It groups assignments by `source_item_id` among the
-given `kinds`, ranks by `max(assigned_at)` desc, takes the top K, and
-returns every assignment (all kinds, all stance_ids) for that set:
+given `kinds`, optionally drops groups whose `MAX(assigned_at)` falls
+outside `max_age_days`, ranks by `max(assigned_at)` desc, takes the
+top K, and returns every assignment (all kinds, all stance_ids) for
+that set:
 
 ```sql
 WITH recent AS (
@@ -299,6 +309,8 @@ WITH recent AS (
     FROM stance_assignments
     WHERE source_kind IN (:kinds)
     GROUP BY source_item_id
+    HAVING :max_age_days IS NULL
+        OR MAX(assigned_at) >= now() - (:max_age_days || ' days')::interval
     ORDER BY last_at DESC
     LIMIT :n_bundles
 )
@@ -398,6 +410,25 @@ dimensions: the repo enriches at write time. Non-streaming callers
 (tests, scripts, the consistency pass) can ignore the hook entirely —
 when context isn't set, `assign()` writes whatever the dataclass
 already carries.
+
+### Backfill mode (`simulate_assigned_at_from_document`)
+
+Both `StanceCatalogRepo` and `ClaimCatalogStoreRepo` accept a
+constructor flag `simulate_assigned_at_from_document`. When True, the
+bundle-context enrichment overwrites the assignment's `assigned_at`
+(stance) / `extracted_at` (claim) with the bundle item's `created_at`
+— the article's `date_created` for root posts/articles, the parent
+post's `date_created` for comments (their own `comment_timestamp` is
+often missing on social sources). Off by default; the production live
+stream wants wall-clock.
+
+Why it exists: when replaying a static corpus all at once, every row
+gets stamped within the same few seconds of wall-clock, so the
+consistency-pass age cutoff (`max_age_days`, default 3d) is a no-op.
+Backfill mode shifts the timestamps onto the article date axis so the
+cutoff actually bites and the consistency-pass window reflects the
+simulated stream time. Flip it on with the `SIMULATE_ASSIGNED_AT_FROM_DOCUMENT`
+knob at the top of [`stream.py`](./stream.py).
 
 ### Streaming entry point
 

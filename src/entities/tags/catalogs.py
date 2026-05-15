@@ -14,6 +14,7 @@ import logging
 import re
 import uuid
 from collections import Counter
+from datetime import datetime, timedelta, timezone
 from typing import Iterable, Optional
 
 from src.entities.tags.models import (
@@ -275,6 +276,7 @@ class StanceCatalog:
         *,
         n_bundles: int,
         kinds: Iterable[str] = ("article", "user_post"),
+        max_age_days: Optional[int] = None,
     ) -> list[StanceAssignment]:
         """Window the assignments to the K most-recent bundles.
 
@@ -285,12 +287,17 @@ class StanceCatalog:
         return EVERY assignment (any kind, any stance_id including
         null) belonging to that source-id set.
 
+        When `max_age_days` is set, bundles whose most-recent assignment
+        is older than that cutoff are dropped — the result is at most K
+        bundles, possibly fewer.
+
         Maps cleanly to SQL later:
             WITH recent AS (
                 SELECT source_item_id, MAX(assigned_at) AS last_at
                 FROM stance_assignments
                 WHERE source_kind IN (:kinds)
                 GROUP BY source_item_id
+                HAVING MAX(assigned_at) >= now() - interval ':max_age_days days'
                 ORDER BY last_at DESC
                 LIMIT :n_bundles
             )
@@ -309,6 +316,15 @@ class StanceCatalog:
                 latest_by_sid[a.source_item_id] = a.assigned_at
         if not latest_by_sid:
             return []
+        if max_age_days is not None:
+            cutoff = (
+                datetime.now(timezone.utc) - timedelta(days=max_age_days)
+            ).isoformat()
+            latest_by_sid = {
+                sid: ts for sid, ts in latest_by_sid.items() if ts >= cutoff
+            }
+            if not latest_by_sid:
+                return []
         ranked = sorted(latest_by_sid.items(), key=lambda kv: kv[1], reverse=True)
         keep_ids = {sid for sid, _ in ranked[:n_bundles]}
         return [a for a in self.assignments if a.source_item_id in keep_ids]
