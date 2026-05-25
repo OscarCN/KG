@@ -261,7 +261,10 @@ elif BOOTSTRAP_IF_MISSING and all_bundles:
         f"{len(all_bundles)} bundles …"
     )
     bootstrap_step.run(_bootstrap_corpus, catalog=stance_repo, query_id=QUERY_ID)
-    state_repo.mark_bootstrap_complete(customer.entity_id, ORG_ID)
+    state_repo.mark_bootstrap_complete(
+        customer.entity_id, ORG_ID,
+        stream_now=stance_repo.effective_now(),
+    )
     conn.commit()
     bootstrapped_now = True
     print(f"[bootstrap] committed — userdb now has the seed catalog")
@@ -317,7 +320,7 @@ for i, msg in enumerate(messages, start=5):
     stats.bundles_processed = i
     print(f"[stream {i}/{len(_streaming_bundles)}] processed {msg.bundle.root.id}")
 
-    if consistency_pass_due(customer, i, CONSISTENCY_EVERY_N_BUNDLES):
+    if consistency_pass_due(customer, i, CONSISTENCY_EVERY_N_BUNDLES, stance_repo):
         run_consistency_pass(
             consistency_step, customer, state_repo, stance_repo,
             source_item_fetcher, ORG_ID, conn, stats,

@@ -72,6 +72,42 @@ def _to_iso(value) -> str:
     return str(value)
 
 
+def _parse_iso_datetime(value: object) -> Optional[datetime]:
+    """Parse an ISO-8601 timestamp string into an aware `datetime`.
+
+    Returns None on empty/invalid input. Naive timestamps are coerced to
+    UTC so callers can compare them against the rest of the stream
+    clock (also UTC-aware) without raising.
+    """
+    if not value or not isinstance(value, str):
+        return None
+    try:
+        dt = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def _latest_created_at(items: Iterable[SourceItem]) -> Optional[datetime]:
+    """Max `created_at` across `items`, parsed to an aware datetime.
+
+    Used to advance the stream clock per bundle: the latest item
+    timestamp represents "how far the stream has progressed" so far,
+    which is what retention and consistency checks should compare
+    against. Returns None when no item has a parseable `created_at`
+    (the repo's `effective_now()` then falls back to wall-clock)."""
+    latest: Optional[datetime] = None
+    for item in items:
+        dt = _parse_iso_datetime(item.created_at)
+        if dt is None:
+            continue
+        if latest is None or dt > latest:
+            latest = dt
+    return latest
+
+
 def _verbatim_hash(verbatim: str) -> str:
     """Stable content hash for claim idempotency.
 
@@ -124,16 +160,29 @@ class StanceCatalogRepo:
         # their parent post's `created_at`. Off by default — live
         # streaming wants wall-clock.
         self._simulate_assigned_at = simulate_assigned_at_from_document
+        # Stream clock — the "current document time" used by every
+        # retention check (`retire_stale_entries`), windowing query
+        # (`recent_bundle_assignments`), and audit stamp (`retired_at`
+        # on `retire`/`merge`). Derived per-bundle from the max
+        # `created_at` across the bundle's items (set by
+        # `set_bundle_context`/`set_items_context`) so replaying an
+        # old corpus uses the corpus's own timeline; falls back to
+        # wall-clock when unset. NEVER use `datetime.now()` directly
+        # inside this class — go through `effective_now()` so the
+        # backfill/replay path stays consistent.
+        self._stream_now: Optional[datetime] = None
 
     def set_bundle_context(
         self, bundle: ArticleBundle, query_id: Optional[int] = None,
     ) -> None:
         """Stash the current message's bundle + query_id for assignment
-        enrichment. Streaming pipelines call this once before each
-        bundle; the matching `clear_bundle_context()` is optional —
-        the next `set_*` overwrites."""
+        enrichment, and advance the stream clock to the latest
+        `created_at` in the bundle. Streaming pipelines call this once
+        before each bundle; the matching `clear_bundle_context()` is
+        optional — the next `set_*` overwrites."""
         self._bundle_items = {item.id: item for item in bundle.all_items}
         self._bundle_query_id = query_id
+        self._stream_now = _latest_created_at(bundle.all_items)
 
     def set_items_context(
         self,
@@ -144,13 +193,36 @@ class StanceCatalogRepo:
         `BootstrapStep.run` to load every item from the seed corpus at
         once so the bootstrap-time `assign()` calls can enrich
         `parent_source_id` / `news_type` / `query_id` the same way
-        streaming does."""
+        streaming does. Advances the stream clock to the latest
+        `created_at` across the loaded items."""
         self._bundle_items = dict(items_by_id)
         self._bundle_query_id = query_id
+        self._stream_now = _latest_created_at(items_by_id.values())
 
     def clear_bundle_context(self) -> None:
         self._bundle_items = {}
         self._bundle_query_id = None
+        # Stream clock is intentionally *not* cleared here. Once the
+        # repo has observed a document timeline (per-bundle or via
+        # `set_stream_now` at startup) we want subsequent calls — e.g.
+        # a consistency pass that runs right after `clear_bundle_context`
+        # — to keep using that last-known stream time rather than
+        # silently snapping back to wall-clock. Call `set_stream_now(None)`
+        # explicitly to opt back into wall-clock.
+
+    def set_stream_now(self, dt: Optional[datetime]) -> None:
+        """Explicitly seed the stream clock without a bundle context.
+        Used by `build_repos` at startup to anchor retention against
+        the latest `assigned_at` already in the DB (so the sweep runs
+        at the stream's last-known position, not wall-clock today)."""
+        self._stream_now = dt
+
+    def effective_now(self) -> datetime:
+        """The clock used by every time-based check or stamp on this
+        repo. Returns the per-bundle stream time when set, else
+        wall-clock UTC. All retention SQL routes through this — no
+        SQL statement in this class should reference `now()` directly."""
+        return self._stream_now or datetime.now(timezone.utc)
 
     def _enrich_assignment_from_context(self, a: StanceAssignment) -> None:
         """Fill missing dimension fields on `a` from the current bundle
@@ -316,7 +388,7 @@ class StanceCatalogRepo:
                     self.entity_id, self.org_id, assignment.query_id,
                     assignment.stance_id, assignment.stance_type,
                     assignment.event_id, assignment.reason,
-                    assignment.assigned_at or now_iso(),
+                    assignment.assigned_at or self.effective_now().isoformat(),
                 ),
             )
             return cur.rowcount > 0
@@ -452,8 +524,8 @@ class StanceCatalogRepo:
                 (src[1], dst_id),
             )
             cur.execute(
-                "UPDATE stance_entries SET retired_at = now() WHERE stance_id = %s",
-                (src_id,),
+                "UPDATE stance_entries SET retired_at = %s WHERE stance_id = %s",
+                (self.effective_now(), src_id),
             )
         return moved
 
@@ -474,11 +546,11 @@ class StanceCatalogRepo:
             cur.execute(
                 """
                 UPDATE stance_entries
-                   SET retired_at = now()
+                   SET retired_at = %s
                  WHERE stance_id = %s AND entity_id = %s AND org_id = %s
                    AND retired_at IS NULL
                 """,
-                (stance_id, self.entity_id, self.org_id),
+                (self.effective_now(), stance_id, self.entity_id, self.org_id),
             )
             return cur.rowcount > 0
 
@@ -789,6 +861,7 @@ class StanceCatalogRepo:
         if n_bundles <= 0:
             return []
         kind_list = list(kinds)
+        stream_now = self.effective_now()
         with self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
                 """
@@ -799,7 +872,8 @@ class StanceCatalogRepo:
                        AND source_kind = ANY(%s)
                      GROUP BY source_item_id
                     HAVING %s::int IS NULL
-                        OR MAX(assigned_at) >= now() - (%s::text || ' days')::interval
+                        OR MAX(assigned_at) >= %s::timestamptz
+                                              - (%s::text || ' days')::interval
                      ORDER BY last_at DESC
                      LIMIT %s
                 )
@@ -811,7 +885,7 @@ class StanceCatalogRepo:
                  WHERE a.entity_id = %s AND a.org_id = %s
                 """,
                 (self.entity_id, self.org_id, kind_list,
-                 max_age_days, max_age_days,
+                 max_age_days, stream_now, max_age_days,
                  int(n_bundles),
                  self.entity_id, self.org_id),
             )
@@ -824,29 +898,34 @@ class StanceCatalogRepo:
 
         An entry is "stale" when its most-recent `stance_assignments`
         row is older than `ttl_days` (and entries with zero assignments
-        at all are stale by definition). Stamping `retired_at = now()`
-        hides the row from active-catalog reads while preserving both
-        the entry and its assignment history on disk — the rule the
-        user spec describes as "retired from the catalogue but not
-        deleted from the database".
+        at all are stale by definition). The "now" used for the
+        comparison and the `retired_at` stamp is the repo's
+        `effective_now()` — i.e. the latest `created_at` from the most
+        recently processed bundle, falling back to wall-clock only
+        when no stream context has been seen. Replaying an old corpus
+        therefore retires against the corpus's own timeline rather
+        than today's date.
 
         Returns the number of rows transitioned to retired. Idempotent:
         already-retired entries are skipped.
         """
+        stream_now = self.effective_now()
         with self.conn.cursor() as cur:
             cur.execute(
                 """
                 UPDATE stance_entries e
-                   SET retired_at = now()
+                   SET retired_at = %s
                  WHERE e.entity_id = %s AND e.org_id = %s
                    AND e.retired_at IS NULL
                    AND NOT EXISTS (
                        SELECT 1 FROM stance_assignments a
                         WHERE a.stance_id = e.stance_id
-                          AND a.assigned_at >= now() - (%s::text || ' days')::interval
+                          AND a.assigned_at >= %s::timestamptz
+                                             - (%s::text || ' days')::interval
                    )
                 """,
-                (self.entity_id, self.org_id, int(ttl_days)),
+                (stream_now, self.entity_id, self.org_id,
+                 stream_now, int(ttl_days)),
             )
             return cur.rowcount
 
@@ -936,14 +1015,24 @@ class ClaimCatalogRepo:
         # knob, mirrored here so `claim_assignments.extracted_at`
         # tracks the simulated stream time too.
         self._simulate_assigned_at = simulate_assigned_at_from_document
+        # Stream clock — see `StanceCatalogRepo._stream_now`. Forwarded
+        # from `ClaimCatalogStoreRepo` (which itself receives it per
+        # bundle) so the wall-clock fallback in `_assigned_at_for`
+        # uses document time instead of `datetime.now()`.
+        self._stream_now: Optional[datetime] = None
 
     def set_bundle_context(
         self,
         items_by_id: dict[str, SourceItem],
         query_id: Optional[int],
+        stream_now: Optional[datetime] = None,
     ) -> None:
         self._bundle_items = items_by_id
         self._bundle_query_id = query_id
+        self._stream_now = stream_now
+
+    def effective_now(self) -> datetime:
+        return self._stream_now or datetime.now(timezone.utc)
 
     def _ctx_for(self, claim: RawClaim) -> tuple[Optional[int], Optional[str], Optional[str]]:
         """Resolve `(query_id, parent_source_id, news_type)` from the
@@ -976,7 +1065,11 @@ class ClaimCatalogRepo:
 
         Backfill mode (`_simulate_assigned_at=True`): the bundle item's
         `created_at` (article `date_created`); comments fall back to
-        their parent post's `created_at`. Live mode: wall-clock now.
+        their parent post's `created_at`. Live / non-simulated mode:
+        the repo's stream clock (`effective_now()`) — which is the
+        bundle's latest `created_at` when one is set, and wall-clock
+        UTC only as the final fallback. Never wall-clock when a
+        document timeline is available.
         """
         if self._simulate_assigned_at and self._bundle_items:
             item = self._bundle_items.get(source_item_id)
@@ -988,7 +1081,7 @@ class ClaimCatalogRepo:
                         sim = parent.created_at
                 if sim:
                     return sim
-        return now_iso()
+        return self.effective_now().isoformat()
 
     # ── Mutations ─────────────────────────────────────────────────────
 
@@ -1239,24 +1332,35 @@ class ClaimCatalogStoreRepo:
         self._bundle_items: dict[str, SourceItem] = {}
         self._bundle_query_id: Optional[int] = None
         self._simulate_assigned_at = simulate_assigned_at_from_document
+        # Stream clock — see `StanceCatalogRepo._stream_now`. Forwarded
+        # to every per-event `ClaimCatalogRepo` this store builds so
+        # `claim_assignments.extracted_at` uses document time when no
+        # other timestamp is available.
+        self._stream_now: Optional[datetime] = None
 
     def set_bundle_context(
         self, bundle: ArticleBundle, query_id: Optional[int] = None,
     ) -> None:
         self._bundle_items = {item.id: item for item in bundle.all_items}
         self._bundle_query_id = query_id
+        self._stream_now = _latest_created_at(bundle.all_items)
 
     def clear_bundle_context(self) -> None:
         self._bundle_items = {}
         self._bundle_query_id = None
+        # See `StanceCatalogRepo.clear_bundle_context` — stream clock
+        # is kept so callers that do consistency work between bundles
+        # don't snap back to wall-clock.
 
     def _build_repo(self, event_id: str) -> ClaimCatalogRepo:
         repo = ClaimCatalogRepo(
             self.conn, entity_id=self.entity_id, org_id=self.org_id, event_id=event_id,
             simulate_assigned_at_from_document=self._simulate_assigned_at,
         )
-        if self._bundle_items or self._bundle_query_id is not None:
-            repo.set_bundle_context(self._bundle_items, self._bundle_query_id)
+        if self._bundle_items or self._bundle_query_id is not None or self._stream_now is not None:
+            repo.set_bundle_context(
+                self._bundle_items, self._bundle_query_id, self._stream_now,
+            )
         return repo
 
     def get_or_create(self, customer_id: int, event_id: str) -> ClaimCatalogRepo:
@@ -1385,30 +1489,56 @@ class EntityStateRepo:
                 (entity_id, org_id, int(n_bundles), int(n_bundles)),
             )
 
-    def mark_bootstrap_complete(self, entity_id: int, org_id: int) -> None:
+    def mark_bootstrap_complete(
+        self,
+        entity_id: int,
+        org_id: int,
+        *,
+        stream_now: Optional[datetime] = None,
+    ) -> None:
+        """Stamp `bootstrap_completed_at` with the stream clock.
+
+        Callers should pass `stance_repo.effective_now()` so backfill
+        runs stamp the corpus's timeline rather than wall-clock. None
+        falls back to UTC `now()` for callers that don't have a stream
+        context yet.
+        """
+        ts = stream_now or datetime.now(timezone.utc)
         with self.conn.cursor() as cur:
             cur.execute(
                 """
                 INSERT INTO tags_entity_state (entity_id, org_id, bootstrap_completed_at)
-                VALUES (%s, %s, now())
+                VALUES (%s, %s, %s)
                 ON CONFLICT (entity_id, org_id) DO UPDATE
-                   SET bootstrap_completed_at = now()
+                   SET bootstrap_completed_at = EXCLUDED.bootstrap_completed_at
                 """,
-                (entity_id, org_id),
+                (entity_id, org_id, ts),
             )
 
-    def mark_consistency_pass(self, entity_id: int, org_id: int) -> None:
+    def mark_consistency_pass(
+        self,
+        entity_id: int,
+        org_id: int,
+        *,
+        stream_now: Optional[datetime] = None,
+    ) -> None:
+        """Stamp `last_consistency_pass_at` with the stream clock and
+        reset `bundles_processed_since_last_pass`. Caller passes the
+        stream clock so the audit row stays consistent with the
+        document timeline the pass operated on.
+        """
+        ts = stream_now or datetime.now(timezone.utc)
         with self.conn.cursor() as cur:
             cur.execute(
                 """
                 INSERT INTO tags_entity_state (entity_id, org_id, last_consistency_pass_at)
-                VALUES (%s, %s, now())
+                VALUES (%s, %s, %s)
                 ON CONFLICT (entity_id, org_id) DO UPDATE SET
-                    last_consistency_pass_at = now(),
+                    last_consistency_pass_at = EXCLUDED.last_consistency_pass_at,
                     last_consistency_pass_count = tags_entity_state.last_consistency_pass_count + 1,
                     bundles_processed_since_last_pass = 0
                 """,
-                (entity_id, org_id),
+                (entity_id, org_id, ts),
             )
 
     def get_ttl_days(self, entity_id: int, org_id: int) -> int:

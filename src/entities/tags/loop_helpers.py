@@ -55,6 +55,15 @@ def build_repos(
     `state_repo.ensure(...)` inserts a default `tags_entity_state` row
     if one doesn't yet exist — safe to call on every run.
 
+    Also sweeps the catalogue once at startup: `retire_stale_entries(ttl)`
+    soft-retires any entry whose most-recent `stance_assignments` row is
+    older than `assignment_ttl_days`. Without this, a run that resumes
+    after a long gap (or after a crash before the previous pass fired)
+    would tag against entries whose evidence is stale — the consistency
+    pass would only catch them on its next scheduled run. Counters on
+    `tags_entity_state` are intentionally not touched here (this is
+    retention, not a full consistency pass).
+
     `simulate_assigned_at_from_document` is the backfill-testing knob:
     when True, every `stance_assignments.assigned_at` and
     `claim_assignments.extracted_at` row written by these repos uses
@@ -72,7 +81,51 @@ def build_repos(
     )
     state_repo = EntityStateRepo(conn)
     state_repo.ensure(customer.entity_id, org_id)
+
+    # Seed the stream clock from the latest `assigned_at` already on
+    # disk so the startup retire runs against the stream's last-known
+    # position rather than today's date. Without this anchor, a
+    # backfill re-run that resumes weeks after the previous one would
+    # use wall-clock and immediately retire everything inserted in the
+    # prior session.
+    startup_now = _latest_assigned_at(conn, customer.entity_id, org_id)
+    if startup_now is not None:
+        stance_repo.set_stream_now(startup_now)
+        logger.info("startup stream clock anchored at %s", startup_now.isoformat())
+
+    ttl = state_repo.get_ttl_days(customer.entity_id, org_id)
+    retired = stance_repo.retire_stale_entries(ttl)
+    logger.info("startup retention: retired=%d (ttl=%dd)", retired, ttl)
+
     return stance_repo, claim_store, state_repo
+
+
+def _latest_assigned_at(
+    conn: psycopg2.extensions.connection, entity_id: int, org_id: int,
+) -> Optional[datetime]:
+    """Latest `assigned_at` on disk for this `(entity, org)` scope.
+
+    Used as the startup stream clock so retention at startup operates
+    at the document timeline the previous run left off at, not today.
+    Returns None when no assignments exist (first-ever run) — the repo
+    then falls back to wall-clock until the first bundle arrives.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT MAX(assigned_at)
+              FROM stance_assignments
+             WHERE entity_id = %s AND org_id = %s
+            """,
+            (entity_id, org_id),
+        )
+        row = cur.fetchone()
+        if not row or row[0] is None:
+            return None
+        ts = row[0]
+        if isinstance(ts, datetime):
+            return ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
+        return None
 
 
 # ── Per-message handler ───────────────────────────────────────────────
@@ -112,17 +165,24 @@ def consistency_pass_due(
     customer: Customer,
     bundles_processed: int,
     consistency_every_n_bundles: Optional[int],
+    stance_repo: Optional[StanceCatalogRepo] = None,
 ) -> bool:
     """Decide whether the consistency pass should run after this bundle.
 
     If `consistency_every_n_bundles` is set, fires deterministically
     every N bundles. Otherwise defers to `customer.consistency_pass_due`
     which checks `bundles_processed_since_last_pass` and
-    `last_consistency_pass_at` against the per-customer thresholds.
+    `last_consistency_pass_at` against the per-customer thresholds —
+    that time check uses the repo's stream clock (`effective_now()`)
+    when supplied so a backfill replay decides "is the next pass due"
+    against the document timeline, not wall-clock. Pass `stance_repo`
+    from the caller; fall back to wall-clock only when no repo is
+    handy (legacy callers, isolated tests).
     """
     if consistency_every_n_bundles is not None:
         return bundles_processed % consistency_every_n_bundles == 0
-    return customer.consistency_pass_due(datetime.now(timezone.utc))
+    now = stance_repo.effective_now() if stance_repo is not None else datetime.now(timezone.utc)
+    return customer.consistency_pass_due(now)
 
 
 def run_consistency_pass(
@@ -174,7 +234,10 @@ def run_consistency_pass(
         )
 
         result = consistency_step.run(stance_repo, items_seen)
-        state_repo.mark_consistency_pass(customer.entity_id, org_id)
+        state_repo.mark_consistency_pass(
+            customer.entity_id, org_id,
+            stream_now=stance_repo.effective_now(),
+        )
         conn.commit()
 
         stats.consistency_passes += 1
