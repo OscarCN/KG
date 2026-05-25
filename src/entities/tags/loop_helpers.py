@@ -146,14 +146,18 @@ def run_consistency_pass(
     most-recent assignment is older than that cutoff are excluded even
     if K hasn't been filled. Default 3d — tighter than the assignment
     TTL so the LLM operates on what's actually current.
+
+    Retention is **soft-retire only**: entries with no assignment
+    newer than `assignment_ttl_days` are stamped `retired_at = now()`
+    so they drop out of the active catalogue but stay in the database
+    along with their full assignment history.
     """
     try:
         ttl = state_repo.get_ttl_days(customer.entity_id, org_id)
-        expired = stance_repo.expire_old_assignments(ttl)
-        orphans = stance_repo.gc_orphan_entries()
+        retired = stance_repo.retire_stale_entries(ttl)
         logger.info(
-            "consistency: retention expired=%d orphans=%d (ttl=%dd)",
-            expired, orphans, ttl,
+            "consistency: retention retired=%d (ttl=%dd)",
+            retired, ttl,
         )
 
         bundles_since = max(0, customer.bundles_processed_since_last_pass)

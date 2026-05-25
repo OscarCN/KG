@@ -271,8 +271,8 @@ these methods should write to the catalogs:
 | `StanceCatalog.add(label, description, *, primary_type)` | Create entry | `INSERT INTO stance_entries …` |
 | `StanceCatalog.assign(assignment)` | Append assignment after validation | `INSERT INTO stance_assignments …` |
 | `StanceCatalog.rename(stance_id, new_label, new_description)` | Update entry; old label → `aliases` | `UPDATE stance_entries SET label, description …` |
-| `StanceCatalog.merge(src_id, dst_id)` | Move all assignments from src to dst; src label → dst aliases; src removed | `UPDATE stance_assignments SET stance_id=:dst …; DELETE …` |
-| `StanceCatalog.retire(stance_id)` | Move entry from `entries` to `retired_entries` | `UPDATE stance_entries SET retired_at=now() …` |
+| `StanceCatalog.merge(src_id, dst_id)` | Move all assignments from src to dst; src label → dst aliases; src soft-retired | `UPDATE stance_assignments SET stance_id=:dst …; UPDATE stance_entries SET retired_at=now() WHERE stance_id=:src` |
+| `StanceCatalog.retire(stance_id)` | Move entry from `entries` to `retired_entries` (kept on disk) | `UPDATE stance_entries SET retired_at=now() …` |
 | `StanceCatalog.reroute(from_id, to_id)` | Move all assignments from one stance to another | `UPDATE stance_assignments SET stance_id=:to …` |
 
 ### Query interface (the only readers)
@@ -282,11 +282,11 @@ swapping the in-memory backing for a DB query is a localized change.
 
 | Method | Returns | DB equivalent |
 |---|---|---|
-| `iter_entries(*, types=None)` | Active entries, optionally filtered by `primary_type` | `SELECT * FROM stance_entries WHERE entity_id=… AND org_id=… [AND primary_type = ANY(:types)]` |
+| `iter_entries(*, types=None)` | Active entries, optionally filtered by `primary_type` | `SELECT * FROM stance_entries WHERE entity_id=… AND org_id=… AND retired_at IS NULL [AND primary_type = ANY(:types)]` |
 | `assignments_for(*, types, stance_id, event_id)` | Assignments matching the given filters | `SELECT * FROM stance_assignments WHERE …` |
 | `count_catalogued_assignments(*, stance_type=None)` | `{stance_id: count}` for non-NULL `stance_id` rows | `SELECT stance_id, COUNT(*) FROM stance_assignments WHERE … GROUP BY stance_id`. Used by consistency Stage 3 in place of a Python count loop. |
-| `iter_zero_assignment_entries()` | Entries with no catalogued assignments (Stage 1 retire candidates) | `SELECT * FROM stance_entries e WHERE NOT EXISTS (SELECT 1 FROM stance_assignments WHERE stance_id = e.stance_id)` |
-| `get_entries_by_ids(ids)` | `{stance_id: StanceEntry}` for the supplied id set | `SELECT * FROM stance_entries WHERE stance_id = ANY(:ids)`. Used by Stage 3 to prefetch entries referenced by merge proposals. |
+| `iter_zero_assignment_entries()` | Active entries with no catalogued assignments (Stage 1 retire candidates) | `SELECT * FROM stance_entries e WHERE retired_at IS NULL AND NOT EXISTS (SELECT 1 FROM stance_assignments WHERE stance_id = e.stance_id)` |
+| `get_entries_by_ids(ids)` | `{stance_id: StanceEntry}` for the supplied id set (active only) | `SELECT * FROM stance_entries WHERE stance_id = ANY(:ids) AND retired_at IS NULL`. Used by Stage 3 to prefetch entries referenced by merge proposals. |
 | `summary(*, types, event_id, top_n)` | `(label, count)` rows by count desc | `SELECT label, count(*) FROM stance_assignments JOIN stance_entries USING (stance_id) GROUP BY …` |
 | `snapshot(*, types)` | Compact prompt-ready entry list | Same as `iter_entries` projected to the prompt fields |
 | `recent_bundle_assignments(*, n_bundles, kinds)` | All assignments belonging to the K most-recent post/article bundles | See SQL sketch below |
@@ -339,7 +339,7 @@ Tables:
 
 | Table | Role |
 |---|---|
-| `stance_entries` | Per-`(entity, org)` stance catalog. Hard-deleted when no assignments remain. |
+| `stance_entries` | Per-`(entity, org)` stance catalog. **Soft-retired** when no assignment is newer than `assignment_ttl_days` — the row stays on disk with `retired_at = now()`. Never hard-deleted by the app. |
 | `stance_assignments` | One row per `(source_item, entity, org, stance_type)`. `stance_id` is nullable — NULL rows are the orphan pool consumed by consistency Stage 2; a unique index over the four columns (across NULL/non-NULL) plus `ON CONFLICT DO UPDATE` keeps re-tagging idempotent and latest-wins. |
 | `claim_clusters` | Per-`(entity, org, event_id)` claim cluster. No TTL — clusters persist with their event. |
 | `claim_assignments` | One row per extracted `RawClaim` placed into a cluster. Unique on `(source_item_id, entity_id, org_id, event_id, cluster_id, verbatim_hash)` so a redelivered bundle can't duplicate claims (`verbatim_hash` = sha256 of `verbatim`, computed app-side). |
@@ -373,22 +373,26 @@ acking the queue message.
 
 SQL mapping:
 
-- `add(…)` → `INSERT INTO stance_entries … ON CONFLICT (entity_id, org_id, primary_type, label) DO NOTHING RETURNING *`
-- `assign(a)` → `INSERT INTO stance_assignments … ON CONFLICT (source_item_id, entity_id, org_id, stance_type) DO UPDATE SET stance_id = EXCLUDED.stance_id, reason = …, assigned_at = …, event_id = …` (one row per item/type; latest tagging decision wins).
-- `merge(src, dst)` → transaction: `UPDATE stance_assignments SET stance_id=:dst WHERE stance_id=:src`, `UPDATE stance_entries SET aliases = aliases || to_jsonb(:src_label) WHERE stance_id=:dst`, `DELETE FROM stance_entries WHERE stance_id=:src`. FK `ON DELETE RESTRICT` guards the ordering.
-- `retire(id)` / `delete(id)` → guarded `DELETE FROM stance_entries WHERE … AND NOT EXISTS (matching assignments)`.
+- `add(…)` → `INSERT INTO stance_entries … ON CONFLICT DO NOTHING RETURNING *`. The bare `DO NOTHING` swallows both the PK collision (same `stance_id`) and the partial unique `stance_entries_scope_label_active_uniq` (same active label). A label collision with a *retired* row is allowed: a new active row is inserted alongside the historical one.
+- `assign(a)` → `INSERT INTO stance_assignments … ON CONFLICT (source_item_id, entity_id, org_id, stance_type) DO UPDATE SET stance_id = EXCLUDED.stance_id, reason = …, assigned_at = …, event_id = …` (one row per item/type; latest tagging decision wins). Validation requires the target `stance_id` to be active — assignments aimed at a retired entry are dropped.
+- `merge(src, dst)` → transaction: `UPDATE stance_assignments SET stance_id=:dst WHERE stance_id=:src`, `UPDATE stance_entries SET aliases = aliases || to_jsonb(:src_label) WHERE stance_id=:dst`, `UPDATE stance_entries SET retired_at = now() WHERE stance_id=:src`. The src row stays on disk for history; the partial unique index releases its label slot.
+- `retire(id)` / `delete(id)` → `UPDATE stance_entries SET retired_at = now() WHERE … AND retired_at IS NULL` (idempotent soft-retire).
 - `recent_bundle_assignments(…)` → the CTE above.
 
 Retention (run at consistency-pass start):
 ```sql
-DELETE FROM stance_assignments
- WHERE entity_id = :e AND org_id = :o
-   AND assigned_at < now() - (:ttl || ' days')::interval;
-
-DELETE FROM stance_entries
- WHERE entity_id = :e AND org_id = :o
-   AND NOT EXISTS (SELECT 1 FROM stance_assignments
-                    WHERE stance_id = stance_entries.stance_id);
+-- Soft-retire entries with no recent assignment. Both stance_entries
+-- and stance_assignments rows are preserved — only `retired_at`
+-- changes — so historical readers can still resolve every stance_id.
+UPDATE stance_entries e
+   SET retired_at = now()
+ WHERE e.entity_id = :e AND e.org_id = :o
+   AND e.retired_at IS NULL
+   AND NOT EXISTS (
+       SELECT 1 FROM stance_assignments a
+        WHERE a.stance_id = e.stance_id
+          AND a.assigned_at >= now() - (:ttl || ' days')::interval
+   );
 ```
 
 The streaming pipeline, bootstrap step, and consistency pass don't

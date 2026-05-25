@@ -312,7 +312,7 @@ print(f"[stream] {len(_streaming_bundles)} bundles to stream")
 #     # inspect: state, customer, stats, or query userdb directly
 #     # repeat ...
 
-for i, msg in enumerate(messages, start=1):
+for i, msg in enumerate(messages, start=5):
     handle_message(pipeline, stance_repo, claim_store, state_repo, msg, conn)
     stats.bundles_processed = i
     print(f"[stream {i}/{len(_streaming_bundles)}] processed {msg.bundle.root.id}")

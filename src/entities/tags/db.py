@@ -204,6 +204,11 @@ class StanceCatalogRepo:
     ) -> StanceEntry:
         """Create a new stance entry. Returns the created (or existing) row.
 
+        The unique index `stance_entries_scope_label_active_uniq` only
+        fires on active rows (`retired_at IS NULL`), so an `add` that
+        collides with a retired-and-preserved row of the same label
+        inserts a fresh active row alongside the historical one.
+
         `origin_event_id` is accepted for in-memory parity but is not
         persisted — the column was dropped from the userdb schema (see
         `serialization_plan.md`).
@@ -211,25 +216,31 @@ class StanceCatalogRepo:
         del origin_event_id  # silence linters; intentionally unused
         stance_id = entry_id or make_entry_id(label, primary_type)
         with self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            # Bare `ON CONFLICT DO NOTHING` so we swallow both the PK
+            # collision (same `stance_id`) and the active-only partial
+            # unique (`stance_entries_scope_label_active_uniq`).
             cur.execute(
                 """
                 INSERT INTO stance_entries
                     (stance_id, entity_id, org_id, label, description, primary_type)
                 VALUES (%s, %s, %s, %s, %s, %s)
-                ON CONFLICT (entity_id, org_id, primary_type, label) DO NOTHING
+                ON CONFLICT DO NOTHING
                 RETURNING stance_id, label, description, primary_type, aliases, created_at
                 """,
                 (stance_id, self.entity_id, self.org_id, label, description, primary_type),
             )
             row = cur.fetchone()
             if row is None:
-                # An existing row collides on the unique key. Re-fetch it.
+                # An existing active row collides on label. Re-fetch it.
+                # Retired rows of the same label are skipped — the caller
+                # gets a brand-new active row in that case.
                 cur.execute(
                     """
                     SELECT stance_id, label, description, primary_type, aliases, created_at
                       FROM stance_entries
                      WHERE entity_id = %s AND org_id = %s
                        AND primary_type = %s AND label = %s
+                       AND retired_at IS NULL
                     """,
                     (self.entity_id, self.org_id, primary_type, label),
                 )
@@ -245,7 +256,7 @@ class StanceCatalogRepo:
                     (stance_id, entity_id, org_id, label, description,
                      primary_type, aliases, created_at)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (stance_id) DO NOTHING
+                ON CONFLICT ON CONSTRAINT stance_entries_pkey DO NOTHING
                 """,
                 (
                     entry.id, self.entity_id, self.org_id, entry.label,
@@ -327,6 +338,7 @@ class StanceCatalogRepo:
                 SELECT label, primary_type
                   FROM stance_entries
                  WHERE stance_id = %s AND entity_id = %s AND org_id = %s
+                   AND retired_at IS NULL
                 """,
                 (stance_id, self.entity_id, self.org_id),
             )
@@ -345,12 +357,15 @@ class StanceCatalogRepo:
                     )
                 return True
 
-            # Collision? Look for an existing entry under the target label.
+            # Collision against an *active* entry only — retired rows
+            # may keep their old label (the partial unique index allows
+            # it) and a rename onto that label is allowed.
             cur.execute(
                 """
                 SELECT stance_id FROM stance_entries
                  WHERE entity_id = %s AND org_id = %s
                    AND primary_type = %s AND label = %s
+                   AND retired_at IS NULL
                 """,
                 (self.entity_id, self.org_id, primary_type, new_label),
             )
@@ -386,19 +401,27 @@ class StanceCatalogRepo:
     def merge(self, src_id: str, dst_id: str) -> int:
         """Merge `src` into `dst`. Returns the number of moved assignments.
 
-        Order matters: UPDATE assignments first, then move the src label
-        into the dst's aliases, then DELETE the src entry. The
-        `ON DELETE RESTRICT` FK protects against re-ordering bugs.
+        Order matters: UPDATE assignments → dst onto src's label/alias
+        history → soft-retire the src entry (`retired_at = now()`).
+        Both entries must be active at call time; cross-`(entity, org)`
+        and cross-`primary_type` merges are refused.
+
+        The src row is preserved in the table so historical readers can
+        still resolve the old `stance_id`; the partial unique index
+        clears its label slot once `retired_at` is non-NULL, leaving
+        room for a future re-add of the same label.
         """
         if src_id == dst_id:
             return 0
         with self.conn.cursor() as cur:
-            # Cross-scope guard — never merge across (entity, org) lines.
+            # Cross-scope guard — never merge across (entity, org) lines,
+            # and refuse to operate on already-retired rows.
             cur.execute(
                 """
                 SELECT stance_id, label, entity_id, org_id, primary_type
                   FROM stance_entries
                  WHERE stance_id IN (%s, %s)
+                   AND retired_at IS NULL
                 """,
                 (src_id, dst_id),
             )
@@ -428,29 +451,39 @@ class StanceCatalogRepo:
                 """,
                 (src[1], dst_id),
             )
-            cur.execute("DELETE FROM stance_entries WHERE stance_id = %s", (src_id,))
+            cur.execute(
+                "UPDATE stance_entries SET retired_at = now() WHERE stance_id = %s",
+                (src_id,),
+            )
         return moved
 
     def retire(self, stance_id: str) -> bool:
-        """Per the user spec ('if it has none, delete it'), retire is a
-        guarded hard delete — succeeds only when zero assignments remain.
-        The FK `ON DELETE RESTRICT` enforces the same invariant at the
-        DB layer for any non-app caller."""
+        """Soft-retire: stamp `retired_at = now()` on the entry.
+
+        The row stays in `stance_entries` and its existing
+        `stance_assignments` are preserved as-is so historical reads
+        can still resolve `stance_id` against the retired entry.
+        Active-catalog reads (`iter_entries`, `snapshot`, `summary`,
+        etc.) filter the row out via `retired_at IS NULL`.
+
+        Idempotent — re-retiring an already-retired entry returns
+        False, same shape as the old hard-delete which returned False
+        when the row was already gone.
+        """
         with self.conn.cursor() as cur:
             cur.execute(
                 """
-                DELETE FROM stance_entries
+                UPDATE stance_entries
+                   SET retired_at = now()
                  WHERE stance_id = %s AND entity_id = %s AND org_id = %s
-                   AND NOT EXISTS (
-                       SELECT 1 FROM stance_assignments
-                        WHERE stance_id = stance_entries.stance_id
-                   )
+                   AND retired_at IS NULL
                 """,
                 (stance_id, self.entity_id, self.org_id),
             )
             return cur.rowcount > 0
 
-    # Alias — semantically the same operation under the new model.
+    # Alias — `delete` is the historical name on the in-memory side;
+    # under soft-retire it's the same operation.
     delete = retire
 
     def reroute(self, from_id: str, to_id: str) -> int:
@@ -506,6 +539,10 @@ class StanceCatalogRepo:
     def iter_entries(
         self, types: Optional[Iterable[StanceType]] = None
     ) -> Iterable[StanceEntry]:
+        """Active-catalog entries only. Retired rows are filtered here
+        and surfaced via `retired_entries` instead, matching the in-
+        memory `StanceCatalog`'s split between `entries` (active) and
+        `retired_entries` (history)."""
         with self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             if types is None:
                 cur.execute(
@@ -513,6 +550,7 @@ class StanceCatalogRepo:
                     SELECT stance_id, label, description, primary_type, aliases, created_at
                       FROM stance_entries
                      WHERE entity_id = %s AND org_id = %s
+                       AND retired_at IS NULL
                     """,
                     (self.entity_id, self.org_id),
                 )
@@ -523,6 +561,7 @@ class StanceCatalogRepo:
                       FROM stance_entries
                      WHERE entity_id = %s AND org_id = %s
                        AND primary_type = ANY(%s)
+                       AND retired_at IS NULL
                     """,
                     (self.entity_id, self.org_id, list(types)),
                 )
@@ -544,22 +583,33 @@ class StanceCatalogRepo:
 
     @property
     def retired_entries(self) -> dict[str, StanceEntry]:
-        """No soft-retire under the new schema — always empty. Kept so
-        legacy code paths that look here don't crash; they will fall
-        through to whatever NULL-handling they already have."""
-        return {}
+        """Entries with `retired_at IS NOT NULL` — kept on disk for
+        history. Mirrors the in-memory `StanceCatalog.retired_entries`
+        dict; new tagging cannot reach these (see `_primary_type_of`)
+        but historical readers can still resolve their `stance_id` to
+        a label."""
+        with self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT stance_id, label, description, primary_type, aliases, created_at
+                  FROM stance_entries
+                 WHERE entity_id = %s AND org_id = %s
+                   AND retired_at IS NOT NULL
+                """,
+                (self.entity_id, self.org_id),
+            )
+            return {row["stance_id"]: _row_to_stance_entry(row) for row in cur.fetchall()}
 
     @property
     def assignments(self) -> list[StanceAssignment]:
         """Convenience snapshot of every assignment for this `(entity,
-        org)`.
+        org)` — including rows whose `stance_id` now points at a
+        retired entry, since assignment history is preserved.
 
-        **Hot-path warning.** Each access issues a full table scan
-        bounded by `assignment_ttl_days`. Aggregations and filtered
-        scans inside loops should call
-        `count_catalogued_assignments(...)`,
-        `assignments_for(...)`, or `recent_bundle_assignments(...)`
-        instead.
+        **Hot-path warning.** Each access issues an unbounded table
+        scan. Aggregations and filtered scans inside loops should call
+        `count_catalogued_assignments(...)`, `assignments_for(...)`,
+        or `recent_bundle_assignments(...)` instead.
         """
         with self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
@@ -600,15 +650,19 @@ class StanceCatalogRepo:
             return {sid: int(n) for (sid, n) in cur.fetchall()}
 
     def iter_zero_assignment_entries(self) -> list[StanceEntry]:
-        """Entries with no catalogued assignments. Used by Stage 1 of
-        the consistency pass to pick retire candidates without a
-        Python-side count + iterate."""
+        """Active entries with no assignments at all. Stage 1 of the
+        consistency pass calls this to pick retire candidates without
+        a Python-side count + iterate. The TTL-based
+        `retire_stale_entries` typically covers these already (zero
+        rows ⇒ no row newer than TTL), so this is a no-op in practice
+        when retention runs first."""
         with self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
                 """
                 SELECT stance_id, label, description, primary_type, aliases, created_at
                   FROM stance_entries e
                  WHERE entity_id = %s AND org_id = %s
+                   AND retired_at IS NULL
                    AND NOT EXISTS (
                        SELECT 1 FROM stance_assignments
                         WHERE stance_id = e.stance_id
@@ -621,9 +675,11 @@ class StanceCatalogRepo:
     def get_entries_by_ids(
         self, stance_ids: Iterable[str],
     ) -> dict[str, StanceEntry]:
-        """Look up a fixed set of entries in one query. Used by Stage 3
-        to prefetch entries referenced by merge proposals so we don't
-        re-scan the whole catalog per id."""
+        """Look up a fixed set of active entries in one query. Used by
+        Stage 3 to prefetch entries referenced by merge proposals so we
+        don't re-scan the whole catalog per id. Retired entries are
+        filtered out — Stage 3 only proposes merges on the active
+        snapshot the LLM was given."""
         ids = list({sid for sid in stance_ids if sid})
         if not ids:
             return {}
@@ -634,6 +690,7 @@ class StanceCatalogRepo:
                   FROM stance_entries
                  WHERE entity_id = %s AND org_id = %s
                    AND stance_id = ANY(%s)
+                   AND retired_at IS NULL
                 """,
                 (self.entity_id, self.org_id, ids),
             )
@@ -762,44 +819,54 @@ class StanceCatalogRepo:
 
     # ── Retention ─────────────────────────────────────────────────────
 
-    def expire_old_assignments(self, ttl_days: int) -> int:
-        """Step 1 of retention: delete assignments older than TTL."""
-        with self.conn.cursor() as cur:
-            cur.execute(
-                """
-                DELETE FROM stance_assignments
-                 WHERE entity_id = %s AND org_id = %s
-                   AND assigned_at < now() - (%s::text || ' days')::interval
-                """,
-                (self.entity_id, self.org_id, int(ttl_days)),
-            )
-            return cur.rowcount
+    def retire_stale_entries(self, ttl_days: int) -> int:
+        """Soft-retire entries with no recent assignment.
 
-    def gc_orphan_entries(self) -> int:
-        """Step 2 of retention: delete entries with zero assignments."""
+        An entry is "stale" when its most-recent `stance_assignments`
+        row is older than `ttl_days` (and entries with zero assignments
+        at all are stale by definition). Stamping `retired_at = now()`
+        hides the row from active-catalog reads while preserving both
+        the entry and its assignment history on disk — the rule the
+        user spec describes as "retired from the catalogue but not
+        deleted from the database".
+
+        Returns the number of rows transitioned to retired. Idempotent:
+        already-retired entries are skipped.
+        """
         with self.conn.cursor() as cur:
             cur.execute(
                 """
-                DELETE FROM stance_entries
-                 WHERE entity_id = %s AND org_id = %s
+                UPDATE stance_entries e
+                   SET retired_at = now()
+                 WHERE e.entity_id = %s AND e.org_id = %s
+                   AND e.retired_at IS NULL
                    AND NOT EXISTS (
-                       SELECT 1 FROM stance_assignments
-                        WHERE stance_id = stance_entries.stance_id
+                       SELECT 1 FROM stance_assignments a
+                        WHERE a.stance_id = e.stance_id
+                          AND a.assigned_at >= now() - (%s::text || ' days')::interval
                    )
                 """,
-                (self.entity_id, self.org_id),
+                (self.entity_id, self.org_id, int(ttl_days)),
             )
             return cur.rowcount
 
     # ── Internal ──────────────────────────────────────────────────────
 
     def _primary_type_of(self, stance_id: str) -> Optional[str]:
+        """Return the entry's `primary_type` if it exists AND is still
+        active. Retired entries are invisible here so a fresh `assign()`
+        cannot resurrect them — under the soft-retire model the row is
+        kept for history but cannot accept new assignments. Redeliveries
+        targeting an already-retired stance fall through `assign()`'s
+        validation and are dropped (the previous assignment row, if any,
+        is preserved untouched)."""
         with self.conn.cursor() as cur:
             cur.execute(
                 """
                 SELECT primary_type
                   FROM stance_entries
                  WHERE stance_id = %s AND entity_id = %s AND org_id = %s
+                   AND retired_at IS NULL
                 """,
                 (stance_id, self.entity_id, self.org_id),
             )

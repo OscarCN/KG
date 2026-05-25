@@ -12,7 +12,7 @@ This document captures the schema decisions. The companion migration script (`me
 - **Catalog scope**: per `(entity_id, org_id)`. `query_id` is denormalised on each assignment for traceability — not part of the catalog key. All saved searches inside one org share one stance/claim catalog over a given entity.
 - **`entity_id` semantics**: like `entities_documents_sentiments_org.entity_id`, points at `kgdb.entities_alias.original_entity_id`. Cross-DB, no DB FK.
 - **Source-item text**: not persisted. Consistency pass re-fetches text from ES `news` (posts + embedded comments) by `source_item_id`. ES retention covers the 50–200 bundles between passes.
-- **Stance retention**: `assignment_ttl_days` per `(entity_id, org_id)`, default 4 (spec range 3–5). Old stance assignments are deleted; stances left with zero assignments are then deleted.
+- **Stance retention**: `assignment_ttl_days` per `(entity_id, org_id)`, default 4 (spec range 3–5). **Soft-retire only** — entries whose most-recent assignment is older than the TTL are stamped `retired_at = now()` (hidden from the active catalogue) but the entry row and every `stance_assignments` row stay in the database for history.
 - **Claim retention**: **none**. Claims are scoped to their event — when the event stops streaming, its claims and clusters stay as they were. No TTL job touches `claim_clusters` / `claim_assignments`.
 - **`origin_event_id` on stance_entries**: **dropped** (nothing reads it; in-memory model field is also unused).
 
@@ -30,14 +30,16 @@ This document captures the schema decisions. The companion migration script (`me
 | `primary_type` | TEXT NOT NULL | StanceType |
 | `aliases` | JSONB NOT NULL DEFAULT '[]' | rename/merge history |
 | `created_at` | TIMESTAMPTZ NOT NULL DEFAULT now() | |
+| `retired_at` | TIMESTAMPTZ NULL | NULL = active, non-NULL = retired (hidden from the active catalogue but kept on disk for history) |
 
 Constraints:
-- Unique: `(entity_id, org_id, primary_type, label)`.
+- Partial unique: `stance_entries_scope_label_active_uniq` on `(entity_id, org_id, primary_type, label) WHERE retired_at IS NULL` — uniqueness is enforced only across active rows so a future bootstrap re-add of a previously-retired label can land a fresh active row alongside the historical one.
 
 Indexes:
 - `idx_stance_entries_scope (entity_id, org_id, primary_type)`.
+- `idx_stance_entries_scope_active` — partial sibling on the same columns `WHERE retired_at IS NULL`, optimising the hot active-only scope scan.
 
-Lifecycle: inserted by streaming tagger / bootstrap / consistency Stage 2; hard-deleted by retention when zero assignments remain.
+Lifecycle: inserted by streaming tagger / bootstrap / consistency Stage 2; soft-retired (`retired_at = now()`) by retention when no assignment is newer than `assignment_ttl_days`. Never hard-deleted by the app.
 
 ### 2. `stance_assignments`
 
@@ -142,31 +144,31 @@ The streaming pipeline and consistency pass only call the catalog method surface
 |---|---|
 | `add(label, description, *, primary_type)` | `INSERT INTO stance_entries … RETURNING *` |
 | `assign(StanceAssignment)` | `INSERT INTO stance_assignments … ON CONFLICT DO NOTHING`; rejects if `stance_id` set and entry's `primary_type` ≠ `stance_type` |
-| `rename(stance_id, label, description)` | `UPDATE stance_entries SET label, description, aliases = aliases \|\| jsonb_build_array(old_label) WHERE stance_id=:id` |
-| `merge(src, dst)` | TX: `UPDATE stance_assignments SET stance_id=:dst WHERE stance_id=:src`; `UPDATE stance_entries SET aliases = aliases \|\| jsonb_build_array(src.label) WHERE stance_id=:dst`; `DELETE FROM stance_entries WHERE stance_id=:src` |
+| `rename(stance_id, label, description)` | `UPDATE stance_entries SET label, description, aliases = aliases \|\| jsonb_build_array(old_label) WHERE stance_id=:id AND retired_at IS NULL` |
+| `merge(src, dst)` | TX: `UPDATE stance_assignments SET stance_id=:dst WHERE stance_id=:src`; `UPDATE stance_entries SET aliases = aliases \|\| jsonb_build_array(src.label) WHERE stance_id=:dst`; `UPDATE stance_entries SET retired_at = now() WHERE stance_id=:src` |
 | `reroute(from, to)` | `UPDATE stance_assignments SET stance_id=:to WHERE stance_id=:from` |
-| `delete(stance_id)` (retention) | `DELETE FROM stance_entries WHERE stance_id=:id AND NOT EXISTS (SELECT 1 FROM stance_assignments WHERE stance_id=:id)` |
+| `retire(stance_id)` / `delete(stance_id)` | `UPDATE stance_entries SET retired_at = now() WHERE stance_id=:id AND retired_at IS NULL` (soft) |
 
 Claim equivalents follow the same shape — `rename`/`merge` on `claim_clusters`; `assign` inserts into `claim_assignments`.
 
 ## Retention (stances only)
 
-Two SQL statements per `(entity, org)` per consistency pass, run **before** Stages 1–3:
+One SQL statement per `(entity, org)` per consistency pass, run **before** Stages 1–3. Both `stance_entries` and `stance_assignments` rows are preserved; retirement only flips `retired_at` so the entry drops out of the active catalogue used by LLM prompts and stats:
 
 ```sql
--- 1. Expire old stance assignments.
-DELETE FROM stance_assignments
-WHERE entity_id = :e AND org_id = :o
-  AND assigned_at < now() - (:ttl_days || ' days')::interval;
-
--- 2. Hard-delete orphan stance entries.
-DELETE FROM stance_entries
-WHERE entity_id = :e AND org_id = :o
-  AND NOT EXISTS (
-      SELECT 1 FROM stance_assignments
-      WHERE stance_id = stance_entries.stance_id
-  );
+-- Soft-retire entries with no assignment newer than the TTL.
+UPDATE stance_entries e
+   SET retired_at = now()
+ WHERE e.entity_id = :e AND e.org_id = :o
+   AND e.retired_at IS NULL
+   AND NOT EXISTS (
+       SELECT 1 FROM stance_assignments a
+        WHERE a.stance_id = e.stance_id
+          AND a.assigned_at >= now() - (:ttl_days || ' days')::interval
+   );
 ```
+
+The previous hard-delete pair (`DELETE FROM stance_assignments WHERE assigned_at < now() - ttl`, then `DELETE FROM stance_entries WHERE NOT EXISTS …`) was retired by the `social_tags_soft_retire_userdb.sql` migration. Historical readers can still resolve any `stance_id` — active or retired — to its label.
 
 Claims are untouched.
 
