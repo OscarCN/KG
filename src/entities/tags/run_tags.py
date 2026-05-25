@@ -186,7 +186,7 @@ def _llm(phase: str, model: str) -> LoggingJsonLlm:
     """
     return LoggingJsonLlm(
         CachedJsonLlm(
-            OpenRouterJsonLlm(model=model),
+            OpenRouterJsonLlm(model=model, phase=phase),
             cache_dir=cache_dir_for(phase, customer.entity_id),
             model=model,
             extra={"phase": phase},

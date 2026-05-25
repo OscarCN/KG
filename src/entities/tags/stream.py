@@ -28,6 +28,8 @@ file-simulated to RabbitMQ, swap `simulated_message_stream` there
 for a `pika`-backed generator yielding `TagsMessage`.
 """
 
+from __future__ import annotations
+
 # ────────────────────────────────────────────────────────────────────────
 # Reset-state helper for IPython smoke tests (paste-able).
 #
@@ -66,8 +68,6 @@ for a `pika`-backed generator yielding `TagsMessage`.
 #             shutil.rmtree(d, ignore_errors=True)
 #             print(f"removed {d}")
 # ────────────────────────────────────────────────────────────────────────
-
-from __future__ import annotations
 
 import logging
 import sys
@@ -124,7 +124,7 @@ from src.entities.tags.streaming import StreamingState
 
 # ── Paths ─────────────────────────────────────────────────────────────
 
-CUSTOMER_FIXTURE: Path = _PROJECT_ROOT / "data" / "tags" / "customer_76.json"
+CUSTOMER_FIXTURE: Path = _PROJECT_ROOT / "data" / "tags" / "customer_75.json"
 
 # Input fixture. Two supported shapes — same loader (`ArticleBundleRetriever`)
 # handles both:
@@ -139,8 +139,8 @@ CUSTOMER_FIXTURE: Path = _PROJECT_ROOT / "data" / "tags" / "customer_76.json"
 LINKED_FIXTURE: Path = (
     _PROJECT_ROOT
     / "data"
-    / "felifer"
-    / "felifer_20260514_145913.json"  # ← update to the actual timestamp written by get_data
+    / "ayuntamiento_qro"
+    / "ayuntamiento_qro_20260522_094734.json"
 )
 EVENTS_FIXTURE: Path = LINKED_FIXTURE.with_name(f"{LINKED_FIXTURE.stem}__events.json")
 
@@ -150,13 +150,13 @@ TAGS_OUTPUT_DIR: Path = _PROJECT_ROOT / "data" / "tags"
 # ── Streaming knobs (edit before re-running) ──────────────────────────
 
 ORG_ID: int = 93
-QUERY_ID: Optional[int] = 185
+QUERY_ID: Optional[int] = 183
 
 # Phase 1 — bootstrap (only runs when tags_entity_state.bootstrap_completed_at
 # is NULL for this (entity, org); set BOOTSTRAP_IF_MISSING=False to skip
 # even on a fresh install).
 BOOTSTRAP_IF_MISSING: bool = True
-BOOTSTRAP_BUNDLE_LIMIT: int = 100
+BOOTSTRAP_BUNDLE_LIMIT: int = 40
 
 # Phase 2 — streaming.
 BUNDLE_LIMIT: Optional[int] = None  # cap remaining bundles after bootstrap; None = all

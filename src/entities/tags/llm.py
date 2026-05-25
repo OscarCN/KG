@@ -88,15 +88,23 @@ def cache_write(cache_dir: Path, key: str, value: dict) -> None:
 # ── JSON parsing ────────────────────────────────────────────────────────
 
 
-def parse_json_response(raw: str) -> Optional[dict]:
+def parse_json_response(raw: str, *, phase: Optional[str] = None) -> Optional[dict]:
     text = (raw or "").strip()
     if text.startswith("```"):
         text = re.sub(r"^```(?:json)?\s*", "", text)
         text = re.sub(r"\s*```$", "", text)
     try:
         return json.loads(text)
-    except json.JSONDecodeError:
-        logger.warning("Could not JSON-parse LLM response: %r", text[:200])
+    except json.JSONDecodeError as ex:
+        logger.warning(
+            "Could not JSON-parse LLM response%s "
+            "(length=%d, line=%d, column=%d):\n%s",
+            f" (phase={phase})" if phase else "",
+            len(raw or ""),
+            ex.lineno,
+            ex.colno,
+            raw if raw else repr(raw),
+        )
         return None
 
 
@@ -119,11 +127,13 @@ class OpenRouterJsonLlm:
         temperature: float = 0.0,
         retries: int = 3,
         backoff_seconds: float = 2.0,
+        phase: Optional[str] = None,
     ):
         self.model = model
         self.temperature = temperature
         self.retries = retries
         self.backoff_seconds = backoff_seconds
+        self.phase = phase
 
     def call(self, prompt: str, *, system: Optional[str] = None) -> dict:
         messages: list[dict] = []
@@ -141,11 +151,13 @@ class OpenRouterJsonLlm:
                     temperature=self.temperature,
                 )
                 last_raw = raw
-                parsed = parse_json_response(raw)
+                parsed = parse_json_response(raw, phase=self.phase)
                 if parsed is not None:
                     return parsed
                 logger.warning(
-                    "LLM returned unparseable JSON (attempt %d/%d, model=%s)",
+                    "LLM returned unparseable JSON "
+                    "(phase=%s, attempt %d/%d, model=%s)",
+                    self.phase or "unknown",
                     attempt,
                     self.retries,
                     self.model,
@@ -312,7 +324,7 @@ def make_cached_openrouter(
     `OpenRouterJsonLlm`. Set `tags.prompts.<phase>` to DEBUG to dump
     prompts and responses.
     """
-    inner = OpenRouterJsonLlm(model=model)
+    inner = OpenRouterJsonLlm(model=model, phase=phase)
     cache_dir = cache_dir_for(phase, customer_id)
     cached = CachedJsonLlm(inner, cache_dir=cache_dir, model=model, extra=extra)
     return LoggingJsonLlm(cached, phase=phase)

@@ -78,6 +78,7 @@ class LocalRunConfig:
     triage_model: str = field(
         default_factory=lambda: _env(
             "OPENROUTER_TAGS_TRIAGE_MODEL", "google/gemini-2.5-flash-lite"
+            #"OPENROUTER_TAGS_TRIAGE_MODEL", "openai/gpt-4o"
         )
     )
     bootstrap_model: str = field(
@@ -117,7 +118,7 @@ def load_customer(path: Path) -> Customer:
 
 
 def _cached_llm(phase: str, customer_id: int, model: str):
-    inner = OpenRouterJsonLlm(model=model)
+    inner = OpenRouterJsonLlm(model=model, phase=phase)
     return CachedJsonLlm(
         inner,
         cache_dir=cache_dir_for(phase, customer_id),

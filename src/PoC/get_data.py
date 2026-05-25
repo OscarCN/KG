@@ -5,12 +5,15 @@ save them to JSON for downstream extraction.
 Usage:
     python src/PoC/get_data.py
     GET_DATA_QUERY=legislative_gto python src/PoC/get_data.py
+    GET_DATA_QUERY=zona_fest python src/PoC/get_data.py
 
 By default this runs the Ayuntamiento de Querétaro query (entity_id 75)
 and writes the hits to `data/ayuntamiento_qro/`. Set
 `GET_DATA_QUERY=legislative_gto` to run the legislative-initiatives
-Guanajuato query instead. The `fetch_docs` and `save_docs` helpers can
-also be imported from other scripts.
+Guanajuato query instead. The `zona_fest` fixture combines Zona Fest
+and Ayuntamiento de Querétaro hits for the tags stream fixture. The
+`fetch_docs` and `save_docs` helpers can also be imported from other
+scripts.
 
 The `elastic_client` package lives outside this repo at
 `/Users/oscarcuellar/ocn/media/elastic_client`; install it editable with
@@ -217,6 +220,14 @@ AYUNTAMIENTO_QRO_REQUEST: dict = {
     "page_size": 1000,
 }
 
+ZONAFEST_REQUEST: dict = {
+    "doctype": "news",
+    "period": "w",
+    "entity_id": 77,
+    "sort": "date_created",
+    "page_size": 1000,
+}
+
 FELIFER_REQUEST: dict = {
     "doctype": "news",
     "period": "w",
@@ -233,6 +244,35 @@ def fetch_ayuntamiento_qro(
         AYUNTAMIENTO_QRO_REQUEST,
         fields=NEWS_FIELDS,
         limit=limit,
+    )
+
+def fetch_zonafest(
+    limit: Optional[int] = None,
+) -> list[dict]:
+    """Fetch Zona Fest plus Ayuntamiento hits for the tags stream fixture."""
+    zona_fest_docs = fetch_docs(
+        ZONAFEST_REQUEST,
+        fields=NEWS_FIELDS,
+        limit=limit,
+    )
+    ayuntamiento_docs = []
+    #ayuntamiento_docs = fetch_docs(
+    #    AYUNTAMIENTO_QRO_REQUEST,
+    #    fields=NEWS_FIELDS,
+    #    limit=limit,
+    #)
+
+    # Hits fetched through `fetch_docs` carry ES `_id`; keep a URL fallback
+    # so imported fixture-like docs still dedupe sensibly if that changes.
+    docs_by_id: dict[str, dict] = {}
+    for doc in zona_fest_docs + ayuntamiento_docs:
+        dedupe_id = str(doc.get("_id") or doc.get("url") or id(doc))
+        docs_by_id.setdefault(dedupe_id, doc)
+
+    return sorted(
+        docs_by_id.values(),
+        key=lambda doc: str(doc.get("date_created") or ""),
+        reverse=True,
     )
 
 
@@ -255,6 +295,11 @@ _QUERIES = {
         "ayuntamiento_qro",
         "ayuntamiento_qro",
     ),
+    "zona_fest": (
+        fetch_zonafest,
+        "zonafest_qro",
+        "zonafest_qro",
+    ),
     "legislative_gto": (
         fetch_legislative_initiatives_gto,
         "legislative_gto",
@@ -269,7 +314,7 @@ _QUERIES = {
 
 
 if __name__ == "__main__":
-    query_name = os.environ.get("GET_DATA_QUERY", "felifer")
+    query_name = os.environ.get("GET_DATA_QUERY", "ayuntamiento_qro")
     if query_name not in _QUERIES:
         raise SystemExit(
             f"Unknown GET_DATA_QUERY={query_name!r}. "
