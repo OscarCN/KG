@@ -11,11 +11,11 @@ linking/
   geocode.py              # Geocoder wrapper (structured Location → level_2_id, coords, geoid)
   link_llm.py             # LLM disambiguator (gemini-2.5-flash-lite) with file cache
   link.py                 # EntityLinker: candidate filter + LLM call (events only). Exposes link_one(raw) → LinkResult for streaming callers.
-  run_linking.py          # IPython runner — streams articles through the linker and (optionally) the tags pipeline.
+  run_linking.py          # IPython runner — tests linking from extracted-record fixtures.
   readme_linking.md       # This file
 ```
 
-The runner streams extracted records grouped by `_source_id`, fetches each article's comments from the ES `news` index (or a local file in test mode), invokes `EntityLinker.link_one(raw)` per record, and — when [`TAGS_ENABLED`](#tagging-integration) — hands the `(linked event, article, comments)` triple to the tagging pipeline. See [`../tags/readme_tags.md`](../tags/readme_tags.md) for the tagging side.
+The runner streams extracted records grouped by `_source_id` and invokes `EntityLinker.link_one(raw)` per record. It is only a local test harness for the linking system after extraction; it does not fetch article/comment content and does not run tags.
 
 ## Linking Pipeline
 
@@ -123,7 +123,7 @@ Linked events also carry the merged `date_range` (widened on each overlap), the 
 
 ### Running
 
-`run_linking.py` is a step-by-step IPython script (mirrors `src/PoC/run_extraction.py`). Edit the `INPUT`, `OUTPUT`, and `GEOCODE` constants at the top of the file, then:
+`run_linking.py` is a step-by-step IPython script (mirrors `src/PoC/run_extraction.py`) for testing linking against an extracted-record fixture. Edit the `INPUT`, `OUTPUT`, and `GEOCODE` constants at the top of the file, then:
 
 ```bash
 ipython src/entities/linking/run_linking.py
@@ -136,26 +136,13 @@ After it finishes, the following names are bound for inspection:
 | Name | What it holds |
 |---|---|
 | `records` | Raw extracted records loaded from `INPUT` |
+| `records_by_source` | Raw records grouped by `_source_id` |
+| `source_ids_in_order` | Source ids processed in publication-date order |
 | `linker` | The `EntityLinker` instance (with `linker.dropped`, `linker.events`, ...) |
+| `link_results` | One `LinkResult` per input record |
 | `linked` | Dict with an `events` list (themes/entities are skipped) |
-| `stance_catalog` | (only when `TAGS_ENABLED`) The customer's `StanceCatalog` after the run |
-| `claim_catalogs` | (only when `TAGS_ENABLED`) `ClaimCatalogRegistry` keyed on `(customer_id, event_id)` |
-| `stats` | (only when `TAGS_ENABLED`) `StreamingStats` with the full per-phase counters |
 
-## Tagging integration
-
-When `TAGS_ENABLED = True` (default), the runner additionally drives the [tags subsystem](../tags/readme_tags.md): customer-anchored stances + per-event claim clusters. The flow per article is:
-
-1. Fetch `(article, comments)` via `Retrieval.get_article_with_comments(_source_id)` (ES `news` index, or `LocalFileRetrieval` against a local file in test mode).
-2. Stream each extracted record through `EntityLinker.link_one(raw)` — returns a `LinkResult(status, event_id, record, reason)`. `status` is `created` / `merged` / `skipped` / `dropped` / `error`.
-3. For each `LinkResult` with `status ∈ {"created","merged"}`: tag the article + comments via Phase 2 (`TaggingOrchestrator.tag_batch`), adjudicate stance proposals if any (Phase 3), cluster claims if any (Phase 4), apply via `tags.apply` (Phase 5).
-4. Print a per-article snapshot (top-N stances + new-cluster count) and an extra block whenever a new event is created.
-
-After the run, in addition to `data/linked/<input>.json`, the runner writes `data/tags/<customer_slug>/run_<ts>.json` — a snapshot of the stance catalog (entries + assignments) and the per-event claim catalogs (clusters + assignments + `is_new` flags + importance roll-ups). See [`../tags/readme_tags.md`](../tags/readme_tags.md) for outputs and the design / class spec.
-
-Set `TAGS_ENABLED = False` near the top of `run_linking.py` to bypass the tagging pipeline and reproduce the original linker-only behaviour (same OUTPUT shape).
-
-The script loads the extracted JSON (with a robust record-boundary fallback for malformed files), parses every record through its supertype schema, runs the linker, and writes the result as a JSON dict with an `events` list. It prints counts of input records, linked events, drop reasons, and how many events were merged from multiple sources. Set `GEOCODE = False` at the top to skip geocoding (events with no resolvable state will fall into the empty-prefix bucket).
+The script loads the extracted JSON fixture, streams every record through the linker, and writes the result as a JSON dict with an `events` list. It prints counts of input records, link-result statuses, linked events, drop reasons, and how many events were merged from multiple sources. Set `GEOCODE = False` at the top to skip geocoding (events with no resolvable state will fall into the empty-prefix bucket).
 
 ### Required environment
 

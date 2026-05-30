@@ -47,7 +47,7 @@ src/
       geocode.py    # Thin client for deepriver's geocoder microservice (structured-input)
       link_llm.py   # LLM disambiguator (gemini-2.5-flash-lite) with file cache
       link.py       # EntityLinker: candidate filter + LLM call (events only). Exposes link_one(raw) → LinkResult for streaming callers.
-      run_linking.py# IPython runner: streams extracted_raw/*.json → linked/*.json + (optional) tags pipeline
+      run_linking.py# IPython runner: tests linking from extracted_raw/*.json fixtures → linked/*.json
       readme_linking.md # Linking subsystem docs (incl. KG database persistence)
     linking_gpt/    # Generalized linker: full event behavior + entity/concept linking by name/description
       readme_linking_gpt.md
@@ -77,7 +77,7 @@ data/
     customer_<entity_id>/run_<ts>.json  # Per-run snapshot of the stance + claim catalogs
 scripts/
   build_customer_fixture.py  # Materialises a customer fixture from kgdb (Stage-1 stand-in)
-cache/              # Extraction + linking + tags LLM-call cache (sha256-keyed, auto-generated)
+cache/              # Extraction + linking LLM-call cache (sha256-keyed, auto-generated)
 ```
 
 ### Schema System (`src/schema/`)
@@ -100,13 +100,15 @@ Deduplicates and merges extracted **events** (the output of `src/entities/extrac
 
 Both geocode and LLM responses are cached on disk (`cache/geocode/`, `cache/link_llm/`), keyed by sha256 of the canonical input — re-runs avoid re-billing. Themes and entities are not linked yet (skipped). See [`src/entities/linking/readme_linking.md`](src/entities/linking/readme_linking.md) for the linking pipeline and the [KG Database Persistence](src/entities/linking/readme_linking.md#kg-database-persistence) section for the (target) kgdb write model. Full kgdb schema and cross-database conventions live in [`media-backend-paid/docs/DATABASE_POSTGRES.md`](../../media-backend-paid/docs/DATABASE_POSTGRES.md).
 
-The runner streams articles through the linker one at a time and (when `TAGS_ENABLED=True`, default) routes each newly-linked event into the [tags subsystem](src/entities/tags/readme_tags.md) for stance + claim extraction.
+The runner is a local test harness for linking after extraction: it reads an extracted-record fixture from `data/extracted_raw/`, streams records through `EntityLinker.link_one(raw)`, and writes linked canonical events to `data/linked/`. It does not fetch article/comment content or run tags.
 
 ### Linking GPT (`src/entities/linking_gpt/`)
 
-Generalized linker used by the decoupled tags runner. It preserves the current event-linking behavior from `src/entities/linking/` and adds entity/concept linking. Entity candidates are retrieved by same `entity_type` plus shared individual name tokens; entity LLM disambiguation uses only `name` and `description`. Themes are still skipped. `src/entities/tags_gpt/run_tags_gpt.py` uses this linker through a tags adapter and only sends linked events into stance/claim tagging. See [`src/entities/linking_gpt/readme_linking_gpt.md`](src/entities/linking_gpt/readme_linking_gpt.md).
+Generalized linker that preserves the current event-linking behavior from `src/entities/linking/` and adds entity/concept linking. Entity candidates are retrieved by same `entity_type` plus shared individual name tokens; entity LLM disambiguation uses only `name` and `description`. Themes are still skipped. See [`src/entities/linking_gpt/readme_linking_gpt.md`](src/entities/linking_gpt/readme_linking_gpt.md).
 
 ### Tags (`src/entities/tags/`)
+
+The tags implementation is decoupled from extraction/linking and is moving to its own repository. The copy in this repository should not be wired into `src/entities/linking/run_linking.py`.
 
 Two complementary tag types extracted from articles, posts, and comments tied to a single **customer entity**:
 
