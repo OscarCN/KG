@@ -8,6 +8,7 @@ This directory implements the knowledge graph entity pipeline: structured extrac
 
 ```
 entities/
+  run_entities.py             # Integration runner — simulates document stream through extraction then linking
   extraction/                # LLM-based structured extraction from text
     schemas/                 # Entity JSON schemas (one per supertype)
     catalogues/              # Ontology catalogues (event_types.csv, keywords.xlsx)
@@ -62,6 +63,7 @@ entities/
 
 | Subsystem | Reads | Writes | Docs |
 |---|---|---|---|
+| **Entities stream** (`run_entities.py`) | Incoming document fixtures under `data/<subdir>/` | Debug artifacts: extracted records and linked events | This file |
 | **Extraction** (`extraction/`) | News / social-media articles | A flat list of validated entity records, each tagged with `_source_id` and `_supertype` | [`extraction/readme_extraction.md`](extraction/readme_extraction.md) |
 | **Linking** (`linking/`) | Extracted event records | In-memory / JSON canonical event records (deduped, geocoded). Persistence to `kgdb` is a designed target, not yet implemented | [`linking/readme_linking.md`](linking/readme_linking.md) |
 | **Linking GPT** (`linking_gpt/`) | Extracted event/entity records | In-memory / JSON canonical events + entities. Events preserve `linking/` behavior; entities link by `entity_type` + name-token candidates + LLM over name/description | [`linking_gpt/readme_linking_gpt.md`](linking_gpt/readme_linking_gpt.md) |
@@ -69,6 +71,17 @@ entities/
 | **Tags GPT** (`tags_gpt/`) | Extracted records + content items + linked events | Experimental decoupled tags implementation; not part of the linker runner | [`tags_gpt/readme_tags_gpt.md`](tags_gpt/readme_tags_gpt.md) |
 
 The full kgdb schema and cross-database conventions are documented in [`media-backend-paid/docs/DATABASE_POSTGRES.md`](../../../../media-backend-paid/docs/DATABASE_POSTGRES.md). The linker's [KG Database Persistence](linking/readme_linking.md#kg-database-persistence) section captures the pieces relevant to the (eventual) write path.
+
+## Streaming Simulation
+
+Production will receive content as a document stream. For each incoming document, the entity system first extracts records and then links the extracted event records against the current in-memory canonical event set. `src/entities/run_entities.py` simulates that shape locally:
+
+```bash
+ipython src/entities/run_entities.py
+ENTITIES_DATA_SUBDIR=entities_31_emergencias ENTITIES_LIMIT=100 ipython src/entities/run_entities.py
+```
+
+`run_extraction.py` and `linking/run_linking.py` remain subsystem test harnesses. Use `src/PoC/get_entities_data.py` to create document fixtures from a single `keywords.xlsx` matching-rule row.
 
 ## Ontology Categories
 

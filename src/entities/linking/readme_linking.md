@@ -17,6 +17,8 @@ linking/
 
 The runner streams extracted records grouped by `_source_id` and invokes `EntityLinker.link_one(raw)` per record. It is only a local test harness for the linking system after extraction; it does not fetch article/comment content and does not run tags.
 
+For a document-level stream simulation that runs extraction before linking each incoming document, use [`../run_entities.py`](../run_entities.py). That script composes `EntityExtractor.extract(article)` with this linker's `EntityLinker.link_one(raw)` streaming API.
+
 ## Linking Pipeline
 
 **Scope: events only.** Records whose schema `meta.category != "event"` (themes, entities/concepts) are skipped by this version of the linker — they're tallied under `linker.dropped["skipped_category:..."]` and can be revisited later.

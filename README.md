@@ -36,6 +36,7 @@ src/
     types/          # Type parsers, composite types, registry
     parse_object.py # Core Parser class
   entities/         # Entity extraction and linking
+    run_entities.py # Integration runner: streams documents through extraction, then linking
     extraction/     # LLM-based structured extraction from text
       schemas/      # Entity schemas (one per supertype, JSON)
       catalogues/   # Ontology catalogues (event types CSV, keywords Excel)
@@ -66,6 +67,7 @@ src/
     event_linking.py# Event deduplication and merging across sources
     newsfeed.py     # News relevance classification and structured extraction
     get_data.py     # Fetch ES hits via elastic_client → data/<subdir>/*.json
+    get_entities_data.py # Build an incoming-document fixture from one keywords.xlsx row
     run_extraction.py# Step-by-step IPython script for the extraction pipeline
     sentence_pairs_model.py  # Sentence-pair similarity model (PyTorch)
 resources/          # Input data files (Excel, prompt contexts)
@@ -100,7 +102,9 @@ Deduplicates and merges extracted **events** (the output of `src/entities/extrac
 
 Both geocode and LLM responses are cached on disk (`cache/geocode/`, `cache/link_llm/`), keyed by sha256 of the canonical input — re-runs avoid re-billing. Themes and entities are not linked yet (skipped). See [`src/entities/linking/readme_linking.md`](src/entities/linking/readme_linking.md) for the linking pipeline and the [KG Database Persistence](src/entities/linking/readme_linking.md#kg-database-persistence) section for the (target) kgdb write model. Full kgdb schema and cross-database conventions live in [`media-backend-paid/docs/DATABASE_POSTGRES.md`](../../media-backend-paid/docs/DATABASE_POSTGRES.md).
 
-The runner is a local test harness for linking after extraction: it reads an extracted-record fixture from `data/extracted_raw/`, streams records through `EntityLinker.link_one(raw)`, and writes linked canonical events to `data/linked/`. It does not fetch article/comment content or run tags.
+The linker runner is a local test harness for linking after extraction: it reads an extracted-record fixture from `data/extracted_raw/`, streams records through `EntityLinker.link_one(raw)`, and writes linked canonical events to `data/linked/`. It does not fetch article/comment content or run tags.
+
+For an end-to-end local simulation of the production shape, use `src/entities/run_entities.py`: it reads incoming document fixtures from `data/<subdir>/`, processes one document at a time through `EntityExtractor.extract(article)`, immediately streams each extracted record through `EntityLinker.link_one(raw)`, and writes debug artifacts to `data/extracted_raw/` and `data/linked/`.
 
 ### Linking GPT (`src/entities/linking_gpt/`)
 

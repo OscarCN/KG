@@ -318,6 +318,15 @@ GET_DATA_QUERY=legislative_gto python src/PoC/get_data.py   # legislative-initia
 GET_DATA_LIMIT=50 python src/PoC/get_data.py            # cap the result count
 ```
 
+### Fetching source data from one ontology row (`src/PoC/get_entities_data.py`)
+
+Helper script that selects one enabled row from `catalogues/keywords.xlsx`, translates that matching rule into an Elasticsearch request, and saves the returned documents as an incoming-content fixture for `src/entities/run_entities.py`.
+
+```bash
+GET_ENTITIES_ROW_INDEX=31 GET_ENTITIES_LIMIT=100 python src/PoC/get_entities_data.py
+GET_ENTITIES_CLASS=emergency_general GET_ENTITIES_CVEGEO=22014 python src/PoC/get_entities_data.py
+```
+
 The module exposes `fetch_docs(request, fields=None, limit=None)` for arbitrary `FilterRequest`-shaped queries and `save_docs(docs, dest_dir)` for persisting the result. Two bundled queries are available, selected via `GET_DATA_QUERY`:
 
 | `GET_DATA_QUERY` | Request | Output |
