@@ -80,6 +80,8 @@ data/
 scripts/
   build_customer_fixture.py  # Materialises a customer fixture from kgdb (Stage-1 stand-in)
 cache/              # Extraction + linking LLM-call cache (sha256-keyed, auto-generated)
+docs/
+  todos/            # Roadmap / design TODOs — one self-contained file per TODO
 ```
 
 ### Schema System (`src/schema/`)
@@ -176,3 +178,9 @@ A related future direction is **multi-class entities** — a single entity insta
 ## Key Dependencies
 
 `openai`, `requests`, `torch`, `tensorflow_hub`, `sklearn`, `pandas`, `numpy`, `psycopg2`, `pymongo`, `elasticsearch`, `redis`, `dateutil`, `tldextract`, `matplotlib`
+
+## Roadmap / TODOs
+
+Design and roadmap TODOs live in [`docs/todos/`](docs/todos/) — **one self-contained file per TODO**.
+
+- [Per-supertype retrieval & linking strategy](docs/todos/retrieval_linking_per_supertype.md) — make candidate retrieval and linking a declarable per-supertype (and per class-family) strategy of attributes + methods, instead of the single geo-event strategy hardcoded in `src/entities/linking/link.py`.
