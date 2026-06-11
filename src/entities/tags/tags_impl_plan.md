@@ -19,8 +19,7 @@ calls extraction or linking.
 
 **Out of scope for this slice:** prompt content (rewritten in a follow-up
 per H1/H2 of `questions.md`), DB persistence (Stage 2 — design §8), and
-deletion of `tags_legacy/` or stale duplicate design files at
-`src/entities/tags_gpt/`.
+deletion of `tags_legacy/`.
 
 ## 2. Module Layout
 
@@ -555,9 +554,8 @@ in the streaming pipeline.
 10. **Prompts rewrite** — fill `tags/prompts/*.txt` (separate slice per
     H1/H2).
 11. **`readme_tags.md`** — user-facing how-to.
-12. **Cleanup** — drop the duplicate design files at
-    `src/entities/tags_gpt/`. Keep `tags_legacy/` for reference until the
-    new impl is fully validated; delete in a later pass.
+12. **Cleanup** — keep `tags_legacy/` for reference until the new impl is
+    fully validated; delete in a later pass.
 
 ## 13. Open Questions
 

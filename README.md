@@ -47,18 +47,18 @@ src/
     linking/        # Event linking/deduplication and KG database persistence
       geocode.py    # Thin client for deepriver's geocoder microservice (structured-input)
       link_llm.py   # LLM disambiguator (gemini-2.5-flash-lite) with file cache
-      link.py       # EntityLinker: candidate filter + LLM call (events only). Exposes link_one(raw) → LinkResult for streaming callers.
+      index.py      # CandidateIndex protocol + in-memory key→ids store
+      mx_states.py  # Static Mexican-state catalogue (geo partition-key normalization + fallback)
+      strategy.py   # GeoEventStrategy: per-supertype identification lifecycle (enrich → keys → adjudicate → merge)
+      link.py       # EntityLinker: envelope parse + strategy orchestration (events only). Exposes link_one(raw) → LinkResult for streaming callers.
       run_linking.py# IPython runner: tests linking from extracted_raw/*.json fixtures → linked/*.json
       readme_linking.md # Linking subsystem docs (incl. KG database persistence)
-    linking_gpt/    # Generalized linker: full event behavior + entity/concept linking by name/description
-      readme_linking_gpt.md
     tags/           # Customer-anchored stances + per-event claim clusters (Stage 1, in-memory)
       models/       # Pure data structures: customer.py, source_item.py, stance_catalog.py, claim_catalog.py
       bootstrap.py / tagging.py / stance_adjudicator.py / claim_clusterer.py / apply.py
       retrieval.py / persistence.py / stats.py
       prompts/      # Spanish prompts for the four LLM phases
       tags_overview.md / tags_impl_plan.md / readme_tags.md
-    tags_gpt/       # Decoupled experimental tags implementation: retrieval → linking → stance tag/update → claim tag/update
     readme_entities.md # Overview, ontology categories, links to subsystem docs
   llm/              # LLM provider clients
     openrouter/     # OpenRouter API client (OpenAI-compatible)
@@ -94,12 +94,12 @@ Declarative schema definitions in JSON with a Python normalization pipeline. See
 
 ### Entity Linking (`src/entities/linking/`)
 
-Deduplicates and merges extracted **events** (the output of `src/entities/extraction/`) into canonical event records, each carrying a `source_ids` list of every document that mentions it. The flow:
+Deduplicates and merges extracted **events** (the output of `src/entities/extraction/`) into canonical event records, each carrying a `source_ids` list of every document that mentions it. The supertype-specific behaviour lives in a strategy object (`GeoEventStrategy`) behind a `CandidateIndex` protocol; `EntityLinker` only parses the envelope and orchestrates. The flow:
 
-1. **Geocode** the structured `Location` via deepriver's geocoder microservice to obtain `level_2_id` (state) and basic coords.
-2. **Candidate filter** — events that share `event_type`, have date-range overlap, and same `level_2_id`.
-3. **LLM disambiguation** — a single call to `google/gemini-2.5-flash-lite` (via OpenRouter) given the incoming event's `name`, `description`, structured address, and `date`, plus those same fields for each candidate. The LLM returns the matching candidate id or `null`.
-4. **Merge or create** based on the LLM's answer.
+1. **Geocode** the structured `Location` via deepriver's geocoder microservice; the state (`level_2`, normalized through a static Mexican-state catalogue, with the extracted `location.state` text as deterministic fallback) becomes the geo partition key.
+2. **Candidate filter** — events that share `event_type`, the same geo partition (located lookups also probe the no-location bucket), and date-range overlap (slack widened by the extraction's `precision_days` on approximate dates; publication-date fallback at ±2 days).
+3. **LLM disambiguation** — a single call to `google/gemini-2.5-flash-lite` (via OpenRouter) given the incoming event's `name`, `description`, structured address, and `date`, plus those same fields for each candidate (capped, most recent first). The LLM returns the matching candidate id or `null`.
+4. **Merge or create** based on the LLM's answer. Merges keep the most precise extracted date window as the canonical range (per-source windows are tracked on the record) instead of widening unconditionally.
 5. *(Planned)* **Persist** the linked record into the unified `kgdb` Postgres database (canonical `entities` row + supertype/child `entity_types` + geocoded `entity_locations` + event lookup `event_properties` + per-source `entities_documents`). **Not implemented yet** — the linker's output is currently an in-memory / JSON record; the kgdb persistence model exists to guide architecture decisions while we iterate on linking approaches.
 
 Both geocode and LLM responses are cached on disk (`cache/geocode/`, `cache/link_llm/`), keyed by sha256 of the canonical input — re-runs avoid re-billing. Themes and entities are not linked yet (skipped). See [`src/entities/linking/readme_linking.md`](src/entities/linking/readme_linking.md) for the linking pipeline and the [KG Database Persistence](src/entities/linking/readme_linking.md#kg-database-persistence) section for the (target) kgdb write model. Full kgdb schema and cross-database conventions live in [`media-backend-paid/docs/DATABASE_POSTGRES.md`](../../media-backend-paid/docs/DATABASE_POSTGRES.md).
@@ -107,10 +107,6 @@ Both geocode and LLM responses are cached on disk (`cache/geocode/`, `cache/link
 The linker runner is a local test harness for linking after extraction: it reads an extracted-record fixture from `data/extracted_raw/`, streams records through `EntityLinker.link_one(raw)`, and writes linked canonical events to `data/linked/`. It does not fetch article/comment content or run tags.
 
 For an end-to-end local simulation of the production shape, use `src/entities/run_entities.py`: it reads incoming document fixtures from `data/<subdir>/`, processes one document at a time through `EntityExtractor.extract(article)`, immediately streams each extracted record through `EntityLinker.link_one(raw)`, and writes debug artifacts to `data/extracted_raw/` and `data/linked/`.
-
-### Linking GPT (`src/entities/linking_gpt/`)
-
-Generalized linker that preserves the current event-linking behavior from `src/entities/linking/` and adds entity/concept linking. Entity candidates are retrieved by same `entity_type` plus shared individual name tokens; entity LLM disambiguation uses only `name` and `description`. Themes are still skipped. See [`src/entities/linking_gpt/readme_linking_gpt.md`](src/entities/linking_gpt/readme_linking_gpt.md).
 
 ### Tags (`src/entities/tags/`)
 
@@ -183,4 +179,4 @@ A related future direction is **multi-class entities** — a single entity insta
 
 Design and roadmap TODOs live in [`docs/todos/`](docs/todos/) — **one self-contained file per TODO**.
 
-- [Per-supertype retrieval & linking strategy](docs/todos/retrieval_linking_per_supertype.md) — make candidate retrieval and linking a declarable per-supertype (and per class-family) strategy of attributes + methods, instead of the single geo-event strategy hardcoded in `src/entities/linking/link.py`.
+- [Per-supertype retrieval & linking strategy](docs/todos/retrieval_linking_per_supertype.md) — make candidate retrieval and linking a declarable per-supertype (and per class-family) strategy of attributes + methods. The **geo strategy v1** spec (identity model, date/geo fallback tiers, precision fixes) is **implemented** (`src/entities/linking/strategy.py`); the per-supertype generalization and the `person_actions` strategy remain open.

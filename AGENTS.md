@@ -56,15 +56,17 @@ Extraction output is a flat list of validated records tagged with `_source_id` a
 Linking lives in `src/entities/linking/`.
 
 - Current linker scope is events only.
-- Themes and entities/concepts are skipped for now and counted in `linker.dropped`.
+- Themes and entities/concepts are skipped for now and counted in `linker.dropped`; supertypes with no schema are logged drops (`no_schema`), never defaulted to the event path.
 - `EntityLinker.link_one(raw)` is the streaming entry point used by `run_linking.py`.
-- Candidate filtering uses event type, date overlap, and geocoded `level_2_id`.
-- LLM disambiguation happens in `link_llm.py` and is cached under `cache/link_llm/`.
+- Supertype-specific behaviour (geo partitioning, date windows, LLM payload, merge policy) lives in `strategy.py` (`GeoEventStrategy`); candidate storage is behind the `CandidateIndex` protocol in `index.py`. `link.py` only parses the envelope and orchestrates.
+- Candidate filtering uses event type, the geo partition key (geocoder `level_2` normalized via `mx_states.py`, with extracted state text as fallback), and slack-expanded date overlap (`precision_days`-aware).
+- Every precision behaviour is a `GeoEventStrategy` constructor parameter; legacy values reproduce the pre-refactor behaviour for regression (see the parameters table in `readme_linking.md`).
+- LLM disambiguation happens in `link_llm.py` and is cached under `cache/link_llm/` — keep its payload shape byte-stable (`strategy._llm_payload`).
 - Geocoding happens through `geocode.py` and is cached under `cache/geocode/`.
 
 The linker currently writes in-memory / JSON output only. The kgdb persistence model in the docs is target architecture, not implemented behavior.
 
-`src/entities/linking_gpt/` is the generalized linker for new work. It preserves the current event-linking behavior and adds entity/concept linking. Entity candidates are same `entity_type` plus shared name tokens; entity LLM disambiguation uses only `name` and `description`. Themes remain skipped.
+Generalizing linking beyond geo-events is planned as a per-supertype strategy — see `docs/todos/retrieval_linking_per_supertype.md` (including prior art from a removed prototype linker, recoverable from git history).
 
 ### Tags
 
@@ -85,10 +87,6 @@ Core design constraints:
 - Stage 2 Postgres persistence is still future work.
 
 The streaming integration is driven by `src/entities/linking/run_linking.py`: extracted records are linked article by article, and linked events are passed into the tags pipeline when `TAGS_ENABLED = True`.
-
-### Tags GPT
-
-`src/entities/tags_gpt/` is the decoupled experimental implementation for the next tags iteration. Prefer it when working on the new implementation. It keeps each step separate and injectable: extraction-output adapter, content retrieval, generalized linking through `linking_gpt`, stance tagging, stance updating, claim tagging, and claim updating. It is not wired into `run_linking.py` by default.
 
 ## Current Data / Output Conventions
 
@@ -134,8 +132,7 @@ After any non-trivial implementation or behavioral change, update the relevant d
 - Extraction changes: `src/entities/extraction/readme_extraction.md`
 - Linking changes: `src/entities/linking/readme_linking.md`
 - Tags changes: `src/entities/tags/readme_tags.md`, `tags_overview.md`, or `tags_impl_plan.md`
-- Tags GPT changes: `src/entities/tags_gpt/readme_tags_gpt.md`
-- Generalized linking changes: `src/entities/linking_gpt/` docs or the relevant entity overview docs
+- Roadmap / design TODOs: one self-contained file per TODO under `docs/todos/`, linked from README.md
 
 Keep docs lean and consistent. Remove or revise stale claims rather than adding contradictory notes.
 

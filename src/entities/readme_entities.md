@@ -17,16 +17,14 @@ entities/
     prompt_generator.py      # Schema → LLM prompt auto-generation
     readme_extraction.md     # Extraction subsystem docs
   linking/                   # Event linking/deduplication via LLM disambiguation
-    geocode.py               # Geocoder wrapper (structured Location → level_2_id, coords, geoid)
+    geocode.py               # Geocoder wrapper (structured Location → level_2, coords, geoid)
     link_llm.py              # LLM disambiguator (gemini-2.5-flash-lite) with file cache
-    link.py                  # EntityLinker: candidate filter + LLM call (events only); link_one(raw) → LinkResult for streaming callers
+    index.py                 # CandidateIndex protocol + in-memory key→ids store
+    mx_states.py             # Static Mexican-state catalogue (geo partition keys + fallback)
+    strategy.py              # GeoEventStrategy: identification lifecycle (enrich → keys → adjudicate → merge)
+    link.py                  # EntityLinker: envelope parse + strategy orchestration (events only); link_one(raw) → LinkResult for streaming callers
     run_linking.py           # IPython runner — tests linking from extracted-record fixtures
     readme_linking.md        # Linking subsystem docs (incl. KG database persistence)
-  linking_gpt/               # Generalized linker: full event behavior + entity/concept linking
-    link.py                  # EntityLinker router for event/entity/theme categories
-    entity_llm.py            # Entity LLM disambiguation (name + description)
-    tags_adapter.py          # Adapter used by tags_gpt streaming
-    readme_linking_gpt.md    # Generalized linker docs
   tags/                      # Customer-anchored stances + per-event claim clusters (decoupled; moving out of this repo)
     models/                  # Pure data structures (no LLMs / no IO)
       customer.py            # Customer + ContentGraphConfig (mirrors kgdb columns)
@@ -45,17 +43,6 @@ entities/
     tags_overview.md         # Design spec
     tags_impl_plan.md        # Architecture / class / lifecycle spec
     readme_tags.md           # User-facing how-to
-  tags_gpt/                  # Decoupled experimental tags implementation
-    models.py                # Pure dataclasses for source items, linked events, stances, claims
-    catalogs.py              # In-memory EventStore, StanceCatalog, ClaimCatalogStore
-    extraction.py            # Adapter for extracted_raw records → streamable SourceBatch values
-    retrieval.py             # Local JSON / ES content retrieval step
-    consistency.py           # Periodic typed stance catalog consistency pass
-    tagging.py               # Separate stance tag/update and claim tag/update steps
-    streaming.py             # Thin coordinator that calls each step in order
-    runner.py                # Convenience local runner with injectable dependencies
-    prompts/                 # Prompt builders plus text templates
-    readme_tags_gpt.md       # Rationale and usage
   readme_entities.md         # This file (overview)
 ```
 
@@ -66,9 +53,7 @@ entities/
 | **Entities stream** (`run_entities.py`) | Incoming document fixtures under `data/<subdir>/` | Debug artifacts: extracted records and linked events | This file |
 | **Extraction** (`extraction/`) | News / social-media articles | A flat list of validated entity records, each tagged with `_source_id` and `_supertype` | [`extraction/readme_extraction.md`](extraction/readme_extraction.md) |
 | **Linking** (`linking/`) | Extracted event records | In-memory / JSON canonical event records (deduped, geocoded). Persistence to `kgdb` is a designed target, not yet implemented | [`linking/readme_linking.md`](linking/readme_linking.md) |
-| **Linking GPT** (`linking_gpt/`) | Extracted event/entity records | In-memory / JSON canonical events + entities. Events preserve `linking/` behavior; entities link by `entity_type` + name-token candidates + LLM over name/description | [`linking_gpt/readme_linking_gpt.md`](linking_gpt/readme_linking_gpt.md) |
 | **Tags** (`tags/`) | Linked events + the article + its comments | Decoupled from extraction/linking; this code is moving to its own repository and is not driven by `linking/run_linking.py` | [`tags/readme_tags.md`](tags/readme_tags.md), [`tags/tags_overview.md`](tags/tags_overview.md), [`tags/tags_impl_plan.md`](tags/tags_impl_plan.md) |
-| **Tags GPT** (`tags_gpt/`) | Extracted records + content items + linked events | Experimental decoupled tags implementation; not part of the linker runner | [`tags_gpt/readme_tags_gpt.md`](tags_gpt/readme_tags_gpt.md) |
 
 The full kgdb schema and cross-database conventions are documented in [`media-backend-paid/docs/DATABASE_POSTGRES.md`](../../../../media-backend-paid/docs/DATABASE_POSTGRES.md). The linker's [KG Database Persistence](linking/readme_linking.md#kg-database-persistence) section captures the pieces relevant to the (eventual) write path.
 

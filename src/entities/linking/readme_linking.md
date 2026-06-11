@@ -8,9 +8,12 @@ For an overview of the broader pipeline and ontology categories, see [`../readme
 
 ```
 linking/
-  geocode.py              # Geocoder wrapper (structured Location → level_2_id, coords, geoid)
+  geocode.py              # Geocoder wrapper (structured Location → level_2, coords, geoid)
   link_llm.py             # LLM disambiguator (gemini-2.5-flash-lite) with file cache
-  link.py                 # EntityLinker: candidate filter + LLM call (events only). Exposes link_one(raw) → LinkResult for streaming callers.
+  index.py                # CandidateIndex protocol + in-memory implementation (dumb key→ids store)
+  mx_states.py            # Static catalogue of the 32 Mexican states (partition-key normalization + fallback)
+  strategy.py             # GeoEventStrategy: enrich → window/keys → adjudicate → merge/create (+ DateWindow, registry)
+  link.py                 # EntityLinker: envelope parse + strategy orchestration. Exposes link_one(raw) → LinkResult for streaming callers.
   run_linking.py          # IPython runner — tests linking from extracted-record fixtures.
   readme_linking.md       # This file
 ```
@@ -23,28 +26,53 @@ For a document-level stream simulation that runs extraction before linking each 
 
 **Scope: events only.** Records whose schema `meta.category != "event"` (themes, entities/concepts) are skipped by this version of the linker — they're tallied under `linker.dropped["skipped_category:..."]` and can be revisited later.
 
+The geo strategy v1 spec in [`docs/todos/retrieval_linking_per_supertype.md`](../../../docs/todos/retrieval_linking_per_supertype.md) is **implemented**; that TODO also tracks the per-supertype generalization (still open).
+
 ```
-new event → schema parse → geocode location → candidate filter
-                                              (event_type ∧
-                                               date overlap ∧
-                                               same level_2_id)
-          → LLM disambiguation (gemini-2.5-flash-lite)
+new event → schema parse (EntityLinker envelope)
+          → strategy.prepare: geocode → geo partition key + date window
+          → candidate lookup (CandidateIndex: event_type ∧ geo_key ∧ day-key overlap)
+          → LLM adjudication (gemini-2.5-flash-lite, capped candidate list)
           → match-id ? merge : create new
 ```
+
+**Architecture.** `EntityLinker` (`link.py`) is supertype-agnostic: it parses the record envelope (`_source_id`, `_supertype`, `date_created`), selects a strategy by the schema's `meta.category`, and orchestrates the calls. All event-specific behaviour lives in `GeoEventStrategy` (`strategy.py`), which owns the full lifecycle — enrich → window/key construction → adjudication → merge/create → (re)index — against the `CandidateIndex` protocol (`index.py`, in-memory today, kgdb-backed later). A supertype with no schema is a logged drop (`no_schema`) — it no longer silently defaults to the event path.
+
+**Identity model (geo events).** Two records denote the same event iff: same class (`event_type`, exact), same place (state-level partition; address-level differences left to the LLM), overlapping time (tiered fallbacks below), and co-referent content (LLM judgment over name/description).
 
 ### Candidate filter
 
 For each incoming event, candidates are the already-linked events sharing **all three** of:
 
 - same `event_type`
-- same geocoded `level_2_id` (state). Events that geocode to no `level_2_id` are bucketed together under the empty-string key.
+- same **geo partition key** — tiered:
+  1. the geocoder's `level_2` (state), normalized through the state catalogue (`mx_states.py`) so accent/spelling variants collapse to one slug (e.g. `'Queretaro'` → `queretaro`);
+  2. when geocoding yields no state but the extracted `location.state` text names one, the state catalogue resolves it deterministically (no service call);
+  3. otherwise the explicit `""` (**noloc**) bucket.
+  The tier used is recorded on the record as `_geo_source ∈ {geocoder, state_catalogue, none}`. Located lookups **also probe the noloc bucket**, so an event first seen without a location can still be matched by later, located mentions (the reverse is impossible — a noloc record can't know which partition to probe; this is the partition's accepted recall trade-off).
 - date-range overlap with **slack** applied symmetrically:
-  - **±1 day** when the incoming event has an extracted `date_range`. So two extracted-dated events match in the date dimension when their day windows are at most 2 days apart.
-  - **±2 days** when the incoming event has no extracted date and falls back to its `_publication_date`. So two publication-only events match when their publication dates are at most 4 days apart.
+  - **max(±1 day, ±`precision_days`)** when the incoming event has an extracted `date_range` — an approximate mention ("en marzo" → `precision_days≈30`) widens its own window accordingly.
+  - **±2 days** when the incoming event has no extracted date and falls back to its publication timestamp. (Kept symmetric deliberately: publication can precede or follow the event for most types — announcements vs. reports.)
 
-Each linked event is registered in the candidate index under both its extracted-date window (when present, with extracted slack) and its publication-date window (when present, with publication slack). That way the next incoming event finds it regardless of which date source it carries.
+Each linked event is registered in the candidate index under both its extracted-date window (when present, with its own slack) and its publication-date window (when present, with publication slack). That way the next incoming event finds it regardless of which date source it carries. Windows longer than `max_window_days` (365) are clamped at the start + 365 days and logged.
 
-The filter is intentionally broad — the LLM does the actual same-vs-different judgment.
+The filter is intentionally broad — the LLM does the actual same-vs-different judgment, over a candidate list capped at `candidate_cap` (12, most recent first).
+
+> **Note (fixed bug):** the previous implementation partitioned on `_geo["level_2_id"]`, a key the geocoder wrapper never emits — so the state partition never fired and all same-type/same-day events shared one bucket. Partitioning now uses `level_2`. One observed geocoder quirk: the wrapper picks the highest-`precision_level` match regardless of state agreement, so a record whose extracted `state` says one state can land in another's partition; this is deterministic (cached), so partitioning stays consistent per location input.
+
+#### Strategy parameters
+
+`GeoEventStrategy` exposes every behaviour above as a constructor parameter (`EntityLinker(strategy_params={...})`), including legacy values that reproduce the pre-refactor behaviour exactly for regression runs:
+
+| Parameter | Default | Legacy value |
+|---|---|---|
+| `geo_partition_field` | `"level_2"` | `"level_2_id"` (the bug — always `""`) |
+| `state_catalogue_fallback` | `True` | `False` |
+| `probe_noloc_bucket` | `True` | n/a (legacy had one bucket) |
+| `precision_aware_slack` | `True` | `False` (fixed ±1) |
+| `max_window_days` / `clamp_long_ranges` | `365` / `True` | `False` (endpoints-only quirk) |
+| `bounded_merge_widening` | `True` | `False` (unconditional min/max) |
+| `candidate_cap` | `12` | `None` (unbounded) |
 
 ### Date sources
 
@@ -57,7 +85,7 @@ Each extracted record may carry two date provenance fields:
 
 Records with neither are dropped (`linker.dropped["event_no_date_no_pub"]`). When both are present, the extracted date_range wins for candidate-window resolution; the publication date is still kept for index registration so future publication-only records can find this event.
 
-The linked record carries `publication_date` (the **earliest** publication date seen across merged sources) — useful as a stable temporal anchor when the extracted date_range is missing or imprecise.
+The linked record carries `publication_date` (the **earliest** publication date seen across merged sources) — useful as a stable temporal anchor when the extracted date_range is missing or imprecise — plus `_source_windows`, the list of every source's resolved window (`{start, end, slack_days, source, precision_days}`), and `_date_source` (the first window's provenance).
 
 ### LLM disambiguation (`link_llm.py`)
 
@@ -77,20 +105,21 @@ Responses are cached as `cache/link_llm/<sha256>.json`, keyed by `sha256(canonic
 
 ### Merge behavior
 
-When the LLM picks a match, the linker:
+When the LLM picks a match, the strategy:
 
 - appends the new record's `_source_id` to the canonical event's `source_ids` (de-duped),
-- fills nulls on `name`, `description`, `context`, `status` from the new record,
-- widens `date_range.date_range` (`start = min`, `end = max`) and re-registers the event in the candidate index for any new day-keys the widened range introduced,
-- promotes the canonical record's `location` to the new one when it has more populated subfields **and** belongs to the same `level_2_id`.
+- fills nulls on `name`, `description`, `context`, `status` from the new record; keeps the earliest `publication_date`,
+- appends the incoming window to `_source_windows` and sets the canonical `date_range` to the **most precise extracted window seen** (smallest `precision_days`, `None` = exact; ties keep the earliest-seen) — the canonical range no longer widens unconditionally, which prevented one imprecise source from permanently inflating the window and snowballing future merges. Registration stays generous: the incoming window's day-keys are registered regardless, so recall is unchanged,
+- promotes the canonical record's `location` to the new one when it has more populated subfields **and** resolves to the same geo partition.
 
-When no match is found, a new linked event is minted with id `{YYYYMMDD}_{level_2_id_or_noloc}_{rand}`.
+When no match is found, a new linked event is minted with id `{YYYYMMDD}_{state-slug-or-noloc}_{rand}`.
 
 ### Drop reasons
 
 | Bucket | Why |
 |---|---|
-| `skipped_category:<theme\|entity\|...>` | Record's schema is not an event — out of scope for this version |
+| `skipped_category:<theme\|entity\|...>` | Record's schema is not an event — no strategy registered for its category |
+| `no_schema` | Record's `_supertype` has no schema file — previously these silently defaulted to the event path unparsed; now an explicit, logged drop |
 | `event_no_type` | Record has no `event_type` |
 | `event_no_date_no_pub` | Record has neither a parseable `date_range.date_range.{start,end}` nor a `date_created` |
 | `no_supertype` | Record is missing the `_supertype` provenance field |
@@ -117,11 +146,14 @@ Each linked event extends the original schema with these link-level fields:
 
 | Field | Type | Description |
 |---|---|---|
-| `id` | str | Minted linked id (`{YYYYMMDD}_{level_2_id_or_noloc}_{rand}`) |
+| `id` | str | Minted linked id (`{YYYYMMDD}_{state-slug-or-noloc}_{rand}`) |
 | `source_ids` | List[str] | `_source_id`s of every document that mentions this event |
 | `publication_date` | str | Earliest publication timestamp across the merged sources (when any source had one) |
+| `_date_source` | str | Provenance of the first source's window (`extracted` / `publication`) |
+| `_source_windows` | List[dict] | Every source's resolved window: `{start, end, slack_days, source, precision_days}` |
+| `_geo_source` | str | Which tier produced the geo partition key (`geocoder` / `state_catalogue` / `none`) |
 
-Linked events also carry the merged `date_range` (widened on each overlap), the most-populated `location` fields seen across sources within the same `level_2_id`, and the `_geo` block from the geocoder.
+Linked events also carry the canonical `date_range` (the most precise extracted window seen across sources), the most-populated `location` fields seen across sources within the same geo partition, and the `_geo` block from the geocoder.
 
 ### Running
 
