@@ -78,6 +78,7 @@ The filter is intentionally broad (recall) — the **deterministic gate or the L
 | `deterministic_merge` | `True` | `False` (LLM-always) |
 | `deterministic_share_levels` | `(6, 7)` | — |
 | `det_day_slack` | `1` | — |
+| `det_publication_levels` | `(7,)` (publication-date merges allowed at the leaf) | — |
 
 ### Date sources
 
@@ -97,9 +98,9 @@ The linked record carries `publication_date` (the **earliest** publication date 
 Before the LLM, a cheap deterministic pass merges the high-confidence cases (`deterministic_merge=True`). It is **name-agnostic and precision-aware**: an incoming event merges into a candidate without an LLM call when they
 
 - share a **`level_6_id` or `level_7_id`** — same street or same place (`deterministic_share_levels=(6,7)`), **and**
-- have **overlapping extracted dates** (within `det_day_slack`, 1 day).
+- have **overlapping dates** (within `det_day_slack`, 1 day): an **extracted** date on both sides, *or* — when the shared id is at a leaf level in `det_publication_levels` (level 7 / place by default) — a **publication-date** overlap is accepted too. One specific place hosts ~one event of a type per day, so a publication-day match there is safe; this is what lets nameless incident reports (which usually carry only a publication timestamp) merge. Widen `det_publication_levels` to `(6, 7)` to allow it at street level too (riskier — amplifies the same-street weakness below).
 
-`event_type` is already guaranteed by the partition, and **no name is required**. Sharing a fine id can only happen if *both* records reached street/place precision, so the rule is precision-aware by construction: a coarse record (no `level_6/7_id` — e.g. one geocoded only to the municipality) has nothing to share and always defers to the LLM, as does any record whose date is a publication-timestamp fallback. A hit is logged with `path="deterministic"`. The gate never decides on coordinate *distance* — an earlier distance-based version could merge a municipality-centroid record into a precise one when the centroid happened to fall within radius; keying on shared fine ids removes that. (The case log still reports each candidate's `geo_dist_m`/`name_sim` for audit, even though the decision no longer uses them.)
+`event_type` is already guaranteed by the partition, and **no name is required**. Sharing a fine id can only happen if *both* records reached street/place precision, so the rule is precision-aware by construction: a coarse record (no `level_6/7_id` — e.g. one geocoded only to the municipality) has nothing to share and always defers to the LLM. A hit is logged with `path="deterministic"`. The gate never decides on coordinate *distance* — an earlier distance-based version could merge a municipality-centroid record into a precise one when the centroid happened to fall within radius; keying on shared fine ids removes that. (The case log still reports each candidate's `geo_dist_m`/`name_sim` for audit, even though the decision no longer uses them.)
 
 #### Accepted weaknesses
 
@@ -116,8 +117,11 @@ When the deterministic gate does not fire, a single LLM call decides whether the
 | `address` | the structured `location` dict (country, state, city, neighborhood, zone, street, number, place_name) — **not** the whole event record |
 | `date` | `{start, end}` from `record.date_range.date_range`, ISO-formatted (may both be null) |
 | `publication_date` | ISO-formatted publication timestamp (when present); used by the LLM as a fallback temporal anchor |
+| `ubicacion_fina` *(candidates only)* | `misma` / `distinta` / `null` — whether the candidate resolves to the same fine (street/place) location as the incoming event (from `level_6/7_id`); a negative signal when `distinta`. The prompt tells the model to treat `distinta` as different events absent strong evidence. |
 
-The system prompt instructs the model to merge complementary/partial descriptions of the same concrete event and to keep genuinely different facts (different works, incidents, or specific places) apart — explicitly *not* relying on the name.
+The system prompt instructs the model to merge complementary/partial descriptions of the same concrete event and to keep genuinely different facts (different works, incidents, or specific places) apart — explicitly *not* relying on the name, and to treat a `ubicacion_fina="distinta"` candidate as a different event absent strong evidence.
+
+> **Note (soft signal, observed):** `ubicacion_fina` is advisory — the LLM can overrule it. On the public_works fixture it did **not** prevent the Paseo de México ↔ Paseo de Belgrado sinkhole over-merge (`didnt_merge_review.md`, Pattern B): the two distinct streets stayed merged. Hard-stopping the LLM on a leaf disagreement (skip the call entirely) would, but its safety depends on geocoder leaf accuracy — assessed in [`docs/todos/skip_llm_on_leaf_disagreement.md`](../../../docs/todos/skip_llm_on_leaf_disagreement.md).
 
 Candidates additionally carry their `id`. The LLM is instructed to return either `{"match_id": "<one of the candidate ids>"}` or `{"match_id": null}`. Any id not present in the candidate list is treated defensively as `null`. Empty candidate lists short-circuit to `null` without an LLM call.
 

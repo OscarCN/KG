@@ -71,11 +71,15 @@ Fine-precision records with no same-type/place/day candidate — nothing to revi
 
 ## Suggested actions
 
-1. **Decide Pattern A:** allow publication-date overlap for shared `level_7_id` (place) — and
-   maybe `level_6_id` — in the deterministic gate, or keep the extracted-date guard and accept
-   these go to the LLM. (Most incident reports are publication-dated, so this governs whether
-   the gate ever helps incident types.)
-2. **Audit Pattern B over-merges** (México↔Belgrado sinkholes; the 1.7 km Santa María merge) —
-   confirm they are wrong, and consider passing the fine-id mismatch to the LLM as a negative
-   signal.
+1. **Pattern A — done.** The deterministic gate now accepts a **publication-date** overlap when
+   the shared id is at a leaf level (`det_publication_levels=(7,)`, level 7 / place). *Observed:*
+   no effect on this fixture — its fine sinkholes resolve to **level 6** (street), not 7, so the
+   level-7 relaxation didn't fire. Widening to `(6,7)` would catch them but amplifies the
+   same-street weakness.
+2. **Pattern B — done (soft), insufficient.** Each candidate now carries `ubicacion_fina`
+   (`misma`/`distinta`/`null`) and the prompt treats `distinta` as different. *Observed:* the LLM
+   **overruled** it — the México↔Belgrado sinkholes stayed merged. The hard variant (skip the LLM
+   entirely on a leaf disagreement) is needed to actually prevent it; assessed in
+   [`skip_llm_on_leaf_disagreement.md`](skip_llm_on_leaf_disagreement.md) (gated on geocoder
+   leaf accuracy).
 3. **Pattern C** is tracked by `location_level_list_extraction.md`; no separate action.

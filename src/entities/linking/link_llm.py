@@ -19,6 +19,10 @@ description-led `identification` field:
         "publication_date": ISO-string | None,
     }
 
+Candidates additionally carry `id` and `ubicacion_fina` ("misma" / "distinta" /
+None) — whether the candidate resolves to the same fine (street/place) location
+as the incoming event, a negative signal when "distinta".
+
 Candidates additionally carry an "id" field. The LLM is instructed to
 return either `{"match_id": "<one of the candidate ids>"}` or
 `{"match_id": null}` and that response is parsed defensively — any
@@ -102,6 +106,10 @@ _SYSTEM_PROMPT = (
     "Son eventos DISTINTOS cuando los hechos descritos difieren —p.ej. obras "
     "diferentes, incidentes diferentes o lugares específicos distintos— aunque "
     "compartan tipo, fecha y zona.\n\n"
+    "Cada candidato trae `ubicacion_fina`: `misma` = misma calle/lugar específico "
+    "que el evento entrante; `distinta` = calle/lugar específico DIFERENTE; `null` "
+    "= no comparable. Si es `distinta`, trátalos como eventos DIFERENTES salvo "
+    "evidencia contundente en la descripción de que es el mismo hecho.\n\n"
     "Responde EXCLUSIVAMENTE con un JSON con la forma:\n"
     '{\"match_id\": \"<id de un candidato>\"}  o  {\"match_id\": null}\n\n'
     "Solo puedes devolver un id que aparezca en la lista de candidatos. Si "

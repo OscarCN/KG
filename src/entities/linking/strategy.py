@@ -185,6 +185,7 @@ class GeoEventStrategy:
         deterministic_merge: bool = True,               # skip the LLM on high-confidence matches
         deterministic_share_levels: Tuple[int, ...] = (6, 7),  # share one of these level_N_ids ⇒ same place
         det_day_slack: int = 1,                          # date-overlap slack for the deterministic gate
+        det_publication_levels: Tuple[int, ...] = (7,),  # share level ⇒ publication-date overlap is enough (no extracted date needed)
     ):
         self.geocode = geocode
         self.extracted_slack_days = extracted_slack_days
@@ -203,6 +204,7 @@ class GeoEventStrategy:
         self.deterministic_merge = deterministic_merge
         self.deterministic_share_levels = deterministic_share_levels
         self.det_day_slack = det_day_slack
+        self.det_publication_levels = det_publication_levels
 
     # -- Prepare: enrich + resolve identity keys ------------------------
 
@@ -443,6 +445,30 @@ class GeoEventStrategy:
         dr = dr_block.get("date_range") or {}
         return _parse_dt(dr.get("start")), _parse_dt(dr.get("end")), dr_block.get("precision_days")
 
+    def _cand_date_window(
+        self, cand: Dict[str, Any]
+    ) -> Optional[Tuple[Optional[datetime], Optional[datetime], bool]]:
+        """Candidate's best date window for the gate: (start, end, is_publication).
+
+        Prefers the extracted canonical range; falls back to the candidate's
+        publication timestamp. None when the candidate has no date at all.
+        """
+        cs, ce, _ = self._cand_window(cand)
+        if cs is not None or ce is not None:
+            return cs, ce, False
+        pub = _parse_dt(cand.get("publication_date"))
+        if pub is not None:
+            return pub, pub, True
+        return None
+
+    def _leaf_relation(self, ga: Dict[str, Any], gb: Dict[str, Any]) -> Optional[str]:
+        """'misma' / 'distinta' / None — do two records resolve to the same fine
+        (street/place) location? None when either lacks any fine id to compare."""
+        a, b = self._fine_id_set(ga), self._fine_id_set(gb)
+        if not a or not b:
+            return None
+        return "misma" if (a & b) else "distinta"
+
     @staticmethod
     def _geo_distance_m(ga: Dict[str, Any], gb: Dict[str, Any]) -> Optional[float]:
         """Haversine meters between two geo blocks, or None if either lacks coords."""
@@ -492,25 +518,40 @@ class GeoEventStrategy:
 
         Name-agnostic and precision-aware: fires only when both events share a
         `level_6_id`/`level_7_id` — so both reached street/place precision — and
-        their extracted date windows overlap. A coarse record (no fine id) or a
-        publication-only date never matches deterministically; it defers to the
-        LLM. Type is already guaranteed by the partition. See
+        their date windows overlap. By default an **extracted** date is required;
+        at the leaf level(s) in `det_publication_levels` (level 7 / place by
+        default) a **publication-date** overlap is accepted too, since one
+        specific place hosts ~one event of a type per day (this is what lets
+        nameless incident reports, which usually lack an extracted date, merge).
+        A coarse record (no fine id) never matches deterministically; it defers
+        to the LLM. Type is already guaranteed by the partition. See
         `docs/todos/deterministic_match_slack.md` for the rationale and the
         accepted weaknesses (same-street collisions; coarse under-merge).
         """
-        if prep.window.source != "extracted":
-            return None
         inc_fine = self._fine_id_set(prep.record.get("_geo") or {})
         if not inc_fine:
             return None
+        inc_is_pub = prep.window.source != "extracted"
+        if inc_is_pub and prep.window.start is None and prep.window.end is None:
+            return None
         inc_s, inc_e = prep.window.start, prep.window.end
+        pub_ok_levels = set(self.det_publication_levels)
         for cid in candidate_ids:
             cand = events.get(cid) or {}
-            cs, ce, _ = self._cand_window(cand)
-            if cs is None and ce is None:
-                continue  # candidate has no extracted date — can't confirm time
-            if (inc_fine & self._fine_id_set(cand.get("_geo") or {})
-                    and self._date_overlap(inc_s, inc_e, cs, ce, self.det_day_slack)):
+            shared = inc_fine & self._fine_id_set(cand.get("_geo") or {})
+            if not shared:
+                continue
+            cwin = self._cand_date_window(cand)
+            if cwin is None:
+                continue  # candidate has no date at all — can't confirm time
+            cs, ce, cand_is_pub = cwin
+            # If either side relies on a publication date, the shared id must be
+            # at a leaf level we trust enough for a same-day merge.
+            if inc_is_pub or cand_is_pub:
+                shared_levels = {int(k.split(":", 1)[0][1:]) for k in shared}
+                if not (shared_levels & pub_ok_levels):
+                    continue
+            if self._date_overlap(inc_s, inc_e, cs, ce, self.det_day_slack):
                 return cid
         return None
 
@@ -529,7 +570,15 @@ class GeoEventStrategy:
                 "Candidate cap: %d → %d for event_type=%s geo_key=%r",
                 len(candidate_ids), len(kept), prep.event_type, prep.geo_key,
             )
-        candidate_records = [{"id": cid, **_llm_payload(events[cid])} for cid in kept]
+        inc_geo = prep.record.get("_geo") or {}
+        candidate_records = [
+            {
+                "id": cid,
+                **_llm_payload(events[cid]),
+                "ubicacion_fina": self._leaf_relation(inc_geo, events[cid].get("_geo") or {}),
+            }
+            for cid in kept
+        ]
         return disambiguate(_llm_payload(prep.record), candidate_records)
 
     def adjudicate(
