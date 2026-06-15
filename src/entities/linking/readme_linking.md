@@ -34,14 +34,14 @@ The geo strategy v1 spec in [`docs/todos/retrieval_linking_per_supertype.md`](..
 new event → schema parse (EntityLinker envelope)
           → strategy.prepare: geocode → geo partition keys + date window
           → candidate lookup (CandidateIndex: event_type ∧ geo-key ∧ day-key overlap)
-          → deterministic gate (coords + name + date → skip the LLM on confident matches)
+          → deterministic gate (shares level_6/7_id ∧ day → skip the LLM, no name)
           → else LLM adjudication (gemini-2.5-flash-lite, capped candidate list)
           → match-id ? merge : create new
 ```
 
 **Architecture.** `EntityLinker` (`link.py`) is supertype-agnostic: it parses the record envelope (`_source_id`, `_supertype`, `date_created`), selects a strategy by the schema's `meta.category`, and orchestrates the calls. All event-specific behaviour lives in `GeoEventStrategy` (`strategy.py`), which owns the full lifecycle — enrich → window/key construction → adjudication → merge/create → (re)index — against the `CandidateIndex` protocol (`index.py`, in-memory today, kgdb-backed later). A supertype with no schema is a logged drop (`no_schema`) — it no longer silently defaults to the event path.
 
-**Identity model (geo events).** Two records denote the same event iff: same class (`event_type`, exact), same place (hierarchical `level_N_id` + coordinate-grid partition, with the deterministic gate using haversine proximity), overlapping time (tiered fallbacks below), and co-referent content (the deterministic name/venue gate, or the LLM over name/description).
+**Identity model (geo events).** Two records denote the same event iff: same class (`event_type`, exact), same place (hierarchical `level_N_id` + coordinate-grid partition, with the deterministic gate using haversine proximity), overlapping time (tiered fallbacks below), and co-referent content (the deterministic level-6/7-share gate, or the LLM over the description).
 
 ### Candidate filter
 
@@ -76,7 +76,8 @@ The filter is intentionally broad (recall) — the **deterministic gate or the L
 | `partition_levels` | `(3, 5, 6, 7)` | n/a (state only) |
 | `grid_size_deg` | `0.01` (~1 km cells) | n/a (no grid) |
 | `deterministic_merge` | `True` | `False` (LLM-always) |
-| `supertype_config` | `{paid_mass_event: scheduled_venue}` | — |
+| `deterministic_share_levels` | `(6, 7)` | — |
+| `det_day_slack` | `1` | — |
 
 ### Date sources
 
@@ -93,16 +94,17 @@ The linked record carries `publication_date` (the **earliest** publication date 
 
 ### Deterministic merge gate (skip the LLM)
 
-Before the LLM, a cheap deterministic pass merges the high-confidence cases (`deterministic_merge=True`). It uses all four signals — geo, name, type, date — and fires only on an **extracted** (not publication-fallback) date. The predicate is **per-supertype** (`DeterministicPolicy`, `supertype_config`): `type` already holds by partition, plus one of
+Before the LLM, a cheap deterministic pass merges the high-confidence cases (`deterministic_merge=True`). It is **name-agnostic and precision-aware**: an incoming event merges into a candidate without an LLM call when they
 
-- **venue branch** — only for `scheduled_venue` supertypes (`paid_mass_event` today): coordinates within `r7_m` (≈75 m, place) and both `precision_days ≤ 1`. No name needed — safe only where one place hosts one event of a type per day (concerts, not robberies).
-- **named branch** — any supertype: `name_similarity ≥ name_tau` (0.65; character-trigram Jaccard, [`text_util.py`](text_util.py)), coordinates within `r6_m` (≈150 m, street), and both `precision_days < det_precision_days` (3).
+- share a **`level_6_id` or `level_7_id`** — same street or same place (`deterministic_share_levels=(6,7)`), **and**
+- have **overlapping extracted dates** (within `det_day_slack`, 1 day).
 
-Geo distance is haversine ([`geo_util.py`](geo_util.py)); `level_N_id` equality (at or below the branch's floor) is the fallback when either side lacks coordinates. A hit merges without an LLM call and is logged with `path="deterministic"`; otherwise the record falls to the LLM. The gate is conservative by construction (it can never merge alone — geo *and* date *and* name/venue must all clear), so its failure mode is *under*-firing (defer to the LLM), not over-merging.
+`event_type` is already guaranteed by the partition, and **no name is required**. Sharing a fine id can only happen if *both* records reached street/place precision, so the rule is precision-aware by construction: a coarse record (no `level_6/7_id` — e.g. one geocoded only to the municipality) has nothing to share and always defers to the LLM, as does any record whose date is a publication-timestamp fallback. A hit is logged with `path="deterministic"`. The gate never decides on coordinate *distance* — an earlier distance-based version could merge a municipality-centroid record into a precise one when the centroid happened to fall within radius; keying on shared fine ids removes that. (The case log still reports each candidate's `geo_dist_m`/`name_sim` for audit, even though the decision no longer uses them.)
 
-> **Observed (Querétaro public_works):** the gate fired on just 1/107 records — most public_works records are **nameless** (72/107), so the named branch can't trigger, and public_works isn't a venue type. Many nameless records sit at `dist=0 m` from a same-type candidate and are merged by the LLM instead.
->
-> **Planned refinement (approved, not yet implemented):** replace both distance-based branches with a single **no-name branch keyed on sharing `level_6_id`/`level_7_id`** (same street/place) `∧` day `∧` type — for all supertypes. Sharing a fine id is inherently precision-aware (a coarse record has none to share), which also fixes a **precision-blindness bug** in the current distance gate (a precision-3 centroid that lands within `r6_m`/`r7_m` of a precise event merges spuriously). Full spec + verification + commit plan: [`docs/todos/deterministic_match_slack.md`](../../../docs/todos/deterministic_match_slack.md).
+#### Accepted weaknesses
+
+- **Same-street collisions (level 6).** Two *distinct* same-type events on the same street and day (e.g. two separate accidents) share `level_6_id` and will merge — accepted for now in exchange for catching the common multi-mention case. Level 7 (a specific place) is safer than level 6 (a whole street).
+- **Coarse-precision under-merge (levels 2/3/5).** Records that geocode only to municipality / city / neighborhood share no `level_6/7_id`, so nameless coarse clusters are never matched deterministically and rely on the LLM (which may under-merge). **Canonical example:** the El Marqués street-rehabilitation project on *calles San Juan del Río y Amealco* — every record nameless, all geocoded to `level_3_id=_48422011` (precision 3) — stays fragmented. The fix is list-valued location extraction so each named street geocodes to level 6: [`docs/todos/location_level_list_extraction.md`](../../../docs/todos/location_level_list_extraction.md).
 
 ### LLM disambiguation (`link_llm.py`)
 

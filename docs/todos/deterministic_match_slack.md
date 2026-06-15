@@ -1,7 +1,13 @@
 # TODO — Deterministic merge slack: no-name level-6/7 branch (+ fix precision-blindness)
 
-**Status:** open — approved, not yet implemented
-**Branch:** `geo-deterministic-linking` (continue on it; do not start from `main`)
+**Status:** ✅ implemented on `geo-deterministic-linking` — the gate now keys on shared
+`level_6_id`/`level_7_id` + day (name-agnostic, precision-aware); the distance-based
+venue/named branches and `DeterministicPolicy` were removed. Verified on the Querétaro
+public_works fixture (57 events / 21 multi-source, stable; 2 nameless sinkholes merged
+deterministically via shared street id; coarse precision-3 records correctly defer). The
+notes below are retained as the rationale + the recorded weaknesses (now also in
+`readme_linking.md`).
+**Branch:** `geo-deterministic-linking`
 **Area:** `src/entities/linking/strategy.py`; docs in `src/entities/linking/readme_linking.md`
 **Related:** [`retrieval_linking_per_supertype.md`](retrieval_linking_per_supertype.md), [`location_level_list_extraction.md`](location_level_list_extraction.md), [`../../src/entities/linking/readme_linking.md`](../../src/entities/linking/readme_linking.md)
 

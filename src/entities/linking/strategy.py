@@ -99,41 +99,6 @@ class PreparedEvent:
     window: DateWindow
 
 
-@dataclass(frozen=True)
-class DeterministicPolicy:
-    """When the linker may merge two events **without** an LLM call.
-
-    A deterministic merge needs `type` (already guaranteed by the partition)
-    plus one of two branches — both requiring an *extracted* (not publication
-    fallback) date on each side:
-
-    - **venue branch** (only for `scheduled_venue` supertypes): coordinates
-      within `r7_m` (≈place) and both `precision_days ≤ 1`. No name needed —
-      safe only where one place hosts one event of a type per day (concerts,
-      not robberies).
-    - **named branch** (any supertype): `name_similarity ≥ name_tau`,
-      coordinates within `r6_m` (≈street), and both `precision_days <
-      det_precision_days`.
-
-    Geo distance is haversine on coordinates, with `level_N_id` equality as a
-    fallback when either side lacks coordinates.
-    """
-
-    scheduled_venue: bool = False
-    r7_m: float = 75.0
-    r6_m: float = 150.0
-    name_tau: float = 0.65
-    det_precision_days: int = 3
-
-
-# Default conservative policy; supertypes opt into the riskier no-name venue
-# branch explicitly. `paid_mass_event` is venue-bound (one venue ≈ one event/day).
-_DEFAULT_POLICY = DeterministicPolicy()
-_SUPERTYPE_POLICY: Dict[str, DeterministicPolicy] = {
-    "paid_mass_event": DeterministicPolicy(scheduled_venue=True),
-}
-
-
 # ---------------------------------------------------------------------------
 # Payload builder for the LLM disambiguator
 # (moved verbatim from link.py — the sha256 cache keys depend on this shape)
@@ -218,7 +183,8 @@ class GeoEventStrategy:
         partition_levels: Tuple[int, ...] = (3, 5, 6, 7),  # admin levels (below state) to bucket on
         grid_size_deg: float = 0.01,                    # coordinate grid cell side (~1.1 km)
         deterministic_merge: bool = True,               # skip the LLM on high-confidence matches
-        supertype_config: Optional[Dict[str, DeterministicPolicy]] = None,
+        deterministic_share_levels: Tuple[int, ...] = (6, 7),  # share one of these level_N_ids ⇒ same place
+        det_day_slack: int = 1,                          # date-overlap slack for the deterministic gate
     ):
         self.geocode = geocode
         self.extracted_slack_days = extracted_slack_days
@@ -235,9 +201,8 @@ class GeoEventStrategy:
         self.partition_levels = partition_levels
         self.grid_size_deg = grid_size_deg
         self.deterministic_merge = deterministic_merge
-        self.supertype_config = (
-            _SUPERTYPE_POLICY if supertype_config is None else supertype_config
-        )
+        self.deterministic_share_levels = deterministic_share_levels
+        self.det_day_slack = det_day_slack
 
     # -- Prepare: enrich + resolve identity keys ------------------------
 
@@ -455,8 +420,19 @@ class GeoEventStrategy:
 
     # -- Adjudication ----------------------------------------------------
 
-    def _policy_for(self, supertype: Optional[str]) -> DeterministicPolicy:
-        return self.supertype_config.get(supertype or "", _DEFAULT_POLICY)
+    def _fine_id_set(self, geo: Dict[str, Any]) -> Set[str]:
+        """Namespaced level ids the deterministic gate keys on (levels 6/7).
+
+        Two events 'share a street/place' iff these sets intersect. A coarse
+        record (no `level_6/7_id`) yields an empty set, so it can never match
+        deterministically — which is what makes the gate precision-aware.
+        """
+        ids: Set[str] = set()
+        for n in self.deterministic_share_levels:
+            lid = (geo.get(f"level_{n}_id") or "").strip()
+            if lid:
+                ids.add(f"l{n}:{lid}")
+        return ids
 
     @staticmethod
     def _cand_window(
@@ -475,21 +451,6 @@ class GeoEventStrategy:
         if None in (la, lo, lb, ob):
             return None
         return haversine(la, lo, lb, ob)
-
-    def _geo_within(
-        self, ga: Dict[str, Any], gb: Dict[str, Any], radius_m: float, level_floor: int
-    ) -> bool:
-        """True if coords are within `radius_m`, or (coords-less) a `level_N_id`
-        at or below `level_floor` matches — the admin fallback for the gate."""
-        d = self._geo_distance_m(ga, gb)
-        if d is not None:
-            return d <= radius_m
-        for n in range(7, level_floor - 1, -1):
-            ida = (ga.get(f"level_{n}_id") or "").strip()
-            idb = (gb.get(f"level_{n}_id") or "").strip()
-            if ida and ida == idb:
-                return True
-        return False
 
     @staticmethod
     def _date_overlap(
@@ -526,37 +487,30 @@ class GeoEventStrategy:
     def _deterministic_match(
         self, prep: PreparedEvent, candidate_ids: Set[str], events: Dict[str, Dict[str, Any]],
     ) -> Optional[str]:
-        """First candidate that clears a deterministic branch, else None.
+        """First candidate that shares a fine location id with the incoming
+        event (same street/place) on an overlapping day, else None.
 
-        Requires an *extracted* (not publication-fallback) incoming date — we
-        never auto-merge on the article timestamp alone.
+        Name-agnostic and precision-aware: fires only when both events share a
+        `level_6_id`/`level_7_id` — so both reached street/place precision — and
+        their extracted date windows overlap. A coarse record (no fine id) or a
+        publication-only date never matches deterministically; it defers to the
+        LLM. Type is already guaranteed by the partition. See
+        `docs/todos/deterministic_match_slack.md` for the rationale and the
+        accepted weaknesses (same-street collisions; coarse under-merge).
         """
         if prep.window.source != "extracted":
             return None
-        policy = self._policy_for(prep.record.get("_supertype"))
-        inc = prep.record
-        inc_geo = inc.get("_geo") or {}
-        inc_name = inc.get("name")
-        inc_prec = prep.window.precision_days or 0
+        inc_fine = self._fine_id_set(prep.record.get("_geo") or {})
+        if not inc_fine:
+            return None
         inc_s, inc_e = prep.window.start, prep.window.end
         for cid in candidate_ids:
             cand = events.get(cid) or {}
-            cs, ce, cprec = self._cand_window(cand)
+            cs, ce, _ = self._cand_window(cand)
             if cs is None and ce is None:
                 continue  # candidate has no extracted date — can't confirm time
-            cprec = cprec or 0
-            cand_geo = cand.get("_geo") or {}
-            # Venue branch: no name, place-level coords, both dates exact.
-            if (policy.scheduled_venue and inc_prec <= 1 and cprec <= 1
-                    and self._geo_within(inc_geo, cand_geo, policy.r7_m, 7)
-                    and self._date_overlap(inc_s, inc_e, cs, ce, 1)):
-                return cid
-            # Named branch: similar names, street-level coords, tight dates.
-            if (inc_name and cand.get("name")
-                    and inc_prec < policy.det_precision_days and cprec < policy.det_precision_days
-                    and name_similarity(inc_name, cand["name"]) >= policy.name_tau
-                    and self._geo_within(inc_geo, cand_geo, policy.r6_m, 6)
-                    and self._date_overlap(inc_s, inc_e, cs, ce, policy.det_precision_days)):
+            if (inc_fine & self._fine_id_set(cand.get("_geo") or {})
+                    and self._date_overlap(inc_s, inc_e, cs, ce, self.det_day_slack)):
                 return cid
         return None
 
