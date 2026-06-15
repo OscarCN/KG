@@ -95,7 +95,8 @@ print(f"  unique source_ids: {len(source_ids_in_order)}")
 
 print()
 print("Setting up linker ...")
-linker = EntityLinker(geocode=GEOCODE)
+CASE_LOG: Path = _PROJECT_ROOT / "data" / ".runlogs" / f"linking_cases_{OUTPUT.stem}.jsonl"
+linker = EntityLinker(geocode=GEOCODE, case_log_path=CASE_LOG)
 link_results: List[LinkResult] = []
 
 print()

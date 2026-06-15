@@ -30,10 +30,11 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from .geocode import geocode_location
-from .geo_util import grid_cell, grid_neighbors
+from .geo_util import grid_cell, grid_neighbors, haversine
 from .index import CandidateIndex, IndexKey
 from .link_llm import disambiguate
 from .mx_states import normalize_state, slug
+from .text_util import name_similarity
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +97,41 @@ class PreparedEvent:
     event_type: str
     geo_key: str
     window: DateWindow
+
+
+@dataclass(frozen=True)
+class DeterministicPolicy:
+    """When the linker may merge two events **without** an LLM call.
+
+    A deterministic merge needs `type` (already guaranteed by the partition)
+    plus one of two branches — both requiring an *extracted* (not publication
+    fallback) date on each side:
+
+    - **venue branch** (only for `scheduled_venue` supertypes): coordinates
+      within `r7_m` (≈place) and both `precision_days ≤ 1`. No name needed —
+      safe only where one place hosts one event of a type per day (concerts,
+      not robberies).
+    - **named branch** (any supertype): `name_similarity ≥ name_tau`,
+      coordinates within `r6_m` (≈street), and both `precision_days <
+      det_precision_days`.
+
+    Geo distance is haversine on coordinates, with `level_N_id` equality as a
+    fallback when either side lacks coordinates.
+    """
+
+    scheduled_venue: bool = False
+    r7_m: float = 75.0
+    r6_m: float = 150.0
+    name_tau: float = 0.65
+    det_precision_days: int = 3
+
+
+# Default conservative policy; supertypes opt into the riskier no-name venue
+# branch explicitly. `paid_mass_event` is venue-bound (one venue ≈ one event/day).
+_DEFAULT_POLICY = DeterministicPolicy()
+_SUPERTYPE_POLICY: Dict[str, DeterministicPolicy] = {
+    "paid_mass_event": DeterministicPolicy(scheduled_venue=True),
+}
 
 
 # ---------------------------------------------------------------------------
@@ -168,6 +204,8 @@ class GeoEventStrategy:
         geo_retrieval: str = "hierarchy",               # legacy: "level_2" (single state slug)
         partition_levels: Tuple[int, ...] = (3, 5, 6, 7),  # admin levels (below state) to bucket on
         grid_size_deg: float = 0.01,                    # coordinate grid cell side (~1.1 km)
+        deterministic_merge: bool = True,               # skip the LLM on high-confidence matches
+        supertype_config: Optional[Dict[str, DeterministicPolicy]] = None,
     ):
         self.geocode = geocode
         self.extracted_slack_days = extracted_slack_days
@@ -183,6 +221,10 @@ class GeoEventStrategy:
         self.geo_retrieval = geo_retrieval
         self.partition_levels = partition_levels
         self.grid_size_deg = grid_size_deg
+        self.deterministic_merge = deterministic_merge
+        self.supertype_config = (
+            _SUPERTYPE_POLICY if supertype_config is None else supertype_config
+        )
 
     # -- Prepare: enrich + resolve identity keys ------------------------
 
@@ -400,13 +442,114 @@ class GeoEventStrategy:
 
     # -- Adjudication ----------------------------------------------------
 
-    def adjudicate(
-        self,
-        prep: PreparedEvent,
-        candidate_ids: Set[str],
-        events: Dict[str, Dict[str, Any]],
+    def _policy_for(self, supertype: Optional[str]) -> DeterministicPolicy:
+        return self.supertype_config.get(supertype or "", _DEFAULT_POLICY)
+
+    @staticmethod
+    def _cand_window(
+        cand: Dict[str, Any]
+    ) -> Tuple[Optional[datetime], Optional[datetime], Optional[int]]:
+        """The candidate's canonical extracted window (start, end, precision_days)."""
+        dr_block = cand.get("date_range") or {}
+        dr = dr_block.get("date_range") or {}
+        return _parse_dt(dr.get("start")), _parse_dt(dr.get("end")), dr_block.get("precision_days")
+
+    @staticmethod
+    def _geo_distance_m(ga: Dict[str, Any], gb: Dict[str, Any]) -> Optional[float]:
+        """Haversine meters between two geo blocks, or None if either lacks coords."""
+        la, lo = ga.get("matched_lat"), ga.get("matched_lon")
+        lb, ob = gb.get("matched_lat"), gb.get("matched_lon")
+        if None in (la, lo, lb, ob):
+            return None
+        return haversine(la, lo, lb, ob)
+
+    def _geo_within(
+        self, ga: Dict[str, Any], gb: Dict[str, Any], radius_m: float, level_floor: int
+    ) -> bool:
+        """True if coords are within `radius_m`, or (coords-less) a `level_N_id`
+        at or below `level_floor` matches — the admin fallback for the gate."""
+        d = self._geo_distance_m(ga, gb)
+        if d is not None:
+            return d <= radius_m
+        for n in range(7, level_floor - 1, -1):
+            ida = (ga.get(f"level_{n}_id") or "").strip()
+            idb = (gb.get(f"level_{n}_id") or "").strip()
+            if ida and ida == idb:
+                return True
+        return False
+
+    @staticmethod
+    def _date_overlap(
+        s1: Optional[datetime], e1: Optional[datetime],
+        s2: Optional[datetime], e2: Optional[datetime], slack_days: int,
+    ) -> bool:
+        a_s, a_e = (s1 or e1), (e1 or s1)
+        b_s, b_e = (s2 or e2), (e2 or s2)
+        if a_s is None or b_s is None:
+            return False
+        a_s = a_s - timedelta(days=slack_days)
+        a_e = a_e + timedelta(days=slack_days)
+        return a_s.date() <= b_e.date() and b_s.date() <= a_e.date()
+
+    def _candidate_debug(
+        self, prep: PreparedEvent, candidate_ids: Set[str], events: Dict[str, Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """Per-candidate {id, name, geo_dist_m, name_sim} for the case log."""
+        inc_geo = prep.record.get("_geo") or {}
+        inc_name = prep.record.get("name")
+        out: List[Dict[str, Any]] = []
+        for cid in candidate_ids:
+            cand = events.get(cid) or {}
+            d = self._geo_distance_m(inc_geo, cand.get("_geo") or {})
+            both_named = bool(inc_name) and bool(cand.get("name"))
+            out.append({
+                "id": cid,
+                "name": cand.get("name"),
+                "geo_dist_m": round(d, 1) if d is not None else None,
+                "name_sim": round(name_similarity(inc_name, cand.get("name")), 3) if both_named else None,
+            })
+        return out
+
+    def _deterministic_match(
+        self, prep: PreparedEvent, candidate_ids: Set[str], events: Dict[str, Dict[str, Any]],
     ) -> Optional[str]:
-        """Decide whether the incoming event matches a candidate (LLM call)."""
+        """First candidate that clears a deterministic branch, else None.
+
+        Requires an *extracted* (not publication-fallback) incoming date — we
+        never auto-merge on the article timestamp alone.
+        """
+        if prep.window.source != "extracted":
+            return None
+        policy = self._policy_for(prep.record.get("_supertype"))
+        inc = prep.record
+        inc_geo = inc.get("_geo") or {}
+        inc_name = inc.get("name")
+        inc_prec = prep.window.precision_days or 0
+        inc_s, inc_e = prep.window.start, prep.window.end
+        for cid in candidate_ids:
+            cand = events.get(cid) or {}
+            cs, ce, cprec = self._cand_window(cand)
+            if cs is None and ce is None:
+                continue  # candidate has no extracted date — can't confirm time
+            cprec = cprec or 0
+            cand_geo = cand.get("_geo") or {}
+            # Venue branch: no name, place-level coords, both dates exact.
+            if (policy.scheduled_venue and inc_prec <= 1 and cprec <= 1
+                    and self._geo_within(inc_geo, cand_geo, policy.r7_m, 7)
+                    and self._date_overlap(inc_s, inc_e, cs, ce, 1)):
+                return cid
+            # Named branch: similar names, street-level coords, tight dates.
+            if (inc_name and cand.get("name")
+                    and inc_prec < policy.det_precision_days and cprec < policy.det_precision_days
+                    and name_similarity(inc_name, cand["name"]) >= policy.name_tau
+                    and self._geo_within(inc_geo, cand_geo, policy.r6_m, 6)
+                    and self._date_overlap(inc_s, inc_e, cs, ce, policy.det_precision_days)):
+                return cid
+        return None
+
+    def _llm_adjudicate(
+        self, prep: PreparedEvent, candidate_ids: Set[str], events: Dict[str, Dict[str, Any]],
+    ) -> Optional[str]:
         kept = candidate_ids
         if self.candidate_cap is not None and len(candidate_ids) > self.candidate_cap:
             ordered = sorted(
@@ -419,14 +562,28 @@ class GeoEventStrategy:
                 "Candidate cap: %d → %d for event_type=%s geo_key=%r",
                 len(candidate_ids), len(kept), prep.event_type, prep.geo_key,
             )
-        candidate_records = [
-            {
-                "id": cid,
-                **_llm_payload(events[cid]),
-            }
-            for cid in kept
-        ]
+        candidate_records = [{"id": cid, **_llm_payload(events[cid])} for cid in kept]
         return disambiguate(_llm_payload(prep.record), candidate_records)
+
+    def adjudicate(
+        self,
+        prep: PreparedEvent,
+        candidate_ids: Set[str],
+        events: Dict[str, Dict[str, Any]],
+    ) -> Tuple[Optional[str], str, List[Dict[str, Any]]]:
+        """Decide the match. Returns (match_id, path, candidate_debug).
+
+        `path ∈ {"no_candidates", "deterministic", "llm"}` records how the
+        decision was reached — the deterministic gate skips the LLM call.
+        """
+        if not candidate_ids:
+            return None, "no_candidates", []
+        debug = self._candidate_debug(prep, candidate_ids, events)
+        if self.deterministic_merge:
+            det = self._deterministic_match(prep, candidate_ids, events)
+            if det is not None:
+                return det, "deterministic", debug
+        return self._llm_adjudicate(prep, candidate_ids, events), "llm", debug
 
     # -- Create ----------------------------------------------------------
 

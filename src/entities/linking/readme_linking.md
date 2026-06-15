@@ -30,15 +30,16 @@ The geo strategy v1 spec in [`docs/todos/retrieval_linking_per_supertype.md`](..
 
 ```
 new event → schema parse (EntityLinker envelope)
-          → strategy.prepare: geocode → geo partition key + date window
-          → candidate lookup (CandidateIndex: event_type ∧ geo_key ∧ day-key overlap)
-          → LLM adjudication (gemini-2.5-flash-lite, capped candidate list)
+          → strategy.prepare: geocode → geo partition keys + date window
+          → candidate lookup (CandidateIndex: event_type ∧ geo-key ∧ day-key overlap)
+          → deterministic gate (coords + name + date → skip the LLM on confident matches)
+          → else LLM adjudication (gemini-2.5-flash-lite, capped candidate list)
           → match-id ? merge : create new
 ```
 
 **Architecture.** `EntityLinker` (`link.py`) is supertype-agnostic: it parses the record envelope (`_source_id`, `_supertype`, `date_created`), selects a strategy by the schema's `meta.category`, and orchestrates the calls. All event-specific behaviour lives in `GeoEventStrategy` (`strategy.py`), which owns the full lifecycle — enrich → window/key construction → adjudication → merge/create → (re)index — against the `CandidateIndex` protocol (`index.py`, in-memory today, kgdb-backed later). A supertype with no schema is a logged drop (`no_schema`) — it no longer silently defaults to the event path.
 
-**Identity model (geo events).** Two records denote the same event iff: same class (`event_type`, exact), same place (state-level partition; address-level differences left to the LLM), overlapping time (tiered fallbacks below), and co-referent content (LLM judgment over name/description).
+**Identity model (geo events).** Two records denote the same event iff: same class (`event_type`, exact), same place (hierarchical `level_N_id` + coordinate-grid partition, with the deterministic gate using haversine proximity), overlapping time (tiered fallbacks below), and co-referent content (the deterministic name/venue gate, or the LLM over name/description).
 
 ### Candidate filter
 
@@ -72,6 +73,8 @@ The filter is intentionally broad — the LLM does the actual same-vs-different 
 | `geo_retrieval` | `"hierarchy"` | `"level_2"` (single state slug) |
 | `partition_levels` | `(3, 5, 6, 7)` | n/a (state only) |
 | `grid_size_deg` | `0.01` (~1 km cells) | n/a (no grid) |
+| `deterministic_merge` | `True` | `False` (LLM-always) |
+| `supertype_config` | `{paid_mass_event: scheduled_venue}` | — |
 
 ### Date sources
 
@@ -86,9 +89,20 @@ Records with neither are dropped (`linker.dropped["event_no_date_no_pub"]`). Whe
 
 The linked record carries `publication_date` (the **earliest** publication date seen across merged sources) — useful as a stable temporal anchor when the extracted date_range is missing or imprecise — plus `_source_windows`, the list of every source's resolved window (`{start, end, slack_days, source, precision_days}`), and `_date_source` (the first window's provenance).
 
+### Deterministic merge gate (skip the LLM)
+
+Before the LLM, a cheap deterministic pass merges the high-confidence cases (`deterministic_merge=True`). It uses all four signals — geo, name, type, date — and fires only on an **extracted** (not publication-fallback) date. The predicate is **per-supertype** (`DeterministicPolicy`, `supertype_config`): `type` already holds by partition, plus one of
+
+- **venue branch** — only for `scheduled_venue` supertypes (`paid_mass_event` today): coordinates within `r7_m` (≈75 m, place) and both `precision_days ≤ 1`. No name needed — safe only where one place hosts one event of a type per day (concerts, not robberies).
+- **named branch** — any supertype: `name_similarity ≥ name_tau` (0.65; character-trigram Jaccard, [`text_util.py`](text_util.py)), coordinates within `r6_m` (≈150 m, street), and both `precision_days < det_precision_days` (3).
+
+Geo distance is haversine ([`geo_util.py`](geo_util.py)); `level_N_id` equality (at or below the branch's floor) is the fallback when either side lacks coordinates. A hit merges without an LLM call and is logged with `path="deterministic"`; otherwise the record falls to the LLM. The gate is conservative by construction (it can never merge alone — geo *and* date *and* name/venue must all clear), so its failure mode is *under*-firing (defer to the LLM), not over-merging.
+
+> **Observed (Querétaro public_works):** the gate fired on just 1/107 records — most public_works records are **nameless** (72/107), so the named branch can't trigger, and public_works isn't a venue type. Many nameless records sit at `dist=0 m` from a same-type candidate and are merged by the LLM instead. Extending the no-name branch to such supertypes would need a `precision_level ≥ 6` (street/place) gate — `dist=0` at colonia precision means "same colonia centroid", not "same work" — and is left as a data-driven follow-up.
+
 ### LLM disambiguation (`link_llm.py`)
 
-A single LLM call decides whether the incoming event matches any candidate. The model is `google/gemini-2.5-flash-lite` (override via `OPENROUTER_LINKER_MODEL`). The payload sent to the LLM contains, for the incoming event and each candidate, ONLY:
+When the deterministic gate does not fire, a single LLM call decides whether the incoming event matches any candidate. The model is `google/gemini-2.5-flash-lite` (override via `OPENROUTER_LINKER_MODEL`). The payload sent to the LLM contains, for the incoming event and each candidate, ONLY:
 
 | Field | Source |
 |---|---|
@@ -175,7 +189,11 @@ After it finishes, the following names are bound for inspection:
 | `link_results` | One `LinkResult` per input record |
 | `linked` | Dict with an `events` list (themes/entities are skipped) |
 
-The script loads the extracted JSON fixture, streams every record through the linker, and writes the result as a JSON dict with an `events` list. It prints counts of input records, link-result statuses, linked events, drop reasons, and how many events were merged from multiple sources. Set `GEOCODE = False` at the top to skip geocoding (events with no resolvable state will fall into the empty-prefix bucket).
+The script loads the extracted JSON fixture, streams every record through the linker, and writes the result as a JSON dict with an `events` list. It prints counts of input records, link-result statuses, linked events, drop reasons, and how many events were merged from multiple sources. Set `GEOCODE = False` at the top to skip geocoding (events with no resolvable state will fall into the empty-prefix bucket). Set `LINK_STEM` (or `LINK_INPUT_STEM`/`LINK_OUTPUT_STEM`) to drive a different fixture without editing the file.
+
+### Case log
+
+`EntityLinker(case_log_path=...)` writes one JSONL line per linked record (`run_linking.py` points it at `data/.runlogs/linking_cases_<output-stem>.jsonl`). Each line carries the record's `geo` (coords, `level_3_id`, `_geo_source`), `window`, the retrieved `candidates` (each with `geo_dist_m` and `name_sim`), the decision `path` (`no_candidates` / `deterministic` / `llm`) and the `decision` (`created:<id>` / `merged:<id>`). It is the audit trail for the deterministic gate and the input to tuning thresholds — e.g. the public_works run above showed the nameless-record gap directly.
 
 ### Required environment
 

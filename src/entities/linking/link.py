@@ -19,6 +19,7 @@ registered yet and are tallied under `linker.dropped`.
 from __future__ import annotations
 
 import copy
+import json
 import logging
 from collections import defaultdict
 from dataclasses import dataclass
@@ -99,6 +100,7 @@ class EntityLinker:
         geocode: bool = True,
         strategy_params: Optional[Dict[str, Any]] = None,
         index: Optional[CandidateIndex] = None,
+        case_log_path: Optional[Path] = None,
     ):
         self.geocode = geocode
 
@@ -113,6 +115,13 @@ class EntityLinker:
 
         # Drop counters for the run summary.
         self.dropped: Dict[str, int] = defaultdict(int)
+
+        # Optional per-record case log (JSONL): candidates + decision path.
+        self._case_log = None
+        if case_log_path is not None:
+            case_log_path = Path(case_log_path)
+            case_log_path.parent.mkdir(parents=True, exist_ok=True)
+            self._case_log = open(case_log_path, "w", encoding="utf-8")
 
     # -- Public API ----------------------------------------------------
 
@@ -180,41 +189,65 @@ class EntityLinker:
             return LinkResult(status="dropped", reason=drop_reason)
 
         candidate_ids = self.index.lookup(strategy.lookup_keys(prep))
-        match_id = strategy.adjudicate(prep, candidate_ids, self.events)
+        match_id, path, candidate_debug = strategy.adjudicate(
+            prep, candidate_ids, self.events
+        )
 
         if match_id and match_id in self.events:
             base = self.events[match_id]
             logger.debug(
-                "MERGE — incoming source=%s date_source=%s name=%r desc=%r\n"
-                "        into id=%s name=%r existing_sources=%d desc=%r",
-                record.get("_source_id"),
-                prep.window.source,
-                record.get("name"),
-                (record.get("description") or "")[:140],
-                match_id,
-                base.get("name"),
-                len(base.get("source_ids") or []),
-                (base.get("description") or "")[:140],
+                "MERGE (%s) — incoming source=%s name=%r into id=%s name=%r",
+                path, record.get("_source_id"), record.get("name"),
+                match_id, base.get("name"),
             )
             strategy.merge(base, prep, self.index)
+            self._log_case(prep, candidate_ids, candidate_debug, path, f"merged:{match_id}")
             return LinkResult(status="merged", event_id=match_id, record=base)
 
-        logger.debug(
-            "CREATE — event_type=%s geo_key=%r date_source=%s "
-            "dates=%s..%s slack=%dd name=%r desc=%r (no match among %d candidates)",
-            prep.event_type,
-            prep.geo_key,
-            prep.window.source,
-            prep.window.start.isoformat() if prep.window.start else None,
-            prep.window.end.isoformat() if prep.window.end else None,
-            prep.window.slack_days,
-            record.get("name"),
-            (record.get("description") or "")[:140],
-            len(candidate_ids),
-        )
         new_id, linked = strategy.create(prep, self.index)
         self.events[new_id] = linked
+        logger.debug(
+            "CREATE (%s) — event_type=%s name=%r (no match among %d candidates)",
+            path, prep.event_type, record.get("name"), len(candidate_ids),
+        )
+        self._log_case(prep, candidate_ids, candidate_debug, path, f"created:{new_id}")
         return LinkResult(status="created", event_id=new_id, record=linked)
+
+    def _log_case(
+        self,
+        prep,
+        candidate_ids,
+        candidate_debug: List[Dict[str, Any]],
+        path: str,
+        decision: str,
+    ) -> None:
+        """Append one JSONL line: candidates + how the decision was reached."""
+        if self._case_log is None:
+            return
+        geo = prep.record.get("_geo") or {}
+        entry = {
+            "source_id": prep.record.get("_source_id"),
+            "supertype": prep.record.get("_supertype"),
+            "event_type": prep.event_type,
+            "name": prep.record.get("name"),
+            "geo": {
+                "geo_source": prep.record.get("_geo_source"),
+                "level_3_id": geo.get("level_3_id"),
+                "coords": [geo.get("matched_lat"), geo.get("matched_lon")],
+            },
+            "window": {
+                "start": prep.window.start.isoformat() if prep.window.start else None,
+                "end": prep.window.end.isoformat() if prep.window.end else None,
+                "precision_days": prep.window.precision_days,
+                "source": prep.window.source,
+            },
+            "n_candidates": len(candidate_ids),
+            "candidates": candidate_debug,
+            "path": path,
+            "decision": decision,
+        }
+        self._case_log.write(json.dumps(entry, ensure_ascii=False, default=str) + "\n")
+        self._case_log.flush()
 
     # -- Envelope -------------------------------------------------------
 
