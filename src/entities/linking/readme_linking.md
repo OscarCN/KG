@@ -138,7 +138,7 @@ When no match is found, a new linked event is minted with id `{YYYYMMDD}_{state-
 | `street` (+ `number`) | `CALLE` | 6 |
 | `place_name` | `LUG` | 7 |
 
-The geocoder is deepriver's own NLP + geocoding microservice pair, reached via `NLP_URL` and `GEOCODING_URL` env vars. The wrapper picks the highest-precision match from context group `'1'` of the response and exposes `geoid`, `precision_level` (int 1–7), `formatted_name`, `level_2/3/5/7`, `matched_lat`, `matched_lon`. Results are cached as JSON under `cache/geocode/<sha256>.json` keyed by the canonicalized Location dict, so re-runs avoid hitting the geocoding service.
+The geocoder is deepriver's own NLP + geocoding microservice pair, reached via `NLP_URL` and `GEOCODING_URL` env vars. The wrapper picks the highest-precision match from context group `'1'` of the response and exposes `geoid`, `precision_level` (int 1–7), `formatted_name`, the full admin hierarchy as both names (`level_1`…`level_7`) and hierarchical ids (`level_1_id`…`level_7_id`), and `matched_lat`/`matched_lon`. The `level_N_id`s nest as strict prefixes (`_484` ⊂ `_48422` ⊂ `_48422016`), mirror kgdb `entity_locations.level_N_id`, and are what the geo partition keys are built from. Results are cached as JSON under `cache/geocode/<sha256>.json` keyed by the canonicalized Location dict, so re-runs avoid hitting the geocoding service — note the cache stores the normalized output, so changing which fields the wrapper retains requires clearing `cache/geocode/` to repopulate.
 
 ### Output record shape
 

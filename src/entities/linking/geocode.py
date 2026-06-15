@@ -152,18 +152,22 @@ def _normalize_response(match: Dict[str, Any]) -> Dict[str, Any]:
         precision = int(match.get("precision_level") or 0)
     except (TypeError, ValueError):
         precision = 0
-    return {
+    out: Dict[str, Any] = {
         "geoid": match.get("geoid") or "",
         "precision_level": precision,
         "formatted_name": match.get("formatted_name") or "",
-        "level_1": match.get("level_1") or "",
-        "level_2": match.get("level_2") or "",
-        "level_3": match.get("level_3") or "",
-        "level_5": match.get("level_5") or "",
-        "level_7": match.get("level_7") or "",
         "matched_lat": coords.get("lat"),
         "matched_lon": coords.get("lon"),
     }
+    # Retain the full admin hierarchy — both names and the hierarchical
+    # `level_N_id`s (each a strict prefix of the next, e.g. `_484` ⊂ `_48422`
+    # ⊂ `_48422016`). The ids are what the linker partitions on and mirror
+    # kgdb `entity_locations.level_N_id`; dropping them (the prior behaviour)
+    # forced the geo partition down to state-name only.
+    for n in range(1, 8):
+        out[f"level_{n}"] = match.get(f"level_{n}") or ""
+        out[f"level_{n}_id"] = match.get(f"level_{n}_id") or ""
+    return out
 
 
 def geocode_location(

@@ -68,6 +68,7 @@ src/
     newsfeed.py     # News relevance classification and structured extraction
     get_data.py     # Fetch ES hits via elastic_client → data/<subdir>/*.json
     get_entities_data.py # Build an incoming-document fixture from one keywords.xlsx row
+    get_geo_event_fixtures.py # Build per-supertype fixtures (all rules for a supertype) scoped to a state (locations_mentioned.level_2_id) + date window
     run_extraction.py# Step-by-step IPython script for the extraction pipeline
     sentence_pairs_model.py  # Sentence-pair similarity model (PyTorch)
 resources/          # Input data files (Excel, prompt contexts)
@@ -180,3 +181,4 @@ A related future direction is **multi-class entities** — a single entity insta
 Design and roadmap TODOs live in [`docs/todos/`](docs/todos/) — **one self-contained file per TODO**.
 
 - [Per-supertype retrieval & linking strategy](docs/todos/retrieval_linking_per_supertype.md) — make candidate retrieval and linking a declarable per-supertype (and per class-family) strategy of attributes + methods. The **geo strategy v1** spec (identity model, date/geo fallback tiers, precision fixes) is **implemented** (`src/entities/linking/strategy.py`); the per-supertype generalization and the `person_actions` strategy remain open.
+- [Tighten `robbery_assault_event` matching keywords](docs/todos/robbery_assault_keywords.md) — the `security_event` class matches thematic security terms (and the bare `Seguridad` category), polluting the linking partition with non-incidents and overlapping the `security` theme. Narrow the keywords to discrete crime incidents.
