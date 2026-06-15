@@ -8,13 +8,15 @@ For an overview of the broader pipeline and ontology categories, see [`../readme
 
 ```
 linking/
-  geocode.py              # Geocoder wrapper (structured Location → level_2, coords, geoid)
+  geocode.py              # Geocoder wrapper (structured Location → full level_1..7 + level_N_id + coords + geoid)
+  geo_util.py             # Coords-only helpers: haversine (meters), grid_cell/grid_neighbors (~1km retrieval buckets)
+  text_util.py            # name_similarity (character-trigram Jaccard, accent-insensitive) — name strings only
   link_llm.py             # LLM disambiguator (gemini-2.5-flash-lite) with file cache
   index.py                # CandidateIndex protocol + in-memory implementation (dumb key→ids store)
   mx_states.py            # Static catalogue of the 32 Mexican states (partition-key normalization + fallback)
-  strategy.py             # GeoEventStrategy: enrich → window/keys → adjudicate → merge/create (+ DateWindow, registry)
-  link.py                 # EntityLinker: envelope parse + strategy orchestration. Exposes link_one(raw) → LinkResult for streaming callers.
-  run_linking.py          # IPython runner — tests linking from extracted-record fixtures.
+  strategy.py             # GeoEventStrategy: enrich → window/keys → deterministic gate / adjudicate → merge/create
+  link.py                 # EntityLinker: envelope parse + strategy orchestration + case log. link_one(raw) → LinkResult.
+  run_linking.py          # IPython runner — tests linking from extracted-record fixtures (env-configurable stem).
   readme_linking.md       # This file
 ```
 
@@ -53,9 +55,9 @@ For each incoming event, candidates are the already-linked events sharing **all 
 
 Each linked event is registered in the candidate index under both its extracted-date window (when present, with its own slack) and its publication-date window (when present, with publication slack). That way the next incoming event finds it regardless of which date source it carries. Windows longer than `max_window_days` (365) are clamped at the start + 365 days and logged.
 
-The filter is intentionally broad — the LLM does the actual same-vs-different judgment, over a candidate list capped at `candidate_cap` (12, most recent first).
+The filter is intentionally broad (recall) — the **deterministic gate or the LLM** makes the actual same-vs-different judgment (precision), over a candidate list capped at `candidate_cap` (12, most recent first).
 
-> **Note (fixed bug):** the previous implementation partitioned on `_geo["level_2_id"]`, a key the geocoder wrapper never emits — so the state partition never fired and all same-type/same-day events shared one bucket. Partitioning now uses `level_2`. One observed geocoder quirk: the wrapper picks the highest-`precision_level` match regardless of state agreement, so a record whose extracted `state` says one state can land in another's partition; this is deterministic (cached), so partitioning stays consistent per location input.
+> **History.** v1 partitioned on a single state slug (after fixing a bug where it keyed on `_geo["level_2_id"]`, which the geocoder wrapper never emitted, so the partition never fired and all same-type/same-day events shared one bucket). That single-state partition is **superseded** by the hierarchical `level_N_id` + grid retrieval above (`geo_retrieval="hierarchy"`; `"level_2"` reproduces the v1 single-slug behaviour for regression). One observed geocoder quirk persists: the wrapper picks the highest-`precision_level` match regardless of state agreement, so a record whose extracted `state` says one state can land in another's partition; this is deterministic (cached), so partitioning stays consistent per location input.
 
 #### Strategy parameters
 
@@ -98,7 +100,9 @@ Before the LLM, a cheap deterministic pass merges the high-confidence cases (`de
 
 Geo distance is haversine ([`geo_util.py`](geo_util.py)); `level_N_id` equality (at or below the branch's floor) is the fallback when either side lacks coordinates. A hit merges without an LLM call and is logged with `path="deterministic"`; otherwise the record falls to the LLM. The gate is conservative by construction (it can never merge alone — geo *and* date *and* name/venue must all clear), so its failure mode is *under*-firing (defer to the LLM), not over-merging.
 
-> **Observed (Querétaro public_works):** the gate fired on just 1/107 records — most public_works records are **nameless** (72/107), so the named branch can't trigger, and public_works isn't a venue type. Many nameless records sit at `dist=0 m` from a same-type candidate and are merged by the LLM instead. Extending the no-name branch to such supertypes would need a `precision_level ≥ 6` (street/place) gate — `dist=0` at colonia precision means "same colonia centroid", not "same work" — and is left as a data-driven follow-up.
+> **Observed (Querétaro public_works):** the gate fired on just 1/107 records — most public_works records are **nameless** (72/107), so the named branch can't trigger, and public_works isn't a venue type. Many nameless records sit at `dist=0 m` from a same-type candidate and are merged by the LLM instead.
+>
+> **Planned refinement (approved, not yet implemented):** replace both distance-based branches with a single **no-name branch keyed on sharing `level_6_id`/`level_7_id`** (same street/place) `∧` day `∧` type — for all supertypes. Sharing a fine id is inherently precision-aware (a coarse record has none to share), which also fixes a **precision-blindness bug** in the current distance gate (a precision-3 centroid that lands within `r6_m`/`r7_m` of a precise event merges spuriously). Full spec + verification + commit plan: [`docs/todos/deterministic_match_slack.md`](../../../docs/todos/deterministic_match_slack.md).
 
 ### LLM disambiguation (`link_llm.py`)
 
@@ -119,7 +123,7 @@ Responses are cached as `cache/link_llm/<sha256>.json`, keyed by `sha256(canonic
 
 ### Merge behavior
 
-When the LLM picks a match, the strategy:
+When a match is found — by the deterministic gate or the LLM — the strategy:
 
 - appends the new record's `_source_id` to the canonical event's `source_ids` (de-duped),
 - fills nulls on `name`, `description`, `context`, `status` from the new record; keeps the earliest `publication_date`,
@@ -171,9 +175,11 @@ Linked events also carry the canonical `date_range` (the most precise extracted 
 
 ### Running
 
-`run_linking.py` is a step-by-step IPython script (mirrors `src/PoC/run_extraction.py`) for testing linking against an extracted-record fixture. Edit the `INPUT`, `OUTPUT`, and `GEOCODE` constants at the top of the file, then:
+`run_linking.py` is a step-by-step IPython script (mirrors `src/PoC/run_extraction.py`) for testing linking against an extracted-record fixture. Select the fixture with `LINK_STEM` (or `LINK_INPUT_STEM`/`LINK_OUTPUT_STEM`) and point the geocoder via `GEOCODING_URL`/`NLP_URL`; `GEOCODE` (env or the constant) toggles geocoding:
 
 ```bash
+GEOCODING_URL=http://localhost:8090/geocoder NLP_URL=http://localhost:8210/tag \
+LINK_STEM=geo_qro_public_works_event \
 ipython src/entities/linking/run_linking.py
 # or from a Jupyter/IPython session:
 %run src/entities/linking/run_linking.py
