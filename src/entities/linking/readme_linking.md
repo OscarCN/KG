@@ -102,15 +102,16 @@ Geo distance is haversine ([`geo_util.py`](geo_util.py)); `level_N_id` equality 
 
 ### LLM disambiguation (`link_llm.py`)
 
-When the deterministic gate does not fire, a single LLM call decides whether the incoming event matches any candidate. The model is `google/gemini-2.5-flash-lite` (override via `OPENROUTER_LINKER_MODEL`). The payload sent to the LLM contains, for the incoming event and each candidate, ONLY:
+When the deterministic gate does not fire, a single LLM call decides whether the incoming event matches any candidate. The model is `google/gemini-2.5-flash-lite` (override via `OPENROUTER_LINKER_MODEL`). The payload is **description-centric**: identity is judged on the *described facts*, not a privileged name (most records have none). For the incoming event and each candidate it contains ONLY:
 
 | Field | Source |
 |---|---|
-| `name` | record `name` |
-| `description` | record `description` |
+| `identification` | record `description`, **description-led**, with the `name` folded in only when present and not already in the text — never a standalone key |
 | `address` | the structured `location` dict (country, state, city, neighborhood, zone, street, number, place_name) — **not** the whole event record |
 | `date` | `{start, end}` from `record.date_range.date_range`, ISO-formatted (may both be null) |
 | `publication_date` | ISO-formatted publication timestamp (when present); used by the LLM as a fallback temporal anchor |
+
+The system prompt instructs the model to merge complementary/partial descriptions of the same concrete event and to keep genuinely different facts (different works, incidents, or specific places) apart — explicitly *not* relying on the name.
 
 Candidates additionally carry their `id`. The LLM is instructed to return either `{"match_id": "<one of the candidate ids>"}` or `{"match_id": null}`. Any id not present in the candidate list is treated defensively as `null`. Empty candidate lists short-circuit to `null` without an LLM call.
 

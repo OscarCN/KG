@@ -236,6 +236,35 @@ Two geo-event records denote the **same event** iff:
   normalized-name + `level_3` + date match); `level_3` refinement when a
   partition exceeds the candidate cap.
 
+### Decision log (geo v2 — hierarchical retrieval + deterministic gate, 2026-06)
+
+Both deferred items above **landed**, generalized (see
+[`readme_linking.md`](../../src/entities/linking/readme_linking.md)):
+
+- **Hierarchical + coordinate retrieval** (`geo_retrieval="hierarchy"`). A located
+  event registers/looks up under its `level_N_id` buckets (`partition_levels=(3,5,6,7)`)
+  **and** a ~1 km coordinate grid cell (lookup probes the 8 neighbors) — *not* a
+  shared state-wide bucket. This kills the single-state degeneracy while the grid
+  carries cross-municipality recall (same place, disagreeing `level_3_id`). The
+  geocoder wrapper now retains `level_N_id` (the keys) and `coords`.
+- **Deterministic merge gate** (`deterministic_merge`, per-supertype
+  `DeterministicPolicy`). Skips the LLM on confident matches: a venue branch
+  (`scheduled_venue` supertypes — coords ≤ ~75 m + exact dates, no name) and a
+  named branch (`name_similarity ≥ 0.65` + coords ≤ ~150 m + tight dates). Geo is
+  haversine, `level_N_id` equality as the coords-less fallback.
+- **Description-centric LLM payload.** Identity judged on described facts, not a
+  privileged name (most records have none); the name is folded into a
+  description-led `identification` field.
+- **Case log** (`EntityLinker(case_log_path=...)`): per-record JSONL of candidates
+  (`geo_dist_m`, `name_sim`) + decision path — the audit/tuning trail.
+- **Observed limit (Querétaro public_works):** the deterministic gate barely fires
+  because 72/107 records are **nameless** and most geocode only to precision 3
+  (municipality centroid). The residual under-merges (e.g. one El Marqués street
+  project fragmenting into 4) are **extraction-quality bound** (no name + coarse
+  location), not retrieval/adjudication. A no-name branch for non-venue supertypes
+  would need a `precision_level ≥ 6` gate to be safe — left as a data-driven
+  follow-up once extraction yields names / finer coordinates.
+
 ### Pipeline cleanup (code shape for v1)
 
 - Split `link.py` into: a `CandidateIndex` protocol (`register`/`lookup`), a
@@ -278,7 +307,7 @@ slimmed `link.py`).
 
 | Supertype / family | Retrieval (candidate filter) | Adjudication fields |
 |---|---|---|
-| geo events (current) | `event_type` (exact) ∧ `level_2_id` (exact, tiered) ∧ `date_overlap` (tiered, precision-aware) | name, description, address, date, publication_date |
+| geo events (current) | `event_type` (exact) ∧ (`level_N_id` buckets + coordinate grid, hierarchical) ∧ `date_overlap` (tiered, precision-aware); deterministic gate (coords+name+date) before the LLM | `identification` (description-led, name folded in), address, date, publication_date |
 | `legislative_initiative` | `entity_type` (exact) ∧ `level_2_id`/region (exact) ∧ `name_token` | name, description, jurisdiction |
 | persons / orgs / products | `entity_type` (exact) ∧ `name_token`/`lsh` (+ `embedding_knn` in v2) | name, description |
 | real estate developments | `level_2_id` (exact) ∧ `name_token` | name, location |

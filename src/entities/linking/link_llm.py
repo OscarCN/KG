@@ -6,15 +6,17 @@ whether the incoming event is the same real-world occurrence as any
 of the candidates. Returns the matching candidate id, or None.
 
 Each event payload exposes ONLY the fields the LLM needs to judge
-identity:
+identity. Identity is judged on the *described facts*, not a privileged name
+(many events have none) — the name, when present, is folded into the
+description-led `identification` field:
 
     {
-        "name": str | None,
-        "description": str,
+        "identification": str,   # description-led, with the name folded in
         "address": {country, state, city, neighborhood, zone,
                     street, number, place_name},   # the structured Location
         "date": {"start": ISO-string | None,
                  "end":   ISO-string | None},
+        "publication_date": ISO-string | None,
     }
 
 Candidates additionally carry an "id" field. The LLM is instructed to
@@ -90,12 +92,16 @@ _SYSTEM_PROMPT = (
     "Eres un modelo de desambiguación de eventos. Recibes un evento entrante "
     "y una lista de eventos candidatos ya registrados. Decide si el evento "
     "entrante es la MISMA ocurrencia real-world que alguno de los candidatos.\n\n"
-    "Considera nombre, descripción, dirección estructurada y fechas. Dos "
-    "registros pueden referirse al mismo evento aunque tengan nombres ligeramente "
-    "distintos, descripciones complementarias o direcciones a diferentes niveles "
-    "de detalle, siempre y cuando se trate del mismo hecho concreto en el mismo "
-    "lugar y tiempo. Si las descripciones describen hechos distintos (aunque "
-    "compartan tipo, fecha y ciudad), NO son el mismo evento.\n\n"
+    "Basa tu juicio en los HECHOS DESCRITOS en el campo `identification` "
+    "(qué ocurrió, dónde y cuándo), junto con la dirección estructurada y las "
+    "fechas. MUCHOS eventos no tienen nombre propio: no dependas del nombre — "
+    "puede faltar, ser genérico o estar redactado distinto. Dos registros son "
+    "el MISMO evento cuando describen el mismo hecho concreto en el mismo lugar "
+    "y tiempo, aunque sus textos sean complementarios, parciales o con distinta "
+    "redacción (una obra, un incidente o un evento reportado por varias fuentes). "
+    "Son eventos DISTINTOS cuando los hechos descritos difieren —p.ej. obras "
+    "diferentes, incidentes diferentes o lugares específicos distintos— aunque "
+    "compartan tipo, fecha y zona.\n\n"
     "Responde EXCLUSIVAMENTE con un JSON con la forma:\n"
     '{\"match_id\": \"<id de un candidato>\"}  o  {\"match_id\": null}\n\n'
     "Solo puedes devolver un id que aparezca en la lista de candidatos. Si "

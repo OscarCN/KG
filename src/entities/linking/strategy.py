@@ -160,14 +160,27 @@ def _date_payload(record: Dict[str, Any]) -> Dict[str, Optional[str]]:
     }
 
 
+def _identification_text(record: Dict[str, Any]) -> str:
+    """Description-led identification block, with the name folded in.
+
+    Many events have no name, so the LLM should judge on the *described facts*;
+    the name is included only as an extra clue when present (and not already in
+    the description), never as a privileged key.
+    """
+    desc = (record.get("description") or "").strip()
+    name = (record.get("name") or "").strip()
+    if name and name.lower() not in desc.lower():
+        return f"{desc} (nombre: {name})" if desc else name
+    return desc
+
+
 def _llm_payload(record: Dict[str, Any]) -> Dict[str, Any]:
     # Read whichever field carries the article publication timestamp:
     # `date_created` on raw extracted records, `publication_date` on linked records.
     pub = record.get("date_created") or record.get("publication_date")
     pub_dt = _parse_dt(pub)
     return {
-        "name": record.get("name"),
-        "description": record.get("description") or "",
+        "identification": _identification_text(record),
         "address": _address(record),
         "date": _date_payload(record),
         "publication_date": pub_dt.isoformat() if pub_dt else None,
