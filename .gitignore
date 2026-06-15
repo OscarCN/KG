@@ -11,3 +11,6 @@ cache/
 
 .mcp.json
 
+# Business/value docs — keep local, not in the repo
+docs/value_offer.md
+
