@@ -2,15 +2,16 @@
 
 **Status:** open — assessment, gated on geocoder quality
 **Area:** `src/entities/linking/strategy.py` (deterministic gate / `_llm_adjudicate`)
-**Related:** [`didnt_merge_review.md`](didnt_merge_review.md), [`deterministic_match_slack.md`](deterministic_match_slack.md), [`../../src/entities/linking/readme_linking.md`](../../src/entities/linking/readme_linking.md)
+**Related:** [`location_level_list_extraction.md`](location_level_list_extraction.md), [`../../src/entities/linking/readme_linking.md`](../../src/entities/linking/readme_linking.md)
 
 ## Idea
 
 Today, when an incoming event and a candidate resolve to **different leaf locations**
 (different `level_6_id`/`level_7_id`), we still send the pair to the LLM with a *soft*
-negative signal — the `ubicacion_fina="distinta"` field (Pattern B, implemented). The
-LLM can still overrule it and merge (and it did over-merge the Paseo de México ↔ Paseo de
-Belgrado sinkholes — see `didnt_merge_review.md`, Pattern B).
+negative signal — the `ubicacion_fina="distinta"` field. The LLM can still overrule it and
+merge: on the Querétaro public_works fixture it did, leaving two **distinct** streets —
+the Paseo de México and Paseo de Belgrado sinkholes (colonia Tejeda) — over-merged into one
+event despite their differing `level_6_id`s.
 
 The aggressive variant: **treat a leaf disagreement as a hard non-match — skip the LLM
 call entirely** for that candidate. If two records geocode to *different specific

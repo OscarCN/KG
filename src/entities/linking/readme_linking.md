@@ -121,7 +121,7 @@ When the deterministic gate does not fire, a single LLM call decides whether the
 
 The system prompt instructs the model to merge complementary/partial descriptions of the same concrete event and to keep genuinely different facts (different works, incidents, or specific places) apart — explicitly *not* relying on the name, and to treat a `ubicacion_fina="distinta"` candidate as a different event absent strong evidence.
 
-> **Note (soft signal, observed):** `ubicacion_fina` is advisory — the LLM can overrule it. On the public_works fixture it did **not** prevent the Paseo de México ↔ Paseo de Belgrado sinkhole over-merge (`didnt_merge_review.md`, Pattern B): the two distinct streets stayed merged. Hard-stopping the LLM on a leaf disagreement (skip the call entirely) would, but its safety depends on geocoder leaf accuracy — assessed in [`docs/todos/skip_llm_on_leaf_disagreement.md`](../../../docs/todos/skip_llm_on_leaf_disagreement.md).
+> **Note (soft signal, observed):** `ubicacion_fina` is advisory — the LLM can overrule it. On the public_works fixture it did **not** prevent the Paseo de México ↔ Paseo de Belgrado sinkhole over-merge: the two distinct streets (differing `level_6_id`s, colonia Tejeda) stayed merged. Hard-stopping the LLM on a leaf disagreement (skip the call entirely) would, but its safety depends on geocoder leaf accuracy — assessed in [`docs/todos/skip_llm_on_leaf_disagreement.md`](../../../docs/todos/skip_llm_on_leaf_disagreement.md).
 
 Candidates additionally carry their `id`. The LLM is instructed to return either `{"match_id": "<one of the candidate ids>"}` or `{"match_id": null}`. Any id not present in the candidate list is treated defensively as `null`. Empty candidate lists short-circuit to `null` without an LLM call.
 
