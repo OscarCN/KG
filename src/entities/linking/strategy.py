@@ -30,6 +30,7 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from .geocode import geocode_location
+from .geo_util import grid_cell, grid_neighbors
 from .index import CandidateIndex, IndexKey
 from .link_llm import disambiguate
 from .mx_states import normalize_state, slug
@@ -164,6 +165,9 @@ class GeoEventStrategy:
         bounded_merge_widening: bool = True,            # legacy: False (unconditional min/max)
         candidate_cap: Optional[int] = 12,              # legacy: None (unbounded)
         probe_noloc_bucket: bool = True,                # located lookups also probe the "" bucket
+        geo_retrieval: str = "hierarchy",               # legacy: "level_2" (single state slug)
+        partition_levels: Tuple[int, ...] = (3, 5, 6, 7),  # admin levels (below state) to bucket on
+        grid_size_deg: float = 0.01,                    # coordinate grid cell side (~1.1 km)
     ):
         self.geocode = geocode
         self.extracted_slack_days = extracted_slack_days
@@ -176,6 +180,9 @@ class GeoEventStrategy:
         self.bounded_merge_widening = bounded_merge_widening
         self.candidate_cap = candidate_cap
         self.probe_noloc_bucket = probe_noloc_bucket
+        self.geo_retrieval = geo_retrieval
+        self.partition_levels = partition_levels
+        self.grid_size_deg = grid_size_deg
 
     # -- Prepare: enrich + resolve identity keys ------------------------
 
@@ -292,38 +299,104 @@ class GeoEventStrategy:
 
     # -- Retrieval keys --------------------------------------------------
 
-    def lookup_keys(self, prep: PreparedEvent) -> List[IndexKey]:
-        """Keys to probe for candidates.
+    def _fine_geo_keys(self, geo: Dict[str, Any]) -> List[str]:
+        """Namespaced partition keys below state: level_N_id buckets + grid cell."""
+        keys: List[str] = []
+        for n in self.partition_levels:
+            lid = (geo.get(f"level_{n}_id") or "").strip()
+            if lid:
+                keys.append(f"l{n}:{lid}")
+        return keys
 
-        Located records additionally probe the "" (noloc) bucket so an
-        event first seen without a location can still be matched by later,
-        located mentions. The reverse direction is impossible — a noloc
-        record can't know which geo partition to probe.
+    def _located_geo_keys(self, geo: Dict[str, Any]) -> List[str]:
+        """Fine keys for a geocoded record: level_N_id buckets + its grid cell.
+
+        Empty when the record has no admin ids and no coordinates (not located).
         """
+        keys = self._fine_geo_keys(geo)
+        cell = grid_cell(geo.get("matched_lat"), geo.get("matched_lon"), self.grid_size_deg)
+        if cell is not None:
+            keys.append(f"g:{cell[0]},{cell[1]}")
+        return keys
+
+    def _register_geo_keys(self, record: Dict[str, Any]) -> List[str]:
+        """Geo keys a record is registered under.
+
+        Hierarchy mode: a **located** record registers under its fine keys only
+        (`level_N_id` buckets + grid cell) — deliberately *not* a shared
+        state-wide bucket, which would re-merge every located event in the state.
+        A record with no fine keys falls back to a state-only bucket (`so:<slug>`)
+        or, with no state at all, the noloc bucket (`""`).
+        """
+        if self.geo_retrieval == "level_2":
+            return [self._geo_key(record)]
+        keys = self._located_geo_keys(record.get("_geo") or {})
+        if keys:
+            return list(dict.fromkeys(keys))
+        state = self._geo_key(record)
+        return [f"so:{state}"] if state else [""]
+
+    def _lookup_geo_keys(self, record: Dict[str, Any]) -> List[str]:
+        """Geo keys a record probes for candidates.
+
+        A located record probes its fine keys + the grid cell **and its 8
+        neighbors** (a same-event mention can land in an adjacent cell), plus —
+        as a *bridge* — the state-only bucket and the noloc bucket, so a precise
+        mention can still meet an earlier vague one. It does **not** probe a
+        shared state-wide bucket, keeping the candidate set narrow. The reverse
+        bridge (vague → precise) is impossible, as before.
+        """
+        if self.geo_retrieval == "level_2":
+            gk = self._geo_key(record)
+            keys = [gk]
+            if self.probe_noloc_bucket and gk:
+                keys.append("")
+            return keys
+        geo = record.get("_geo") or {}
+        fine = self._fine_geo_keys(geo)
+        cell = grid_cell(geo.get("matched_lat"), geo.get("matched_lon"), self.grid_size_deg)
+        state = self._geo_key(record)
+        if fine or cell is not None:
+            keys = list(fine)
+            if cell is not None:
+                keys += [f"g:{r},{c}" for r, c in grid_neighbors(cell)]
+            if self.probe_noloc_bucket:
+                if state:
+                    keys.append(f"so:{state}")
+                keys.append("")
+            return list(dict.fromkeys(keys))
+        # Not located: probe the state-only bucket (+ noloc bridge).
+        keys = [f"so:{state}"] if state else [""]
+        if self.probe_noloc_bucket and state:
+            keys.append("")
+        return list(dict.fromkeys(keys))
+
+    def lookup_keys(self, prep: PreparedEvent) -> List[IndexKey]:
+        """Candidate-probe keys: every geo key crossed with every day key."""
         day_keys = self._date_keys(
             prep.window.start, prep.window.end, prep.window.slack_days
         )
-        keys = [(prep.event_type, prep.geo_key, dk) for dk in day_keys]
-        if self.probe_noloc_bucket and prep.geo_key:
-            keys += [(prep.event_type, "", dk) for dk in day_keys]
-        return keys
+        geo_keys = self._lookup_geo_keys(prep.record)
+        return [(prep.event_type, gk, dk) for gk in geo_keys for dk in day_keys]
 
     def _register(
         self,
         linked: Dict[str, Any],
         event_type: str,
-        geo_key: str,
         window: Optional[DateWindow],
         index: CandidateIndex,
     ) -> None:
-        """Register a linked event under its extracted and publication windows."""
+        """Register a linked event under all its geo keys × its date windows."""
+        geo_keys = self._register_geo_keys(linked)
         if window is not None and window.source == "extracted":
             for dk in self._date_keys(window.start, window.end, window.slack_days):
-                index.register((event_type, geo_key, dk), linked["id"])
+                for gk in geo_keys:
+                    index.register((event_type, gk, dk), linked["id"])
         pub_dt = _parse_dt(linked.get("publication_date"))
         if pub_dt:
             for dk in self._date_keys(pub_dt, pub_dt, self.publication_slack_days):
-                index.register((event_type, geo_key, dk), linked["id"])
+                for gk in geo_keys:
+                    index.register((event_type, gk, dk), linked["id"])
 
     # -- Adjudication ----------------------------------------------------
 
@@ -381,7 +454,7 @@ class GeoEventStrategy:
         # canonical date range can be chosen (not just widened) on merges.
         linked["_date_source"] = window.source
         linked["_source_windows"] = [window.to_json()]
-        self._register(linked, prep.event_type, prep.geo_key, window, index)
+        self._register(linked, prep.event_type, window, index)
         return eid, linked
 
     # -- Merge -----------------------------------------------------------
@@ -446,13 +519,13 @@ class GeoEventStrategy:
                     base["_geo_source"] = new["_geo_source"]
 
         # Re-register so candidate lookup finds this event under any new
-        # day-keys the merge introduced. Old keys stay registered (the index
-        # is append-only), so recall never shrinks.
-        base_geo_key = self._geo_key(base)
+        # geo/day-keys the merge introduced (location may have been promoted).
+        # Old keys stay registered (the index is append-only), so recall never
+        # shrinks.
         if self.bounded_merge_widening:
             # Register the incoming record's window directly; the canonical
             # range no longer widens, so it can't be used for reindexing.
-            self._register(base, prep.event_type, base_geo_key, window, index)
+            self._register(base, prep.event_type, window, index)
         else:
             merged_s = _parse_dt(base_dr.get("start"))
             merged_e = _parse_dt(base_dr.get("end"))
@@ -460,9 +533,9 @@ class GeoEventStrategy:
                 merged_window = DateWindow(
                     merged_s, merged_e, self.extracted_slack_days, "extracted"
                 )
-                self._register(base, prep.event_type, base_geo_key, merged_window, index)
+                self._register(base, prep.event_type, merged_window, index)
             else:
-                self._register(base, prep.event_type, base_geo_key, None, index)
+                self._register(base, prep.event_type, None, index)
 
     def _apply_best_window(
         self, base: Dict[str, Any], base_dr: Dict[str, Any]

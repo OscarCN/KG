@@ -45,11 +45,7 @@ new event → schema parse (EntityLinker envelope)
 For each incoming event, candidates are the already-linked events sharing **all three** of:
 
 - same `event_type`
-- same **geo partition key** — tiered:
-  1. the geocoder's `level_2` (state), normalized through the state catalogue (`mx_states.py`) so accent/spelling variants collapse to one slug (e.g. `'Queretaro'` → `queretaro`);
-  2. when geocoding yields no state but the extracted `location.state` text names one, the state catalogue resolves it deterministically (no service call);
-  3. otherwise the explicit `""` (**noloc**) bucket.
-  The tier used is recorded on the record as `_geo_source ∈ {geocoder, state_catalogue, none}`. Located lookups **also probe the noloc bucket**, so an event first seen without a location can still be matched by later, located mentions (the reverse is impossible — a noloc record can't know which partition to probe; this is the partition's accepted recall trade-off).
+- overlapping **geo partition** — hierarchical (`geo_retrieval="hierarchy"`, the default; legacy `"level_2"` reproduces the old single state slug). A **located** record registers and looks up under its *fine* keys only — each available `level_N_id` below state (`partition_levels=(3,5,6,7)`) **and** a coordinate **grid cell** (`grid_size_deg≈0.01`, ~1 km). Lookup additionally probes the grid cell's **8 neighbors** (a same-event mention can land in an adjacent cell). This is deliberately *not* a shared state-wide bucket — that would re-merge every located event in the state (the single-state degeneracy). Cross-municipality recall is instead carried by the grid: two mentions of the same place that disagree on `level_3_id` (e.g. a sinkhole tagged Corregidora vs Querétaro-city) still meet in the same/adjacent cell. A record with no fine keys falls back to a **state-only** bucket (`so:<slug>`, from the geocoder `level_2` name or the extracted `location.state` via the `mx_states.py` catalogue) or, with no state at all, the **noloc** bucket (`""`). `_geo_source ∈ {geocoder, state_catalogue, none}` records which tier produced the state slug. Located lookups also probe the `so:`/noloc buckets as a one-way **bridge** so a precise mention can match an earlier vague one (the reverse is impossible — a vague record can't know the partition; accepted recall trade-off).
 - date-range overlap with **slack** applied symmetrically:
   - **max(±1 day, ±`precision_days`)** when the incoming event has an extracted `date_range` — an approximate mention ("en marzo" → `precision_days≈30`) widens its own window accordingly.
   - **±2 days** when the incoming event has no extracted date and falls back to its publication timestamp. (Kept symmetric deliberately: publication can precede or follow the event for most types — announcements vs. reports.)
@@ -73,6 +69,9 @@ The filter is intentionally broad — the LLM does the actual same-vs-different 
 | `max_window_days` / `clamp_long_ranges` | `365` / `True` | `False` (endpoints-only quirk) |
 | `bounded_merge_widening` | `True` | `False` (unconditional min/max) |
 | `candidate_cap` | `12` | `None` (unbounded) |
+| `geo_retrieval` | `"hierarchy"` | `"level_2"` (single state slug) |
+| `partition_levels` | `(3, 5, 6, 7)` | n/a (state only) |
+| `grid_size_deg` | `0.01` (~1 km cells) | n/a (no grid) |
 
 ### Date sources
 

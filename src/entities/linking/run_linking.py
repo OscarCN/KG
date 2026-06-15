@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import sys
 from collections import Counter, defaultdict
 from datetime import date, datetime
@@ -49,9 +50,12 @@ logging.getLogger("src.entities.linking").setLevel(logging.INFO)
 from src.entities.linking.link import EntityLinker, LinkResult
 
 # -- Configuration ------------------------------------------------------------
+# INPUT/OUTPUT stems are overridable via env so the same harness can drive any
+# fixture (e.g. LINK_STEM=geo_qro_public_works_event) without editing the file.
 
-INPUT: Path = _PROJECT_ROOT / "data" / "extracted_raw" / "ayuntamiento_tst.json"
-OUTPUT: Path = _PROJECT_ROOT / "data" / "linked" / "ayuntamiento_tst.json"
+_STEM = os.environ.get("LINK_STEM", "ayuntamiento_tst")
+INPUT: Path = _PROJECT_ROOT / "data" / "extracted_raw" / f"{os.environ.get('LINK_INPUT_STEM', _STEM)}.json"
+OUTPUT: Path = _PROJECT_ROOT / "data" / "linked" / f"{os.environ.get('LINK_OUTPUT_STEM', _STEM)}.json"
 
 # Set to False to skip geocoding. Events with no resolvable state are grouped
 # in the empty-location candidate bucket.
