@@ -1,8 +1,0 @@
-`request`: petición personal y específica de atención, información o ayuda.
-
-Ejemplos (texto crudo → label):
-- "me cobraron dos veces el mismo recibo, necesito que me devuelvan el dinero" → "reembolso de cobros duplicados"
-- "llevo tres meses esperando que revisen mi expediente y nadie me dice nada" → "expedientes con tiempos de respuesta excesivos"
-- "por cierto, ¿alguien me puede ayudar a darle seguimiento a mi reclamación?" → "seguimiento a reclamaciones individuales"
-
-Distingue de `suggestion`: la request atiende un caso personal del usuario; la suggestion es una propuesta pública de alcance general. Distingue de `complaint`: la request pide acción concreta sobre el caso; el complaint sólo expone el problema.

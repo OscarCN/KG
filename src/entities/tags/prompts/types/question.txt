@@ -1,8 +1,0 @@
-`question`: pregunta abierta de información. Catálogo estilo FAQ; el label es un tópico corto del FAQ, no la pregunta completa.
-
-Ejemplos (texto crudo → label):
-- "¿dónde puedo pagar el predial este año?" → "pago del predial"
-- "y si quisiera abrir la cuenta sin ir a sucursal, ¿se puede o no?" → "apertura de cuentas a distancia"
-- "¿hasta cuándo durará el cierre de la avenida Madero?" → "duración de cierres viales"
-
-Distingue de `request`: la question pide información general (catalogable como FAQ); la request pide acción sobre un caso personal del usuario. Si la pregunta sólo busca un dato genérico, va a `question`; si reclama atención a un expediente concreto, va a `request`.

@@ -1,8 +1,0 @@
-`denuncia`: acusación pública de irregularidad, abuso, ilícito, mala conducta, fraude o violación regulatoria relevante para la entidad o entidades vinculadas a ella.
-
-Ejemplos (texto crudo → label):
-- "los policías de esa zona piden mordida a cambio de no levantar infracciones" → "corrupción policial"
-- "según vecinos, el contrato de la obra se asignó sin licitación pública" → "asignación irregular de contratos"
-- "siempre que hay obra pública aparecen sobreprecios, no es la primera vez" → "sobreprecios recurrentes en obra pública"
-
-Distingue de `complaint`: el complaint reporta un problema operativo (mal servicio, demora); la denuncia imputa una conducta indebida. Si dudas, prefiere `denuncia` sólo cuando el texto realmente acuse una conducta irregular, no sólo describa una falla.

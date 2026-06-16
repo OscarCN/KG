@@ -1,8 +1,0 @@
-`entity_stance`: cualidad o comportamiento DURADERO atribuido a la entidad (rasgo, no incidente puntual).
-
-Ejemplos (texto crudo → label):
-- "que la obra va a quedar lista en 4 meses? jaja claro" → "el ayuntamiento es ineficiente"
-- "como siempre, meses sin recibir el reembolso" → "la aseguradora retrasa pagos"
-- "A mi me pagaron la garantía sin muchos problemas" → "cumplimiento confiable de garantías"
-
-Distingue de `complaint`: el complaint reporta un problema concreto u operativo; el entity_stance atribuye un rasgo durable. Si el item sólo reporta un incidente aislado, usa `complaint`.

@@ -1,8 +1,0 @@
-`gratefulness`: reconocimiento positivo o agradecimiento por una acción, servicio o labor.
-
-Ejemplos (texto crudo → label):
-- "el equipo de urgencias me salvó la vida, mil gracias" → "atención de urgencias salva vidas"
-- "se nota el cambio en las calles del centro últimamente, por fin" → "mejora reciente en mantenimiento urbano"
-- "vecinos reconocen el operativo policial de anoche en la zona" → "operativos policiales bien recibidos"
-
-Distingue de `endorsement`: el gratefulness reconoce una acción o servicio específico; el endorsement expresa apoyo generalizado a la entidad o proyecto. Si el texto sólo dice "viva el alcalde" sin acción concreta detrás, va a `endorsement`.
