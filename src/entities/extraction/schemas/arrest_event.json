@@ -49,6 +49,7 @@
         "schema": {
             "event_type": {
                 "type": "EnumStr",
+                "importance": "essential",
                 "required": true,
                 "description": "Type of law enforcement action. Choose the single most specific category that matches.",
                 "enum": [
@@ -58,10 +59,12 @@
             },
             "event_subtype": {
                 "type": "str",
+                "importance": "secondary",
                 "description": "More specific subtype, e.g. 'drug_trafficking_arrest', 'warrant_execution', 'in_flagrante_delicto', 'immigration_detention'."
             },
             "status": {
                 "type": "EnumStr",
+                "importance": "essential",
                 "description": "Status of the arrest/detention as reported.",
                 "enum": [
                     "past",
@@ -71,22 +74,27 @@
             },
             "name": {
                 "type": "str",
+                "importance": "essential",
                 "description": "Name of the operation if it has one, e.g. 'Operacion Enjambre'. Usually null."
             },
             "description": {
                 "type": "str",
+                "importance": "essential",
                 "description": "Brief description of the arrest or detention."
             },
             "tags": {
                 "type": "List[str]",
+                "importance": "secondary",
                 "description": "Keywords describing the event."
             },
             "context": {
                 "type": "str",
+                "importance": "essential",
                 "description": "Contextual information: related investigations, crime context, political implications."
             },
             "relevance": {
                 "type": "EnumStr",
+                "importance": "secondary",
                 "description": "Relevance within the article: 1 = main topic, 2 = secondary, 3 = implicit.",
                 "enum": [
                     "1",
@@ -96,34 +104,42 @@
             },
             "date_range": {
                 "type": "DateRangeFromUnstructured",
+                "importance": "essential",
                 "description": "Date or date range of the arrest or detention. Extract the start datetime and, if present, the end datetime."
             },
             "location": {
                 "type": "Location",
+                "importance": "essential",
                 "description": "Location where the arrest or detention took place."
             },
             "detainee_count": {
                 "type": "CountMention",
+                "importance": "secondary",
                 "description": "Number of people detained or arrested, with original text mention and parsed count."
             },
             "detainee_description": {
                 "type": "str",
+                "importance": "secondary",
                 "description": "Description of detained persons (age, gender, affiliation), if mentioned."
             },
             "charges": {
                 "type": "str",
+                "importance": "secondary",
                 "description": "Charges or alleged crimes, if mentioned."
             },
             "arresting_authority": {
                 "type": "str",
+                "importance": "secondary",
                 "description": "Law enforcement body that made the arrest (e.g. 'Policia Federal', 'Guardia Nacional', 'Ejercito')."
             },
             "seized_items": {
                 "type": "str",
+                "importance": "secondary",
                 "description": "Items seized during the operation (weapons, drugs, vehicles, cash), if mentioned."
             },
             "related_crime": {
                 "type": "str",
+                "importance": "secondary",
                 "description": "The crime that led to the arrest, if mentioned (e.g. 'homicidio del 15 de agosto')."
             }
         }

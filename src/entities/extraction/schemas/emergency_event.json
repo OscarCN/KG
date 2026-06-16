@@ -49,6 +49,7 @@
         "schema": {
             "event_type": {
                 "type": "EnumStr",
+                "importance": "essential",
                 "required": true,
                 "description": "Type of emergency from the catalogue. Choose the single most specific category that matches.",
                 "enum": [
@@ -63,10 +64,12 @@
             },
             "event_subtype": {
                 "type": "str",
+                "importance": "secondary",
                 "description": "More specific subtype, e.g. 'structural_fire', 'wildfire', 'car_crash', 'bus_accident', 'gas_explosion', 'flash_flood', 'industrial_accident', 'hit_and_run', 'pedestrian_struck'."
             },
             "status": {
                 "type": "EnumStr",
+                "importance": "essential",
                 "description": "Current status of the emergency.",
                 "enum": [
                     "ongoing",
@@ -77,22 +80,27 @@
             },
             "name": {
                 "type": "str",
+                "importance": "essential",
                 "description": "Name or identifier for the emergency, if any. Usually null."
             },
             "description": {
                 "type": "str",
+                "importance": "essential",
                 "description": "Brief description of the emergency."
             },
             "tags": {
                 "type": "List[str]",
+                "importance": "secondary",
                 "description": "Keywords describing the emergency."
             },
             "context": {
                 "type": "str",
+                "importance": "essential",
                 "description": "Contextual information: causes, related conditions, previous incidents."
             },
             "relevance": {
                 "type": "EnumStr",
+                "importance": "secondary",
                 "description": "Relevance within the article: 1 = main topic, 2 = secondary, 3 = implicit.",
                 "enum": [
                     "1",
@@ -102,34 +110,42 @@
             },
             "date_range": {
                 "type": "DateRangeFromUnstructured",
+                "importance": "essential",
                 "description": "Date or date range of the emergency. Extract the start datetime and, if present, the end datetime."
             },
             "location": {
                 "type": "Location",
+                "importance": "essential",
                 "description": "Location of the emergency."
             },
             "casualties": {
                 "type": "CasualtyCount",
+                "importance": "essential",
                 "description": "Casualty count (dead, injured, missing), if mentioned."
             },
             "damage_description": {
                 "type": "str",
+                "importance": "secondary",
                 "description": "Description of material or property damage."
             },
             "response_agencies": {
                 "type": "str",
+                "importance": "essential",
                 "description": "Agencies or services that responded (firefighters, civil protection, paramedics, etc.)."
             },
             "cause": {
                 "type": "str",
+                "importance": "secondary",
                 "description": "Cause of the emergency, if mentioned or suspected."
             },
             "vehicles_involved": {
                 "type": "CountMention",
+                "importance": "secondary",
                 "description": "Number of vehicles involved in traffic accidents/crashes, with original text mention and parsed count."
             },
             "evacuations": {
                 "type": "str",
+                "importance": "secondary",
                 "description": "Description of evacuations, if any occurred."
             }
         }

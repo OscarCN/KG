@@ -56,6 +56,7 @@
         "schema": {
             "event_type": {
                 "type": "EnumStr",
+                "importance": "essential",
                 "required": true,
                 "description": "Type of event from the catalogue. Choose the most specific category that matches.",
                 "enum": [
@@ -75,10 +76,12 @@
             },
             "event_subtype": {
                 "type": "str",
+                "importance": "secondary",
                 "description": "A more specific subtype given the context. For example, if event_type is 'sports_event', the subtype could be 'soccer_match', 'baseball_game', etc."
             },
             "status": {
                 "type": "EnumStr",
+                "importance": "essential",
                 "description": "Current status of the event as reported in the article.",
                 "enum": [
                     "planned",
@@ -91,22 +94,27 @@
             },
             "name": {
                 "type": "str",
+                "importance": "essential",
                 "description": "Name of the event if it has one, or a descriptive name. For example: 'Clasico America vs Chivas', 'Cuarta Feria de la Fresa'. Null if no name can be determined."
             },
             "description": {
                 "type": "str",
+                "importance": "essential",
                 "description": "Brief free-text description of the event."
             },
             "tags": {
                 "type": "List[str]",
+                "importance": "secondary",
                 "description": "Keywords that describe the event, including names of participants, places, organizations, and relevant topics."
             },
             "context": {
                 "type": "str",
+                "importance": "essential",
                 "description": "Free-text summary of the general context surrounding the event: security measures, related announcements, historical context, etc."
             },
             "relevance": {
                 "type": "EnumStr",
+                "importance": "secondary",
                 "description": "How relevant the event is within the article: 1 = main topic, 2 = mentioned secondarily, 3 = only implicitly mentioned.",
                 "enum": [
                     "1",
@@ -116,30 +124,37 @@
             },
             "date_range": {
                 "type": "DateRangeFromUnstructured",
+                "importance": "essential",
                 "description": "Date or date range of the event. Extract the start and optionally end datetime. If only an approximate period is mentioned (e.g. 'late this year'), estimate a reasonable start date and set precision_days to reflect the uncertainty."
             },
             "location": {
                 "type": "Location",
+                "importance": "essential",
                 "description": "Location where the event takes place. Fill only fields explicitly mentioned in the text."
             },
             "attendance": {
                 "type": "Attendance",
+                "importance": "secondary",
                 "description": "Estimated attendance or number of participants, if mentioned in the article."
             },
             "venue_capacity": {
                 "type": "VenueCapacity",
+                "importance": "secondary",
                 "description": "Capacity of the venue, if mentioned in the article."
             },
             "price": {
                 "type": "PriceRange",
+                "importance": "secondary",
                 "description": "Ticket price or price range for attendees, if mentioned. Set lower=0 and upper=0 if the event is free."
             },
             "organizer": {
                 "type": "str",
+                "importance": "secondary",
                 "description": "Name of the organizing entity, promoter, or responsible party, if mentioned."
             },
             "performer": {
                 "type": "str",
+                "importance": "secondary",
                 "description": "Name of the main performer, speaker, team, or featured participant, if applicable and mentioned."
             }
         }

@@ -54,6 +54,7 @@
         "schema": {
             "event_type": {
                 "type": "EnumStr",
+                "importance": "essential",
                 "required": true,
                 "description": "Type of public-infrastructure event from the catalogue. Choose the single most specific category that matches.",
                 "enum": [
@@ -68,10 +69,12 @@
             },
             "event_subtype": {
                 "type": "str",
+                "importance": "secondary",
                 "description": "More specific subtype, e.g. 'water_service_quality', 'water_shortage', 'illegal_water_extraction', 'road_network_conditions', 'trash_collection_issues', 'sewage_infrastructure', 'urban_development_plan'."
             },
             "status": {
                 "type": "EnumStr",
+                "importance": "essential",
                 "description": "Current status of the event as reported.",
                 "enum": [
                     "reported",
@@ -84,23 +87,28 @@
             },
             "name": {
                 "type": "str",
+                "importance": "essential",
                 "description": "Name of the event or initiative if it has one (e.g. 'Plan de Rehabilitacion Hidrica 2025'). Often null for spontaneous complaint waves."
             },
             "description": {
                 "type": "str",
+                "importance": "essential",
                 "required": true,
                 "description": "Brief free-text description of the event — what was reported, who reported it, what is being demanded or announced."
             },
             "tags": {
                 "type": "List[str]",
+                "importance": "secondary",
                 "description": "Keywords describing the event."
             },
             "context": {
                 "type": "str",
+                "importance": "essential",
                 "description": "Broader context: historical issues, policy background, related projects or investments."
             },
             "relevance": {
                 "type": "EnumStr",
+                "importance": "secondary",
                 "description": "Relevance within the article: 1 = main topic, 2 = secondary, 3 = implicit.",
                 "enum": [
                     "1",
@@ -110,30 +118,37 @@
             },
             "date_range": {
                 "type": "DateRangeFromUnstructured",
+                "importance": "essential",
                 "description": "Date or date range when the event occurred or the discussion is anchored. Extract the start datetime and, if present, the end datetime."
             },
             "location": {
                 "type": "Location",
+                "importance": "essential",
                 "description": "Location of the public-infrastructure event. Should be as specific as the article allows."
             },
             "responsible_authority": {
                 "type": "str",
+                "importance": "essential",
                 "description": "Government body or agency mentioned as responsible (e.g. 'Direccion de Obras Publicas', 'CONAGUA', 'Comision Estatal de Aguas')."
             },
             "affected_area": {
                 "type": "str",
+                "importance": "secondary",
                 "description": "Description of the affected area — colonias, zones, stretches, or districts impacted by the event."
             },
             "citizen_complaints": {
                 "type": "List[str]",
+                "importance": "secondary",
                 "description": "Citizen complaints or demands regarding infrastructure raised during this event, if mentioned. Each complaint as a separate item."
             },
             "estimated_cost": {
                 "type": "PriceRange",
+                "importance": "secondary",
                 "description": "Budget, investment, or cost figures mentioned for related projects, with original mention, numeric bounds, and currency."
             },
             "impact_description": {
                 "type": "str",
+                "importance": "secondary",
                 "description": "Description of the impact on services, traffic, or citizens."
             }
         }

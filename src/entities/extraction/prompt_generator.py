@@ -45,6 +45,19 @@ def _get_available_supertypes() -> List[str]:
     return sorted(p.stem for p in _SCHEMAS_DIR.glob("*.json"))
 
 
+def _has_secondary_fields(supertype: str) -> bool:
+    """True if the supertype's schema tags any field ``importance: secondary``
+    (i.e. it has an essential/secondary split worth generating an ``_essn`` prompt for)."""
+    path = _SCHEMAS_DIR / f"{supertype}.json"
+    with open(path, "r", encoding="utf-8") as f:
+        raw = json.load(f)
+    type_def = next(iter(raw.values()))
+    return any(
+        spec.get("importance") == "secondary"
+        for spec in type_def.get("schema", {}).values()
+    )
+
+
 # ---------------------------------------------------------------------------
 # Composite types loader (raw JSON, not resolved Python types)
 # ---------------------------------------------------------------------------
@@ -70,7 +83,7 @@ class PromptGenerationContextManager:
        the type's meta.description and per-field descriptions
     """
 
-    def __init__(self, supertype: str):
+    def __init__(self, supertype: str, essential_only: bool = False):
         schema_path = _SCHEMAS_DIR / f"{supertype}.json"
         if not schema_path.exists():
             available = _get_available_supertypes()
@@ -79,8 +92,11 @@ class PromptGenerationContextManager:
                 f"Available supertypes: {available}"
             )
         self.supertype = supertype
+        self.essential_only = essential_only
         self.schema_key = _snake_to_pascal(supertype)
         self._raw_schema = self._load_raw_schema()
+        if essential_only:
+            self._raw_schema = self._filter_essential(self._raw_schema)
         self._raw_composites = _load_raw_composite_types()
         self._context = self._build_context()
 
@@ -89,6 +105,32 @@ class PromptGenerationContextManager:
         path = _SCHEMAS_DIR / f"{self.supertype}.json"
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
+
+    def _filter_essential(self, raw: dict) -> dict:
+        """Return a copy of the raw schema keeping only essential-importance fields.
+
+        A field is essential unless explicitly tagged ``"importance": "secondary"``
+        (so untagged schemas — themes/entities — keep every field). The
+        ``meta.example`` is pruned to the surviving field names so the generated
+        prompt's example matches the reduced field set.
+        """
+        import copy
+
+        filtered = copy.deepcopy(raw)
+        type_def = filtered[self.schema_key]
+        schema = type_def["schema"]
+        kept = {
+            name: spec
+            for name, spec in schema.items()
+            if spec.get("importance", "essential") != "secondary"
+        }
+        type_def["schema"] = kept
+        example = type_def.get("meta", {}).get("example")
+        if isinstance(example, dict):
+            type_def["meta"]["example"] = {
+                k: v for k, v in example.items() if k in kept
+            }
+        return filtered
 
     def _build_context(self) -> dict:
         """Build the full context dictionary."""
@@ -418,18 +460,26 @@ class PromptGeneration:
             )
         return _REFERENCE_PROMPT_PATH.read_text(encoding="utf-8")
 
-    def generate(self, supertype: str) -> str:
+    def generate(self, supertype: str, essential_only: bool = False) -> str:
         """Full pipeline: gather context -> draft -> feedback -> revision -> save.
 
         Args:
-            supertype: one of the 8 supertype names.
+            supertype: one of the supertype names.
+            essential_only: when True, build the prompt from only the
+                essential-importance fields and save it with the ``_essn``
+                suffix (``{supertype}_essn.txt``). This is the cheaper prompt
+                run by default at extraction time; the full prompt is reserved
+                for on-demand enrichment of important events.
 
         Returns:
             The final prompt text.
         """
-        logger.info("Generating prompt for supertype: %s", supertype)
+        logger.info(
+            "Generating %s prompt for supertype: %s",
+            "essential" if essential_only else "full", supertype,
+        )
 
-        ctx_mgr = PromptGenerationContextManager(supertype)
+        ctx_mgr = PromptGenerationContextManager(supertype, essential_only=essential_only)
         context = ctx_mgr.to_dict()
         context_json = ctx_mgr.to_json()
 
@@ -455,7 +505,7 @@ class PromptGeneration:
             logger.warning("Prompt validation [%s]: %s", supertype, warning)
 
         # Save
-        self._save_prompt(supertype, final)
+        self._save_prompt(supertype, final, essential_only=essential_only)
         logger.info("Prompt saved for %s", supertype)
 
         return final
@@ -564,19 +614,39 @@ class PromptGeneration:
 
         return warnings
 
-    def _save_prompt(self, supertype: str, prompt_text: str) -> None:
-        """Save the generated prompt to prompts/classes/{supertype}.txt."""
+    def _save_prompt(
+        self, supertype: str, prompt_text: str, essential_only: bool = False
+    ) -> None:
+        """Save the generated prompt to prompts/classes/{supertype}[_essn].txt."""
         _PROMPTS_CLASSES_DIR.mkdir(parents=True, exist_ok=True)
-        path = _PROMPTS_CLASSES_DIR / f"{supertype}.txt"
+        suffix = "_essn" if essential_only else ""
+        path = _PROMPTS_CLASSES_DIR / f"{supertype}{suffix}.txt"
         path.write_text(prompt_text, encoding="utf-8")
 
-    def generate_all(self) -> Dict[str, str]:
+    def generate_all(self, essential_only: bool = False) -> Dict[str, str]:
         """Generate prompts for all supertypes.
+
+        Args:
+            essential_only: generate the essential-only ``_essn`` variants.
 
         Returns:
             Dict mapping supertype name to generated prompt text.
         """
         results = {}
         for supertype in _get_available_supertypes():
-            results[supertype] = self.generate(supertype)
+            results[supertype] = self.generate(supertype, essential_only=essential_only)
+        return results
+
+    def generate_all_essential(self) -> Dict[str, str]:
+        """Generate the ``_essn`` prompt for every supertype that has a
+        secondary-importance field (i.e. an essential/secondary split — the
+        event schemas). Supertypes with no secondary field are skipped, since
+        their essential prompt would be identical to the full one (extraction
+        falls back to the full prompt when no ``_essn`` exists)."""
+        results = {}
+        for supertype in _get_available_supertypes():
+            if _has_secondary_fields(supertype):
+                results[supertype] = self.generate(supertype, essential_only=True)
+            else:
+                logger.info("Skipping %s — no secondary fields to trim", supertype)
         return results

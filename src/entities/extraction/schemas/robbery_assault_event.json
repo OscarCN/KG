@@ -49,6 +49,7 @@
         "schema": {
             "event_type": {
                 "type": "EnumStr",
+                "importance": "essential",
                 "required": true,
                 "description": "Type of crime from the catalogue. Choose the single most specific category that matches.",
                 "enum": [
@@ -60,10 +61,12 @@
             },
             "event_subtype": {
                 "type": "str",
+                "importance": "secondary",
                 "description": "More specific subtype, e.g. 'carjacking', 'home_burglary', 'mugging', 'armed_robbery', 'pickpocketing', 'express_kidnapping', 'ransom_kidnapping'."
             },
             "status": {
                 "type": "EnumStr",
+                "importance": "essential",
                 "description": "Status of the incident as reported.",
                 "enum": [
                     "past",
@@ -73,22 +76,27 @@
             },
             "name": {
                 "type": "str",
+                "importance": "essential",
                 "description": "Name or identifier for the incident, if any. Usually null for common crimes."
             },
             "description": {
                 "type": "str",
+                "importance": "essential",
                 "description": "Brief free-text description of the incident."
             },
             "tags": {
                 "type": "List[str]",
+                "importance": "secondary",
                 "description": "Keywords describing the incident."
             },
             "context": {
                 "type": "str",
+                "importance": "essential",
                 "description": "Contextual information mentioned in the article."
             },
             "relevance": {
                 "type": "EnumStr",
+                "importance": "secondary",
                 "description": "Relevance within the article: 1 = main topic, 2 = secondary, 3 = implicit.",
                 "enum": [
                     "1",
@@ -98,34 +106,42 @@
             },
             "date_range": {
                 "type": "DateRangeFromUnstructured",
+                "importance": "essential",
                 "description": "Date or date range when the incident occurred. Extract the start datetime and, if present, the end datetime."
             },
             "location": {
                 "type": "Location",
+                "importance": "essential",
                 "description": "Location where the incident occurred."
             },
             "victim_count": {
                 "type": "CountMention",
+                "importance": "essential",
                 "description": "Number of victims, with original text mention and parsed count."
             },
             "weapon": {
                 "type": "str",
+                "importance": "essential",
                 "description": "Weapon used, if mentioned. E.g. 'firearm', 'knife', 'blunt_object'."
             },
             "stolen_items": {
                 "type": "str",
+                "importance": "secondary",
                 "description": "Description of stolen items or property, if mentioned."
             },
             "suspect_description": {
                 "type": "str",
+                "importance": "secondary",
                 "description": "Description of suspects, if mentioned."
             },
             "arrests_made": {
                 "type": "bool",
+                "importance": "secondary",
                 "description": "Whether arrests were reported in connection with the incident."
             },
             "responding_authority": {
                 "type": "str",
+                "importance": "secondary",
                 "description": "Law enforcement or authority that responded, if mentioned."
             }
         }
