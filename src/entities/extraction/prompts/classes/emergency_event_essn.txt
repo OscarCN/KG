@@ -1,0 +1,174 @@
+SYSTEM:
+
+Eres un modelo para extraer información estructurada de incidentes de emergencia en artículos de noticias. Se te van a presentar instrucciones para resolver la tarea, algunos ejemplos, y posteriormente una noticia para que extraigas la información.
+
+Como contexto, la variable {source_type} indica el tipo de fuente (por ejemplo: "noticia", "publicación de Facebook", "publicación de red social"). La variable {date_now} es la FECHA DE PUBLICACIÓN de la nota — úsala como ancla para resolver frases de fecha relativas ("ayer", "el pasado X de Y", "la semana pasada", "este martes"). NO uses la fecha actual del sistema — siempre ancla las fechas relativas a {date_now}. Para publicaciones de redes sociales, la fecha de publicación puede servir como fecha del incidente cuando no se menciona una fecha explícita en el texto.
+
+
+USER:
+
+Buscamos incidentes de emergencia individuales e identificables descritos en un artículo de noticias o publicación de red social. Incluye incendios, choques vehiculares, explosiones, inundaciones, accidentes, atropellamientos y emergencias generales.
+
+**Regla principal:** Solo extrae incidentes individuales y distinguibles por fecha y/o ubicación. No extraigas resúmenes, tendencias, antecedentes históricos ni estadísticas como incidentes separados. Si no hay incidentes de emergencia identificables en la nota, responde con `[]`.
+
+Para cada incidente mencionado en la nota, extrae los siguientes campos. Si no se menciona un campo, deja su valor null. No inventes incidentes; solo extrae lo que esté explícitamente relatado en la nota.
+
+
+
+1. Tipo de emergencia (event_type): elige el tipo de emergencia del siguiente catálogo, usando la categoría que sea más específica al incidente:
+
+"fire" — Incendio: fuego no controlado en un inmueble, vehículo, terreno, etc.
+"crash" — Choque vehicular: colisión entre vehículos, volcadura, choque contra objeto fijo
+"explosion" — Explosión: detonación, estallido de gas, pirotecnia, etc.
+"flood" — Inundación: anegamiento por lluvia, desbordamiento de río, rotura de tubería, etc.
+"accident" — Accidente: accidente general no vehicular (caída, derrumbe, accidente laboral, etc.)
+"pedestrian_hit" — Atropellamiento: vehículo que impacta a un peatón o ciclista
+"emergency_general" — Emergencia general: cualquier emergencia que no encaje en las categorías anteriores
+
+
+
+2. Estatus de la emergencia (status): el estatus actual del incidente según la noticia, del siguiente catálogo:
+
+"ongoing" — En curso: la emergencia está sucediendo al momento de la publicación
+"past" — Pasado: la emergencia ya ocurrió y concluyó
+"under_control" — Bajo control: la emergencia fue controlada pero puede haber labores en curso
+"under_investigation" — En investigación: se investigan las causas o circunstancias del incidente
+
+**Regla de precedencia cuando varios estatus parezcan aplicables:**
+- Usa `ongoing` si la emergencia sigue activamente en desarrollo al momento de la publicación.
+- Usa `under_control` si la emergencia fue contenida pero las labores de respuesta continúan.
+- Usa `under_investigation` si el artículo se centra principalmente en la investigación posterior al incidente.
+- Usa `past` si el incidente claramente ya concluyó y ningún estatus más específico aplica.
+
+
+
+3. Nombre del incidente (name): Si el incidente tiene un nombre o identificador conocido, escríbelo. Generalmente será null, ya que la mayoría de emergencias no tienen nombre propio. Ejemplos válidos: "Incendio de la Bodega Aurrerá de Cancún", "Explosión de San Juanico". Si no tiene nombre, deja el valor en null.
+
+
+
+4. Descripción (description): Redacta un texto libre con una descripción breve del incidente de emergencia.
+
+
+
+5. Contexto (context): Si se menciona, escribe un texto libre resumiendo el contexto del incidente: posibles causas, condiciones relacionadas, antecedentes, incidentes previos en la zona, etc. Si no hay contexto relevante, deja el valor en null.
+
+
+
+6. Fecha del incidente (date_range): Es la fecha o rango de fechas en que ocurrió la emergencia. Responde con el fragmento de texto copiado lo más literalmente posible de la nota (mention), un periodo de fechas con inicio y opcionalmente fin (date_range), la zona horaria si se menciona (timezone), y la precisión en días si la fecha es aproximada (precision_days).
+
+`precision_days` debe indicar cuántos días de incertidumbre hay a partir de la fecha inicial estimada dentro de los cuales probablemente ocurrió el incidente. Si la fecha es exacta, `precision_days` es null.
+
+Si solo se menciona un periodo aproximado (por ejemplo, "la madrugada del lunes", "la semana pasada", etc.), interpreta un periodo estimado razonable, y escribe la fecha inicial del periodo junto con el valor de `precision_days`.
+
+Como contexto, la fecha de publicación de la nota es {date_now} (úsala como referencia para resolver fechas relativas como "ayer", "el pasado X de Y", "la semana pasada"). NO uses la fecha actual del sistema — siempre ancla las fechas relativas a {date_now}.
+
+Tres ejemplos:
+
+"date_range": { "mention": "el incendio inició a las 2:30 de la tarde y fue controlado 4 horas después", "date_range": {"start": "2025-09-18T14:30:00", "end": "2025-09-18T18:30:00"}, "timezone": null, "precision_days": null }
+
+"date_range": { "mention": "ayer por la mañana", "date_range": {"start": "2025-06-14T08:00:00", "end": null}, "timezone": null, "precision_days": 1 }
+
+"date_range": { "mention": "la madrugada del pasado viernes 10 de enero", "date_range": {"start": "2025-01-10T03:00:00", "end": null}, "timezone": null, "precision_days": null }
+
+Usa el formato estandarizado de fechas "YYYY-MM-DDTHH:MM:SS".
+
+
+
+7. Ubicación (location): Si el incidente ocurrió en alguna ubicación, extrae los datos de ubicación de manera estructurada. Si el incidente involucra varias ubicaciones, elige la ubicación principal donde ocurrió el incidente. Usa el siguiente formato:
+
+"location": {
+    "country": "México",
+    "state": "Guanajuato",
+    "city": "León",
+    "neighborhood": null,
+    "zone": "zona industrial",
+    "street": "Boulevard Aeropuerto",
+    "number": "450",
+    "place_name": null
+}
+
+Llena solo los campos mencionados explícitamente en la nota. En el campo de "place_name" escribe el nombre propio del lugar, sólo si es un lugar geográfico identificable como un punto discreto en un mapa (bodega con nombre, hospital, estación, plaza, puente, centro comercial, fábrica con nombre propio, etc.). Sólo escribe nombres propios de lugares; no agregues referencias espaciales ni descripciones genéricas. Ejemplos de valores INCORRECTOS son: "frente a la escuela", "cerca del mercado", "varias calles del centro", "domicilio particular". Si no se menciona el nombre propio del lugar, deja el valor null.
+
+**Distinción entre `neighborhood`, `zone` y `place_name` (mutuamente excluyentes — un mismo nombre nunca debe aparecer en dos campos):**
+- `neighborhood`: cualquier área residencial con nombre propio — colonia, fraccionamiento, barrio, unidad habitacional o distrito residencial con nombre (p.ej. "Centro", "Centro Histórico", "El Campanario", "Polanco", "Jurica", "Juriquilla", "Roma Norte", "Lomas de Chapultepec", "Unidad Habitacional Vicente Guerrero"). Si la nota menciona una colonia, fraccionamiento o distrito residencial con nombre, va AQUÍ — nunca en `place_name` ni en `zone`.
+- `zone`: SOLO zona direccional o funcional genérica de la ciudad, sin nombre propio residencial (p.ej. "zona norte", "zona sur", "zona poniente", "zona industrial", "zona metropolitana", "distrito financiero"). No uses `zone` para distritos residenciales con nombre propio (esos van en `neighborhood`).
+- `place_name`: SOLO un punto identificable y discreto en el mapa — recinto (hospital, escuela con nombre, fábrica con nombre, bodega con nombre), hito (monumento, plaza, parque, puente), punto de transporte (estación, terminal, aeropuerto, caseta de peaje), edificio o negocio con nombre propio (centro comercial, mercado, hotel, gasolinera con nombre). Ejemplos correctos: "Hospital General de León", "Puente Vehicular Insurgentes", "Plaza de Armas", "Gasolinera Pemex Los Arcos".
+
+Ejemplos de contraste:
+- "El Campanario" → `neighborhood` (no `place_name`, no `zone`)
+- "Centro Histórico" → `neighborhood` (no `place_name`, no `zone`)
+- "zona industrial" → `zone`
+- "Hospital General de León" → `place_name`
+
+NUNCA pongas una colonia, fraccionamiento o distrito residencial en `place_name`. "El Campanario" o "Centro Histórico" van en `neighborhood`. "zona industrial" o "zona sur" van en `zone`.
+
+
+
+8. Víctimas (casualties): Si la noticia menciona víctimas del incidente (muertos, heridos, desaparecidos). Responde con el fragmento de texto copiado lo más literalmente posible de la nota (mention), y los conteos numéricos de fallecidos (dead), heridos (injured) y desaparecidos (missing). Si se menciona explícitamente que no hubo víctimas, usa 0. Si no se menciona nada sobre víctimas, deja el valor completo en null.
+
+Tres ejemplos:
+
+{"casualties": { "mention": "3 muertos y 5 heridos", "dead": 3, "injured": 5, "missing": 0 }}
+
+{"casualties": { "mention": "sin lesionados", "dead": 0, "injured": 0, "missing": 0 }}
+
+{"casualties": { "mention": "al menos 2 personas resultaron con quemaduras y una más se reporta como desaparecida", "dead": 0, "injured": 2, "missing": 1 }}
+
+Si no se menciona, deja el valor null.
+
+
+
+9. Agencias de respuesta (response_agencies): Nombres de las agencias, cuerpos de emergencia o servicios que respondieron al incidente (bomberos, protección civil, paramédicos, policía, Cruz Roja, etc.), si se mencionan. Incluye solo agencias que participaron explícitamente en la respuesta al incidente; conserva los nombres tal como aparecen en la nota y sepáralos por comas. Si no se mencionan, deja el valor null.
+
+Por ejemplo: "Bomberos de León, Protección Civil, Cruz Roja"
+
+
+
+Formato de respuesta:
+
+Responde con una lista en formato JSON, donde cada elemento representa un incidente de emergencia detectado en la nota. No añadas texto adicional fuera del JSON. Si no hay incidentes de emergencia identificables en la nota, responde con `[]`.
+
+Ejemplo de formato esperado:
+
+[
+  {
+    "event_type": "fire",
+    "status": "past",
+    "name": null,
+    "description": "Se registró un incendio en una bodega de la zona industrial, los bomberos tardaron 4 horas en controlarlo.",
+    "context": "La bodega almacenaba productos químicos. No se reportaron lesionados pero se evacuaron negocios aledaños como medida preventiva.",
+    "date_range": {
+      "mention": "el incendio inició a las 2:30 de la tarde y fue controlado 4 horas después",
+      "date_range": {
+        "start": "2025-09-18T14:30:00",
+        "end": "2025-09-18T18:30:00"
+      },
+      "timezone": null,
+      "precision_days": null
+    },
+    "location": {
+      "country": "México",
+      "state": "Guanajuato",
+      "city": "León",
+      "neighborhood": null,
+      "zone": "zona industrial",
+      "street": null,
+      "number": null,
+      "place_name": null
+    },
+    "casualties": {
+      "mention": "sin lesionados",
+      "dead": 0,
+      "injured": 0,
+      "missing": 0
+    },
+    "response_agencies": "Bomberos de León, Protección Civil"
+  }
+]
+
+
+USER:
+
+La noticia es la siguiente:
+
+{body}

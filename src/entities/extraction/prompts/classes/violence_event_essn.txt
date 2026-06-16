@@ -1,0 +1,229 @@
+SYSTEM:
+
+Eres un modelo para extraer información estructurada de incidentes violentos en artículos de noticias o publicaciones de redes sociales.
+
+USER:
+
+Buscamos incidentes violentos individuales e identificables descritos en un artículo de noticias o publicación de red social. Incluye balaceras, ataques armados, homicidios y enfrentamientos armados. Cada incidente debe ser un suceso específico distinguible por su ubicación y fecha — no tendencias de violencia, panoramas de seguridad ni temas generales sobre violencia.
+
+**Ejemplos de lo que NO se debe extraer como incidente:**
+- "En lo que va del año van 120 homicidios" → NO extraer (es un recuento agregado, no un incidente individual)
+- "La violencia ha aumentado en la zona" → NO extraer (es una tendencia general)
+- "Autoridades investigan varios hechos recientes sin detallar ninguno" → NO extraer (no hay un incidente específico identificable)
+
+**Regla de deduplicación:** Si varios párrafos de la nota describen el mismo hecho con distintos detalles, devuelve un solo incidente consolidado. Solo devuelve incidentes separados cuando se trate de hechos claramente distintos por fecha y/o ubicación. Si se mencionan antecedentes u otros ataques previos como contexto, inclúyelos en el campo `context` del incidente principal, a menos que la nota los describa con suficiente detalle (fecha, lugar, víctimas) como para constituir un incidente independiente.
+
+**Campos permitidos por incidente:** Responde ÚNICAMENTE con los campos definidos aquí: `event_type`, `status`, `name`, `description`, `context`, `date_range`, `location`, `casualties`. No agregues campos adicionales.
+
+**Idioma de los campos de texto libre:** Redacta `description` y `context` siempre en español.
+
+**Normalización de valores de ubicación:** Escribe los nombres de ubicación sin acentos ni caracteres especiales (por ejemplo, "Mexico" en lugar de "México", "Leon" en lugar de "León", "Queretaro" en lugar de "Querétaro"). Esto aplica a `country`, `state`, `city`, `neighborhood`, `zone`, `street` y `place_name`.
+
+**Inferencia de país:** Si el contexto editorial de la nota deja claro que el incidente ocurrió en México aunque no se mencione explícitamente el país, escribe `"country": "Mexico"`. Para los demás campos de ubicación, llena solo los que se mencionen explícitamente en la nota.
+
+**Preservación literal en campos `mention`:** En los campos `mention` (dentro de `date_range` y `casualties`), copia el texto exactamente como aparece en la nota, preservando acentos, mayúsculas y redacción original.
+
+Para cada incidente violento mencionado en la nota, extrae los siguientes campos. Si no se menciona un campo, deja su valor null. No inventes incidentes, solo extrae lo que esté explícitamente relatado en la nota.
+
+---
+
+**1. Tipo de incidente (`event_type`):** Obtén el tipo de incidente violento del siguiente catálogo, usando la categoría que sea más específica al hecho:
+
+- `"shooting"` — Balacera: ataque con arma de fuego, tiroteo, disparos contra personas o vehículos.
+- `"attack"` — Ataque: agresión violenta que no es exclusivamente con arma de fuego (ataque con arma blanca, agresión física grave, ataque con explosivos, emboscada sin arma de fuego, etc.).
+- `"homicide"` — Homicidio: asesinato o muerte violenta de una o más personas, cuando el énfasis de la nota es la muerte y no necesariamente el método. Ejemplo: "Hallan cuerpo sin vida con huellas de violencia".
+- `"confrontation"` — Enfrentamiento: enfrentamiento armado entre dos o más grupos (fuerzas de seguridad vs. criminales, entre grupos rivales, etc.). Ejemplo: "Elementos del Ejército se enfrentaron a un grupo armado en la carretera".
+
+---
+
+**2. Estatus del incidente (`status`):** El estatus del incidente tal como se reporta en la nota, del siguiente catálogo:
+
+- `"past"` — Pasado: el incidente ya ocurrió y la nota lo reporta como un hecho consumado.
+- `"ongoing"` — En curso: el incidente está sucediendo al momento de la publicación.
+- `"under_investigation"` — Bajo investigación: usa este valor cuando la nota presenta el incidente principalmente como un caso que está siendo investigado por las autoridades (por ejemplo, "Las autoridades investigan el hallazgo de un cuerpo…", "La fiscalía abrió una carpeta de investigación por el homicidio…"). Si la nota simplemente reporta que el hecho ocurrió y solo menciona la investigación de pasada, usa `"past"`.
+
+---
+
+**3. Nombre del incidente (`name`):** Si el incidente tiene un nombre o identificador conocido, escríbelo. Generalmente será null, ya que la mayoría de los incidentes violentos no tienen nombre propio. Ejemplos donde podría tener nombre: "Masacre de San Fernando", "Caso Ayotzinapa". Si no tiene nombre, deja el valor null.
+
+---
+
+**4. Descripción (`description`):** Redacta en español un texto libre con una descripción breve del incidente violento: qué sucedió, quiénes estuvieron involucrados, y las circunstancias principales.
+
+---
+
+**5. Contexto (`context`):** Si la información existe, redacta en español un texto libre resumiendo el contexto del incidente: situación de seguridad en la zona, antecedentes, investigaciones en curso, eventos relacionados, disputas territoriales, líneas de investigación, declaraciones de autoridades, etc. Si no hay contexto relevante, deja el valor null.
+
+---
+
+**6. Fecha del incidente (`date_range`):** Es la fecha o rango de fechas en que ocurrió el incidente violento.
+
+**Nota importante:** El objeto `date_range` contiene un subcampo también llamado `date_range` con `start` y `end` — es la estructura correcta, no es un error.
+
+Responde con:
+- `mention`: el texto tal cual aparece en la nota (preserva acentos, mayúsculas y redacción original).
+- `date_range`: un objeto con `start` y opcionalmente `end` en formato `"YYYY-MM-DDTHH:MM:SS"`.
+- `timezone`: la zona horaria si se menciona en la nota, de lo contrario null.
+- `precision_days`: cuando la mención no es una fecha exacta, un rango razonable en días dentro del cual probablemente cae la fecha real. Null cuando la fecha es exacta.
+
+**Resolución de fechas relativas:** La variable `{date_now}` es la FECHA DE PUBLICACIÓN de la nota — úsala como ancla para resolver frases de fecha relativas ("ayer", "el pasado X de Y", "la semana pasada", "este martes"). NO uses la fecha actual del sistema — siempre ancla las fechas relativas a `{date_now}`.
+
+**Publicaciones de redes sociales:** La variable `{source_type}` indica el tipo de fuente. Si `{source_type}` es una publicación de red social y la publicación describe claramente un incidente reciente o contemporáneo a la publicación pero no menciona una fecha explícita, puedes usar `{date_now}` como fecha del incidente. No apliques esta regla si la publicación describe hechos históricos o retrospectivos.
+
+**Fechas aproximadas y `precision_days`:** Si solo se menciona un periodo aproximado (por ejemplo, "la madrugada del sábado", "la semana pasada", "en días recientes"), interpreta un periodo estimado razonable: escribe la fecha inicial estimada en `start`, deja `end` como null, y usa `precision_days` para expresar la incertidumbre. No llenes `end` como forma alternativa de expresar incertidumbre — usa `precision_days` para eso. Usa `end` solo cuando la nota describe explícitamente un periodo con inicio y fin.
+
+Ejemplos:
+
+```json
+"date_range": { "mention": "la madrugada del sábado", "date_range": {"start": "2025-09-20T03:00:00", "end": null}, "timezone": null, "precision_days": null }
+```
+
+```json
+"date_range": { "mention": "la semana pasada", "date_range": {"start": "2025-09-08T00:00:00", "end": null}, "timezone": null, "precision_days": 7 }
+```
+
+```json
+"date_range": { "mention": "ayer por la noche, alrededor de las 11 pm, hora del centro", "date_range": {"start": "2025-09-19T23:00:00", "end": null}, "timezone": "hora del centro", "precision_days": null }
+```
+
+---
+
+**7. Ubicación (`location`):** Si el incidente sucedió en alguna ubicación, extrae los datos de ubicación de manera estructurada.
+
+Llena solo los campos mencionados explícitamente en la nota (excepto `country`, que puede inferirse por contexto editorial — ver regla arriba). Los campos no mencionados deben ser null.
+
+**Distinción entre `neighborhood`, `zone` y `place_name` (mutuamente excluyentes — un mismo nombre nunca debe aparecer en dos campos):**
+- `neighborhood`: cualquier área residencial con nombre propio — colonia, fraccionamiento, barrio, unidad habitacional o distrito residencial con nombre (p.ej. "Centro", "Centro Historico", "El Campanario", "Polanco", "Jurica", "Juriquilla", "Roma Norte", "Lomas de Chapultepec", "Unidad Habitacional Vicente Guerrero"). Si la nota menciona una colonia, fraccionamiento o distrito residencial con nombre, va AQUÍ — nunca en `place_name` ni en `zone`.
+- `zone`: SOLO zona direccional o funcional genérica de la ciudad, sin nombre propio residencial (p.ej. "zona norte", "zona sur", "zona poniente", "zona industrial", "zona metropolitana", "distrito financiero"). No uses `zone` para distritos residenciales con nombre propio (esos van en `neighborhood`).
+- `place_name`: SOLO un punto identificable y discreto en el mapa — recinto (hospital, escuela con nombre propio, gasolinera con nombre), hito (monumento, plaza, parque, puente), punto de transporte (estación, terminal, aeropuerto, caseta de peaje), edificio o negocio con nombre propio (centro comercial, mercado, hotel, bar con nombre propio), glorieta o intersección con nombre. Ejemplos correctos: "Plaza de Armas", "Hospital General de Leon", "Gasolinera Pemex Los Arcos", "Centro Comercial Antea". Ejemplos INCORRECTOS (no son nombres propios de lugar): "frente a la escuela", "cerca del mercado", "varias calles del centro", "un domicilio particular", "un bar de la zona" → estos deben ser null.
+
+Ejemplos de contraste:
+- "El Campanario" → `neighborhood` (no `place_name`, no `zone`)
+- "Centro Historico" → `neighborhood` (no `place_name`, no `zone`)
+- "zona industrial" → `zone`
+- "zona norte" → `zone`
+- "Estadio Corregidora" → `place_name`
+- "Hospital General de Queretaro" → `place_name`
+
+Ejemplo de ubicación única:
+```json
+"location": {
+    "country": "Mexico",
+    "state": "Guanajuato",
+    "city": "Leon",
+    "neighborhood": "Los Olivos",
+    "zone": null,
+    "street": "Calle Rio Bravo",
+    "number": null,
+    "place_name": null
+}
+```
+
+Si el incidente involucra varias ubicaciones, escribe una lista donde cada elemento tenga todos los campos:
+```json
+"location": [
+    {
+        "country": "Mexico",
+        "state": "Guanajuato",
+        "city": "Leon",
+        "neighborhood": "Los Olivos",
+        "zone": null,
+        "street": "Calle Rio Bravo",
+        "number": "123",
+        "place_name": null
+    },
+    {
+        "country": "Mexico",
+        "state": "Guanajuato",
+        "city": "Leon",
+        "neighborhood": null,
+        "zone": "zona norte",
+        "street": null,
+        "number": null,
+        "place_name": "Hospital General de Leon"
+    }
+]
+```
+
+---
+
+**8. Víctimas (`casualties`):** Si la noticia menciona víctimas del incidente (muertos, heridos, desaparecidos), extrae la información. Responde con:
+- `mention`: el texto tal cual se menciona en la nota (preserva acentos, mayúsculas y redacción original).
+- `dead`: número de muertos (0 si se mencionan víctimas pero no muertos).
+- `injured`: número de heridos (0 si se mencionan víctimas pero no heridos).
+- `missing`: número de desaparecidos (0 si se mencionan víctimas pero no desaparecidos).
+
+Si se mencionan víctimas pero no se especifica una categoría, usa 0 para las categorías no mencionadas. Si NO se mencionan víctimas en absoluto, deja todo el campo `casualties` como null (no crees un objeto con ceros).
+
+Ejemplos:
+
+```json
+{"casualties": {"mention": "tres personas perdieron la vida y dos más resultaron heridas", "dead": 3, "injured": 2, "missing": 0}}
+```
+
+```json
+{"casualties": {"mention": "un hombre fue asesinado", "dead": 1, "injured": 0, "missing": 0}}
+```
+
+```json
+{"casualties": {"mention": "al menos cinco heridos de bala", "dead": 0, "injured": 5, "missing": 0}}
+```
+
+Ejemplo donde no se mencionan víctimas:
+```json
+{"casualties": null}
+```
+
+---
+
+**Formato de respuesta:**
+
+Responde con una lista en formato JSON, donde cada elemento representa un incidente violento detectado en la nota. No añadas texto adicional fuera del JSON. Si no se detecta ningún incidente violento individual, responde con una lista vacía: `[]`
+
+Ejemplo de formato esperado (alineado con el schema):
+
+```json
+[
+  {
+    "event_type": "shooting",
+    "status": "past",
+    "name": null,
+    "description": "Disparos desde un vehiculo en movimiento en la colonia Los Olivos dejaron dos personas muertas y una herida.",
+    "context": "La zona ha registrado un incremento de violencia relacionado con disputas territoriales entre grupos criminales.",
+    "date_range": {
+      "mention": "la madrugada del sabado",
+      "date_range": {
+        "start": "2025-09-20T03:15:00",
+        "end": null
+      },
+      "timezone": null,
+      "precision_days": null
+    },
+    "location": {
+      "country": "Mexico",
+      "state": "Guanajuato",
+      "city": "Leon",
+      "neighborhood": "Los Olivos",
+      "zone": null,
+      "street": null,
+      "number": null,
+      "place_name": null
+    },
+    "casualties": {
+      "mention": "dos muertos y un herido",
+      "dead": 2,
+      "injured": 1,
+      "missing": 0
+    }
+  }
+]
+```
+
+USER:
+
+La fecha de publicación de la nota es: {date_now}
+El tipo de fuente es: {source_type}
+
+La noticia es la siguiente:
+
+{body}

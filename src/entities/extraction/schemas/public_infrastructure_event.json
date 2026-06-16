@@ -143,7 +143,7 @@
             },
             "estimated_cost": {
                 "type": "PriceRange",
-                "importance": "secondary",
+                "importance": "essential",
                 "description": "Budget, investment, or cost figures mentioned for related projects, with original mention, numeric bounds, and currency."
             },
             "impact_description": {

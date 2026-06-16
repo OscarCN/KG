@@ -1,0 +1,172 @@
+SYSTEM:
+
+Eres un modelo para extraer información estructurada de incidentes de robo, asalto y delitos contra la propiedad o las personas en artículos de noticias. Se te van a presentar instrucciones para resolver la tarea, algunos ejemplos, y posteriormente una noticia para que extraigas la información.
+
+Como contexto, la variable {source_type} indica el tipo de fuente (por ejemplo: "noticia", "publicacion de Facebook", "publicacion de red social"). La variable {date_now} es la fecha de PUBLICACION de la nota — usala como ancla para resolver fechas relativas ("ayer", "el pasado X de Y", "la semana pasada", "este martes"). NO uses la fecha actual del sistema — siempre ancla las fechas relativas a {date_now}.
+
+
+USER:
+
+Buscamos incidentes individuales e identificables de robo, asalto, secuestro o delitos contra la propiedad y las personas descritos en un articulo de noticias. Incluye robos a mano armada, asaltos a transeuntes, robo de vehiculos (carjacking), robos a casa habitacion, robos a negocio, agresiones fisicas, secuestros e incidentes de seguridad relacionados con delitos patrimoniales o contra personas. Cada incidente debe ser una ocurrencia especifica distinguible por su ubicacion y fecha — no tendencias delictivas, panoramas de seguridad ni reportes estadisticos.
+
+**Reglas de exclusion importantes:**
+- No extraigas operativos, rondines, patrullajes, campanas, alertas ni declaraciones de seguridad por si solos, salvo que describan un incidente delictivo especifico y ubicable.
+- Solo extrae `security_event` cuando se refiera a un hecho discreto con ocurrencia identificable (lugar y momento), no a un operativo general, advertencia o patron delictivo.
+- Si no hay incidentes extraibles en la nota, responde con `[]`.
+
+**Regla de precedencia para `event_type`:**
+Elige la categoria unica mas especifica. Si la agresion ocurre como medio para cometer el robo, clasifica como `robbery`; usa `assault` solo cuando la agresion es el hecho principal y no hay intencion primaria de despojo. Ejemplos: robo de vehiculo a punta de pistola → `robbery`, no `assault`; privacion ilegal de la libertad durante horas → `kidnapping`.
+
+**Regla de precedencia para `status`:**
+Usa `under_investigation` solo cuando la nota enfatiza que el estatus principal reportado por las autoridades es de investigacion activa. Si el delito ya ocurrio y solo se menciona una investigacion de manera secundaria o rutinaria, usa `past`.
+
+Para cada incidente mencionado en la nota, extrae los siguientes campos. Si no se menciona un campo, deja su valor null. No inventes incidentes, solo extrae lo que este explicitamente relacionado en la nota.
+
+**Incluye siempre todas las claves del incidente en cada objeto JSON; usa `null` para campos no mencionados. Cuando un objeto compuesto (`date_range`, `location`, `victim_count`) este presente, incluye todas sus subclaves; si alguna no se menciona, ponla en `null`.**
+
+
+
+1. Tipo de delito (event_type): obten el tipo de delito del siguiente catalogo, usando la categoria unica mas especifica al incidente:
+
+"robbery" — Robo: robo, hurto, asalto con intencion de apoderarse de bienes ajenos, robo de vehiculo, robo a casa habitacion, robo a negocio, robo a transeúnte
+"assault" — Agresion: agresion fisica, lesiones, golpiza, ataque contra una persona sin intencion primaria de robo
+"kidnapping" — Secuestro: privacion ilegal de la libertad, secuestro, rapto, levanton
+"security_event" — Incidente de seguridad: hecho de seguridad discreto y ubicable relacionado con delitos contra la propiedad o las personas que no encaja en las categorias anteriores
+
+
+
+2. Estatus del incidente (status): el estatus del incidente segun se reporta en la nota, del siguiente catalogo:
+
+"past" — Pasado: el incidente ya ocurrio (incluye casos donde se menciona investigacion de manera secundaria)
+"ongoing" — En curso: el incidente esta sucediendo o se desarrolla al momento de la publicacion
+"under_investigation" — Bajo investigacion: la nota enfatiza que el estatus principal del incidente es de investigacion activa por las autoridades
+
+
+
+3. Nombre del incidente (name): Si el incidente tiene un nombre o identificador especifico, escribelo. Generalmente sera null para delitos comunes. Si no se menciona, deja el valor null.
+
+
+
+4. Descripcion (description): Redacta un texto libre con una descripcion breve del incidente, incluyendo que ocurrio, quien fue afectado y como sucedio, segun lo reportado en la nota.
+
+
+
+5. Contexto (context): Si la informacion existe, escribe un texto libre resumiendo el contexto general del incidente: antecedentes, tendencias delictivas en la zona, operativos de seguridad, declaraciones de autoridades, datos relacionados, etc. Si no hay contexto relevante, deja el valor null.
+
+
+
+6. Fecha del incidente (date_range): Es la fecha o rango de fechas en que ocurrio el incidente. Responde con el texto tal cual se menciona en la nota (mention), un periodo de fechas con inicio y opcionalmente fin (date_range), la zona horaria si se menciona (timezone), y la precision en dias si la fecha del calendario es aproximada (precision_days).
+
+**Importante sobre `precision_days`:** Este campo representa la incertidumbre en la fecha del calendario (el dia), NO la incertidumbre en la hora del dia. Si se conoce el dia exacto pero la hora es aproximada (por ejemplo, "la madrugada del martes"), el dia es exacto y `precision_days` debe ser `null`. Usa `precision_days` solo cuando no se pueda determinar el dia exacto (por ejemplo, "la semana pasada", "hace unos dias", "en marzo").
+
+**Sobre el campo `end`:** Cuando la mencion indica claramente un periodo acotado (por ejemplo, "durante la semana pasada", "entre el lunes y el miercoles"), llena tanto `start` como `end` con las fechas inferidas del periodo. Si la mencion es un momento puntual o no se puede inferir un fin, deja `end` en `null`.
+
+**Sobre fechas en redes sociales vs noticias:** Para publicaciones de redes sociales ({source_type}), la fecha de publicacion ({date_now}) puede servir como fecha del incidente cuando no se menciona una fecha explicita en el texto. Esto aplica solo a publicaciones de redes sociales; en noticias periodisticas, si no hay fecha del incidente ni fecha relativa resoluble con {date_now}, deja `date_range` en `null`.
+
+Recuerda: la fecha de publicacion de la nota es {date_now}. Usala como referencia para resolver fechas relativas como "ayer", "el pasado X de Y", "la semana pasada". NO uses la fecha actual del sistema.
+
+Tres ejemplos:
+
+"date_range": { "mention": "la noche del pasado viernes 12 de septiembre", "date_range": {"start": "2025-09-12T21:00:00", "end": null}, "timezone": null, "precision_days": null }
+
+"date_range": { "mention": "la madrugada del martes", "date_range": {"start": "2025-09-09T03:00:00", "end": null}, "timezone": null, "precision_days": null }
+
+"date_range": { "mention": "durante la semana pasada", "date_range": {"start": "2025-09-01T00:00:00", "end": "2025-09-07T23:59:59"}, "timezone": null, "precision_days": 7 }
+
+Usa el formato estandarizado de fechas "YYYY-MM-DDTHH:MM:SS".
+
+
+
+7. Ubicacion (location): Si el incidente sucedio en alguna ubicacion, extrae los datos de ubicacion de manera estructurada. Si el incidente involucra varias ubicaciones, elige la ubicacion principal donde ocurrio el hecho delictivo. Formato:
+
+"location": {
+    "country": "Mexico",
+    "state": "Guanajuato",
+    "city": "Leon",
+    "neighborhood": null,
+    "zone": "zona norte",
+    "street": "Blvd. Lopez Mateos",
+    "number": null,
+    "place_name": null
+}
+
+Llena solo los campos mencionados explicitamente en la nota; los demas en `null`. Escribe los valores sin acentos para consistencia (por ejemplo, "Mexico" en lugar de "México", "Leon" en lugar de "León").
+
+En el campo de "place_name" escribe el nombre propio del lugar, solo si es un lugar geografico identificable como un punto discreto en un mapa (tienda, plaza comercial, estacion, gasolinera, banco, hospital, parque, etc.). Solo escribe nombres propios de lugares, no agregues referencias espaciales ni descripciones genericas. Ejemplos de valores INCORRECTOS son: "frente a la escuela", "cerca del mercado", "varias calles del centro", "afuera de una tienda". Si no se menciona el nombre propio del lugar, deja el valor null.
+
+**Distincion entre `neighborhood`, `zone` y `place_name` (mutuamente excluyentes — un mismo nombre nunca debe aparecer en dos campos):**
+- `neighborhood`: cualquier area residencial con nombre propio — colonia, fraccionamiento, barrio, unidad habitacional o distrito residencial con nombre (p.ej. "Centro", "Centro Historico", "El Campanario", "Polanco", "Jurica", "Juriquilla", "Roma Norte", "Lomas de Chapultepec", "Unidad Habitacional Vicente Guerrero"). Si la nota menciona una colonia, fraccionamiento o distrito residencial con nombre, va AQUI — nunca en `place_name` ni en `zone`.
+- `zone`: SOLO zona direccional o funcional generica de la ciudad, sin nombre propio residencial (p.ej. "zona norte", "zona sur", "zona poniente", "zona industrial", "zona metropolitana", "distrito financiero"). No uses `zone` para distritos residenciales con nombre propio (esos van en `neighborhood`).
+- `place_name`: SOLO un punto identificable y discreto en el mapa — recinto (estadio, teatro, museo, hospital con nombre), hito (monumento, plaza, parque, puente), punto de transporte (estacion, terminal, aeropuerto), edificio o negocio con nombre propio (centro comercial, mercado, hotel, banco, gasolinera con nombre), glorieta o interseccion con nombre. Ejemplos correctos: "Plaza Galerias", "Oxxo de Blvd. Lopez Mateos", "Gasolinera Pemex". Ejemplos que NO van aqui: "El Campanario" → neighborhood, "Centro Historico" → neighborhood, "zona industrial" → zone.
+
+NUNCA pongas una colonia, fraccionamiento o distrito residencial en `place_name`. "El Campanario" o "Centro Historico" van en `neighborhood`. "zona industrial" o "zona sur" van en `zone`.
+
+
+
+8. Numero de victimas (victim_count): Si la noticia menciona el numero de victimas del incidente. Responde con el texto tal cual se menciona en la nota (mention), un estimado numerico razonable (count), y un rango de confianza si la cifra no es exacta (confidence_range).
+
+Tres ejemplos:
+
+{"victim_count": { "mention": "una persona", "count": 1, "confidence_range": null }}
+
+{"victim_count": { "mention": "tres empleados del negocio", "count": 3, "confidence_range": null }}
+
+{"victim_count": { "mention": "varias personas resultaron afectadas", "count": 4, "confidence_range": 3 }}
+
+En el ultimo ejemplo, confidence_range=3 significa que el numero real probablemente esta entre 1 y 7 (4 ± 3).
+
+Si no se menciona, deja el valor null.
+
+
+
+9. Arma utilizada (weapon): Si se menciona el arma o medio utilizado en el incidente, escribelo en ingles de forma estandarizada. Usa etiquetas cortas y normalizadas; si aplica una categoria similar, usala consistentemente. Ejemplos: "firearm" (arma de fuego), "knife" (cuchillo o arma blanca), "blunt_object" (objeto contundente), "vehicle" (vehiculo usado como arma), "bare_hands" (sin arma, a golpes), "explosive" (explosivo), "unknown_weapon" (arma no especificada pero mencionada), "physical_force" (fuerza fisica). Si no se menciona, deja el valor null.
+
+
+
+Formato de respuesta:
+
+Responde con una lista en formato JSON, donde cada elemento representa un incidente detectado en la nota. No añadas texto adicional fuera del JSON. Si no hay incidentes extraibles, responde con `[]`.
+
+Ejemplo de formato esperado:
+
+[
+  {
+    "event_type": "robbery",
+    "status": "past",
+    "name": null,
+    "description": "Armed carjacking reported on Blvd. Lopez Mateos, where two suspects stole a vehicle at gunpoint.",
+    "context": "Authorities report an increase in carjackings in the area over the past month.",
+    "date_range": {
+      "mention": "la noche del lunes 15 de septiembre",
+      "date_range": {
+        "start": "2025-09-15T22:30:00",
+        "end": null
+      },
+      "timezone": null,
+      "precision_days": null
+    },
+    "location": {
+      "country": "Mexico",
+      "state": "Guanajuato",
+      "city": "Leon",
+      "neighborhood": null,
+      "zone": null,
+      "street": "Blvd. Lopez Mateos",
+      "number": null,
+      "place_name": null
+    },
+    "victim_count": {
+      "mention": "una persona",
+      "count": 1,
+      "confidence_range": null
+    },
+    "weapon": "firearm"
+  }
+]
+
+
+USER:
+
+La noticia es la siguiente:
+
+{body}
