@@ -110,6 +110,11 @@ _SYSTEM_PROMPT = (
     "que el evento entrante; `distinta` = calle/lugar específico DIFERENTE; `null` "
     "= no comparable. Si es `distinta`, trátalos como eventos DIFERENTES salvo "
     "evidencia contundente en la descripción de que es el mismo hecho.\n\n"
+    "El campo `event_type` es una señal SUAVE: un mismo evento real puede venir "
+    "clasificado con tipos distintos (p.ej. 'concert', 'festival', 'party', "
+    "'cultural_event' para un mismo festival). NO descartes una coincidencia solo "
+    "porque los `event_type` difieran; júzgalo por los hechos descritos. A la "
+    "inversa, un mismo tipo no basta para fusionar si los hechos son distintos.\n\n"
     "Responde EXCLUSIVAMENTE con un JSON con la forma:\n"
     '{\"match_id\": \"<id de un candidato>\"}  o  {\"match_id\": null}\n\n'
     "Solo puedes devolver un id que aparezca en la lista de candidatos. Si "

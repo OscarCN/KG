@@ -97,6 +97,7 @@ class PreparedEvent:
     event_type: str
     geo_key: str
     window: DateWindow
+    partition: str = ""  # type dimension of the candidate partition (supertype or event_type)
 
 
 # ---------------------------------------------------------------------------
@@ -146,6 +147,7 @@ def _llm_payload(record: Dict[str, Any]) -> Dict[str, Any]:
     pub_dt = _parse_dt(pub)
     return {
         "identification": _identification_text(record),
+        "event_type": record.get("event_type"),
         "address": _address(record),
         "date": _date_payload(record),
         "publication_date": pub_dt.isoformat() if pub_dt else None,
@@ -180,6 +182,7 @@ class GeoEventStrategy:
         candidate_cap: Optional[int] = 12,              # legacy: None (unbounded)
         probe_noloc_bucket: bool = True,                # located lookups also probe the "" bucket
         geo_retrieval: str = "hierarchy",               # legacy: "level_2" (single state slug)
+        partition_on: str = "supertype",                # type dimension of the candidate partition: "supertype" (soft type — retrieve across leaf event_types) or "event_type" (legacy hard type)
         partition_levels: Tuple[int, ...] = (3, 5, 6, 7),  # admin levels (below state) to bucket on
         grid_size_deg: float = 0.01,                    # coordinate grid cell side (~1.1 km)
         deterministic_merge: bool = True,               # skip the LLM on high-confidence matches
@@ -199,6 +202,7 @@ class GeoEventStrategy:
         self.candidate_cap = candidate_cap
         self.probe_noloc_bucket = probe_noloc_bucket
         self.geo_retrieval = geo_retrieval
+        self.partition_on = partition_on
         self.partition_levels = partition_levels
         self.grid_size_deg = grid_size_deg
         self.deterministic_merge = deterministic_merge
@@ -229,7 +233,14 @@ class GeoEventStrategy:
             return None, "event_no_date_no_pub"
 
         geo_key = self._geo_key(record)
-        return PreparedEvent(record, event_type, geo_key, window), None
+        # Type dimension of the candidate partition. With "supertype" (default),
+        # candidates span all leaf event_types of the supertype (soft type) and
+        # the leaf-type judgment is left to the deterministic gate / LLM. "event_type"
+        # reproduces the legacy hard-type partition.
+        partition = (
+            record.get("_supertype") if self.partition_on == "supertype" else None
+        ) or event_type
+        return PreparedEvent(record, event_type, geo_key, window, partition=partition), None
 
     def _geo_key(self, record: Dict[str, Any]) -> str:
         """Partition key for the place dimension, with tiered fallbacks.
@@ -394,31 +405,39 @@ class GeoEventStrategy:
         return list(dict.fromkeys(keys))
 
     def lookup_keys(self, prep: PreparedEvent) -> List[IndexKey]:
-        """Candidate-probe keys: every geo key crossed with every day key."""
+        """Candidate-probe keys: every geo key crossed with every day key.
+
+        The type dimension is `prep.partition` (the supertype by default), so
+        retrieval spans all leaf event_types of the supertype — the leaf-type
+        judgment is left to the deterministic gate / LLM (soft type).
+        """
         day_keys = self._date_keys(
             prep.window.start, prep.window.end, prep.window.slack_days
         )
         geo_keys = self._lookup_geo_keys(prep.record)
-        return [(prep.event_type, gk, dk) for gk in geo_keys for dk in day_keys]
+        return [(prep.partition, gk, dk) for gk in geo_keys for dk in day_keys]
 
     def _register(
         self,
         linked: Dict[str, Any],
-        event_type: str,
+        partition: str,
         window: Optional[DateWindow],
         index: CandidateIndex,
     ) -> None:
-        """Register a linked event under all its geo keys × its date windows."""
+        """Register a linked event under all its geo keys × its date windows.
+
+        `partition` is the type dimension of the index key (supertype by default).
+        """
         geo_keys = self._register_geo_keys(linked)
         if window is not None and window.source == "extracted":
             for dk in self._date_keys(window.start, window.end, window.slack_days):
                 for gk in geo_keys:
-                    index.register((event_type, gk, dk), linked["id"])
+                    index.register((partition, gk, dk), linked["id"])
         pub_dt = _parse_dt(linked.get("publication_date"))
         if pub_dt:
             for dk in self._date_keys(pub_dt, pub_dt, self.publication_slack_days):
                 for gk in geo_keys:
-                    index.register((event_type, gk, dk), linked["id"])
+                    index.register((partition, gk, dk), linked["id"])
 
     # -- Adjudication ----------------------------------------------------
 
@@ -538,6 +557,12 @@ class GeoEventStrategy:
         pub_ok_levels = set(self.det_publication_levels)
         for cid in candidate_ids:
             cand = events.get(cid) or {}
+            # Soft type: the partition may now span leaf event_types. The
+            # deterministic (name-agnostic) merge only fires within the SAME
+            # leaf event_type — a cross-type same-place/day pair (e.g. a concert
+            # vs a festival at one venue) is referred to the LLM, never auto-merged.
+            if cand.get("event_type") != prep.event_type:
+                continue
             shared = inc_fine & self._fine_id_set(cand.get("_geo") or {})
             if not shared:
                 continue
@@ -557,20 +582,27 @@ class GeoEventStrategy:
 
     def _llm_adjudicate(
         self, prep: PreparedEvent, candidate_ids: Set[str], events: Dict[str, Dict[str, Any]],
-    ) -> Optional[str]:
-        kept = candidate_ids
-        if self.candidate_cap is not None and len(candidate_ids) > self.candidate_cap:
-            ordered = sorted(
+    ) -> Tuple[Optional[str], Dict[str, Any]]:
+        """Run the LLM disambiguator over a hard-capped candidate set.
+
+        Returns `(match_id, llm_call)` where `llm_call` is a structured record
+        of exactly what the LLM saw — the incoming payload, every candidate
+        payload, and the pre/post-cap counts — for the case log and tuning.
+        """
+        pre_cap = len(candidate_ids)
+        # Hard cap: never send more than `candidate_cap` candidates to the LLM.
+        # When over the cap, keep the most recent (by publication date).
+        kept: List[str] = list(candidate_ids)
+        capped = self.candidate_cap is not None and pre_cap > self.candidate_cap
+        if capped:
+            kept = sorted(
                 candidate_ids,
                 key=lambda cid: str(events[cid].get("publication_date") or ""),
                 reverse=True,
-            )
-            kept = ordered[: self.candidate_cap]
-            logger.info(
-                "Candidate cap: %d → %d for event_type=%s geo_key=%r",
-                len(candidate_ids), len(kept), prep.event_type, prep.geo_key,
-            )
+            )[: self.candidate_cap]
+
         inc_geo = prep.record.get("_geo") or {}
+        incoming = _llm_payload(prep.record)
         candidate_records = [
             {
                 "id": cid,
@@ -579,27 +611,52 @@ class GeoEventStrategy:
             }
             for cid in kept
         ]
-        return disambiguate(_llm_payload(prep.record), candidate_records)
+
+        logger.info(
+            "LLM disambiguation — event_type=%s partition=%s geo_key=%r: "
+            "candidates pre_cap=%d sent=%d (cap=%s%s)",
+            prep.event_type, prep.partition, prep.geo_key,
+            pre_cap, len(candidate_records), self.candidate_cap,
+            f", dropped {pre_cap - len(candidate_records)}" if capped else "",
+        )
+        logger.debug("  incoming: %s", incoming)
+        for cr in candidate_records:
+            logger.debug("  candidate %s: %s", cr["id"], cr)
+
+        match_id = disambiguate(incoming, candidate_records)
+        llm_call = {
+            "candidate_cap": self.candidate_cap,
+            "n_candidates_pre_cap": pre_cap,
+            "n_candidates_sent": len(candidate_records),
+            "n_dropped": pre_cap - len(candidate_records),
+            "incoming": incoming,
+            "candidates": candidate_records,
+            "match_id": match_id,
+        }
+        return match_id, llm_call
 
     def adjudicate(
         self,
         prep: PreparedEvent,
         candidate_ids: Set[str],
         events: Dict[str, Dict[str, Any]],
-    ) -> Tuple[Optional[str], str, List[Dict[str, Any]]]:
-        """Decide the match. Returns (match_id, path, candidate_debug).
+    ) -> Tuple[Optional[str], str, List[Dict[str, Any]], Optional[Dict[str, Any]]]:
+        """Decide the match. Returns (match_id, path, candidate_debug, llm_call).
 
         `path ∈ {"no_candidates", "deterministic", "llm"}` records how the
         decision was reached — the deterministic gate skips the LLM call.
+        `llm_call` is the structured payload sent to the LLM (incoming +
+        candidates + cap counts) when `path == "llm"`, else None.
         """
         if not candidate_ids:
-            return None, "no_candidates", []
+            return None, "no_candidates", [], None
         debug = self._candidate_debug(prep, candidate_ids, events)
         if self.deterministic_merge:
             det = self._deterministic_match(prep, candidate_ids, events)
             if det is not None:
-                return det, "deterministic", debug
-        return self._llm_adjudicate(prep, candidate_ids, events), "llm", debug
+                return det, "deterministic", debug, None
+        match_id, llm_call = self._llm_adjudicate(prep, candidate_ids, events)
+        return match_id, "llm", debug, llm_call
 
     # -- Create ----------------------------------------------------------
 
@@ -627,7 +684,7 @@ class GeoEventStrategy:
         # canonical date range can be chosen (not just widened) on merges.
         linked["_date_source"] = window.source
         linked["_source_windows"] = [window.to_json()]
-        self._register(linked, prep.event_type, window, index)
+        self._register(linked, prep.partition, window, index)
         return eid, linked
 
     # -- Merge -----------------------------------------------------------
@@ -698,7 +755,7 @@ class GeoEventStrategy:
         if self.bounded_merge_widening:
             # Register the incoming record's window directly; the canonical
             # range no longer widens, so it can't be used for reindexing.
-            self._register(base, prep.event_type, window, index)
+            self._register(base, prep.partition, window, index)
         else:
             merged_s = _parse_dt(base_dr.get("start"))
             merged_e = _parse_dt(base_dr.get("end"))
@@ -706,9 +763,9 @@ class GeoEventStrategy:
                 merged_window = DateWindow(
                     merged_s, merged_e, self.extracted_slack_days, "extracted"
                 )
-                self._register(base, prep.event_type, merged_window, index)
+                self._register(base, prep.partition, merged_window, index)
             else:
-                self._register(base, prep.event_type, None, index)
+                self._register(base, prep.partition, None, index)
 
     def _apply_best_window(
         self, base: Dict[str, Any], base_dr: Dict[str, Any]

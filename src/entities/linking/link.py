@@ -189,7 +189,7 @@ class EntityLinker:
             return LinkResult(status="dropped", reason=drop_reason)
 
         candidate_ids = self.index.lookup(strategy.lookup_keys(prep))
-        match_id, path, candidate_debug = strategy.adjudicate(
+        match_id, path, candidate_debug, llm_call = strategy.adjudicate(
             prep, candidate_ids, self.events
         )
 
@@ -201,7 +201,7 @@ class EntityLinker:
                 match_id, base.get("name"),
             )
             strategy.merge(base, prep, self.index)
-            self._log_case(prep, candidate_ids, candidate_debug, path, f"merged:{match_id}")
+            self._log_case(prep, candidate_ids, candidate_debug, path, f"merged:{match_id}", llm_call)
             return LinkResult(status="merged", event_id=match_id, record=base)
 
         new_id, linked = strategy.create(prep, self.index)
@@ -210,7 +210,7 @@ class EntityLinker:
             "CREATE (%s) — event_type=%s name=%r (no match among %d candidates)",
             path, prep.event_type, record.get("name"), len(candidate_ids),
         )
-        self._log_case(prep, candidate_ids, candidate_debug, path, f"created:{new_id}")
+        self._log_case(prep, candidate_ids, candidate_debug, path, f"created:{new_id}", llm_call)
         return LinkResult(status="created", event_id=new_id, record=linked)
 
     def _log_case(
@@ -220,8 +220,14 @@ class EntityLinker:
         candidate_debug: List[Dict[str, Any]],
         path: str,
         decision: str,
+        llm_call: Optional[Dict[str, Any]] = None,
     ) -> None:
-        """Append one JSONL line: candidates + how the decision was reached."""
+        """Append one JSONL line: candidates + how the decision was reached.
+
+        When the decision went through the LLM, `llm_call` carries the exact
+        payload the model saw (incoming + every candidate) plus the pre/post-cap
+        candidate counts, for auditing and threshold tuning.
+        """
         if self._case_log is None:
             return
         geo = prep.record.get("_geo") or {}
@@ -245,6 +251,7 @@ class EntityLinker:
             "candidates": candidate_debug,
             "path": path,
             "decision": decision,
+            "llm_call": llm_call,
         }
         self._case_log.write(json.dumps(entry, ensure_ascii=False, default=str) + "\n")
         self._case_log.flush()
