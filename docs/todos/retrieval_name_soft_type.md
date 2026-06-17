@@ -63,10 +63,14 @@ overlap)` → adjudicate the union with type+name as soft signals.
   `candidate_cap` and most-recent ordering, and make sure a generic name ("Zona Fest" is fine,
   but "Concierto" / "Partido" are not) doesn't pull in unrelated events. May need a name-
   specificity guard (skip name retrieval for low-IDF names).
-- **Geo "hierarchical compatibility" needs a real definition.** Equal-or-prefix on `level_N_id`,
-  decide how to treat a missing intermediate level, and what counts as "contradict" (two
-  different `level_6_id`s under the same `level_5`). Leans on geocoder leaf accuracy — see
-  [`skip_llm_on_leaf_disagreement.md`](skip_llm_on_leaf_disagreement.md).
+- **Geo "hierarchical compatibility" needs a real definition.** ✅ *Defined and implemented*
+  (`hard_geo_gate=True`, `GeoEventStrategy._geo_compatible`): one record's admin id-path must be
+  *contained in* the other's (equal-or-prefix on `level_N_id`); any disagreement at a shared level
+  (e.g. two different `level_6_id`s under the same `level_5`) is a contradiction and drops the
+  candidate before the LLM. Open risk: this leans on geocoder leaf accuracy — if same-place
+  mentions get *different* leaf ids, the gate wrongly keeps them apart with no LLM fallback.
+  Measure geocoder per-level leaf consistency and consider softening the gate (LLM fallback rather
+  than hard drop) at noisy levels.
 - **Don't over-merge distinct same-name, same-venue, same-day events.** A stadium hosting two
   matches on one day shares name-fragments + geo + date; type/name being soft must not auto-
   merge them — cross-type/precise cases should still defer to the LLM rather than the
