@@ -243,7 +243,7 @@ Both deferred items above **landed**, generalized (see
 
 - **Hierarchical + coordinate retrieval** (`geo_retrieval="hierarchy"`). A located
   event registers/looks up under its `level_N_id` buckets (`partition_levels=(3,5,6,7)`)
-  **and** a ~133 m coordinate grid cell (lookup probes the 8 neighbors, ~400 m total reach) — *not* a
+  **and** a ~330 m coordinate grid cell (lookup probes the 8 neighbors, ~1 km total reach) — *not* a
   shared state-wide bucket. This kills the single-state degeneracy while the grid
   carries cross-municipality recall (same place, disagreeing `level_3_id`). The
   geocoder wrapper now retains `level_N_id` (the keys) and `coords`.
