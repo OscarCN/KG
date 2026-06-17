@@ -3,8 +3,8 @@
 Two distinct granularities, deliberately separate:
 
 - `grid_cell` / `grid_neighbors` — a cheap lat/lon grid used as a **retrieval**
-  bucket (broad recall, ~1 km cells). Two events in nearby cells are co-retrieved
-  as candidates; the precise same-place test happens later.
+  bucket (~133 m cells → ~400 m across the 3×3 lookup block). Two events in nearby
+  cells are co-retrieved as candidates; the precise same-place test happens later.
 - `haversine` — metric distance (meters) used by the **deterministic merge gate**
   (precision). This is the actual "same street/place?" measure, robust across the
   administrative-boundary disagreements that make `level_N_id` equality brittle.

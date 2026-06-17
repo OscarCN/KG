@@ -184,7 +184,7 @@ class GeoEventStrategy:
         geo_retrieval: str = "hierarchy",               # legacy: "level_2" (single state slug)
         partition_on: str = "supertype",                # type dimension of the candidate partition: "supertype" (soft type — retrieve across leaf event_types) or "event_type" (legacy hard type)
         partition_levels: Tuple[int, ...] = (3, 5, 6, 7),  # admin levels (below state) to bucket on
-        grid_size_deg: float = 0.01,                    # coordinate grid cell side (~1.1 km)
+        grid_size_deg: float = 0.0012,                  # coordinate grid cell side (~133 m → ~400 m across the 3×3 lookup block)
         hard_geo_gate: bool = True,                     # geo is a HARD candidate gate: only geo-compatible (hierarchically contained) records can ever be candidates; the LLM never sees incompatible ones. legacy: False
         deterministic_merge: bool = True,               # skip the LLM on high-confidence matches
         deterministic_share_levels: Tuple[int, ...] = (6, 7),  # share one of these level_N_ids ⇒ same place
