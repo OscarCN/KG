@@ -1,6 +1,6 @@
 # TODO — Retrieval idea: hard date+location, soft name+type (retrieve by name too)
 
-**Status:** open — idea / design
+**Status:** partially implemented — **soft type** (`partition_on="supertype"`) and **hard hierarchical geo compatibility** (`hard_geo_gate=True`) are live in `strategy.py`; **name-similarity retrieval** and the **name-OR retrieval path** (with the multi-match collapse it feeds) remain open.
 **Area:** `src/entities/linking/strategy.py` (candidate filter + adjudication), eventual kgdb retrieval (`event_properties`, `entity_locations`, `entities.name`)
 **Related:** [`canonical_reconciliation.md`](canonical_reconciliation.md), [`retrieval_linking_per_supertype.md`](retrieval_linking_per_supertype.md), [`location_level_list_extraction.md`](location_level_list_extraction.md), [`../../src/entities/linking/readme_linking.md`](../../src/entities/linking/readme_linking.md)
 
@@ -15,14 +15,16 @@ Proposed:
 
 - **Date — hard.** Confidence windows must overlap (range-scan on `event_properties.date_start
   /date_end`, which already store the slack-widened window).
-- **Location — hard, but as *hierarchical compatibility*, not leaf-identity.** Two records are
-  geo-compatible when their admin hierarchies don't contradict — same `level_2_id`, and finer
-  ids are equal-or-one-refines-the-other (a `level_2`-only record is compatible with a
-  `level_7` record in the same state; two *different* `level_6_id`s on the same street-pair are
-  not). This is the key change for the coarse↔precise case.
-- **Type — soft.** Don't require exact leaf `event_type`. Retrieve across types (at least within
-  a supertype); let the deterministic gate / LLM treat a type difference as weak evidence, not a
-  hard partition. (Subsumes [`retrieval_linking_per_supertype.md`](retrieval_linking_per_supertype.md).)
+- **Location — hard, but as *hierarchical compatibility*, not leaf-identity.** ✅ *Implemented*
+  (`hard_geo_gate=True`, `GeoEventStrategy._geo_compatible`). Two records are geo-compatible when
+  one's admin id-path is *contained in* the other's — finer ids equal-or-one-refines-the-other (a
+  `level_2`-only record is compatible with a `level_7` record in the same state; two *different*
+  `level_6_id`s on the same street-pair are not). A noloc record (no id-path) is compatible with
+  nothing. This is the key change for the coarse↔precise case.
+- **Type — soft.** ✅ *Implemented* (`partition_on="supertype"`). Don't require exact leaf
+  `event_type`. Retrieve across types (at least within a supertype); let the deterministic gate /
+  LLM treat a type difference as weak evidence, not a hard partition. (Subsumes
+  [`retrieval_linking_per_supertype.md`](retrieval_linking_per_supertype.md).)
 - **Name — soft *and* an extra retrieval path.** Add name-similarity retrieval (see *LSH vs
   trigram* below) so two records with the same name are candidates **even if** their type or
   geo precision differs. Name then also feeds adjudication as a positive signal.

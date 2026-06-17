@@ -185,6 +185,7 @@ class GeoEventStrategy:
         partition_on: str = "supertype",                # type dimension of the candidate partition: "supertype" (soft type — retrieve across leaf event_types) or "event_type" (legacy hard type)
         partition_levels: Tuple[int, ...] = (3, 5, 6, 7),  # admin levels (below state) to bucket on
         grid_size_deg: float = 0.01,                    # coordinate grid cell side (~1.1 km)
+        hard_geo_gate: bool = True,                     # geo is a HARD candidate gate: only geo-compatible (hierarchically contained) records can ever be candidates; the LLM never sees incompatible ones. legacy: False
         deterministic_merge: bool = True,               # skip the LLM on high-confidence matches
         deterministic_share_levels: Tuple[int, ...] = (6, 7),  # share one of these level_N_ids ⇒ same place
         det_day_slack: int = 1,                          # date-overlap slack for the deterministic gate
@@ -205,6 +206,7 @@ class GeoEventStrategy:
         self.partition_on = partition_on
         self.partition_levels = partition_levels
         self.grid_size_deg = grid_size_deg
+        self.hard_geo_gate = hard_geo_gate
         self.deterministic_merge = deterministic_merge
         self.deterministic_share_levels = deterministic_share_levels
         self.det_day_slack = det_day_slack
@@ -488,6 +490,40 @@ class GeoEventStrategy:
             return None
         return "misma" if (a & b) else "distinta"
 
+    # -- Hard geo gate: hierarchical containment -------------------------
+
+    # Admin levels that form the location id-path (level 4 is unused by the geocoder).
+    _GEO_LEVELS: Tuple[int, ...] = (1, 2, 3, 5, 6, 7)
+
+    def _geo_id_path(self, geo: Dict[str, Any]) -> Dict[int, str]:
+        """The non-empty `level_N_id`s of a geo block, as {level: id}."""
+        out: Dict[int, str] = {}
+        for n in self._GEO_LEVELS:
+            gid = (geo.get(f"level_{n}_id") or "").strip()
+            if gid:
+                out[n] = gid
+        return out
+
+    @staticmethod
+    def _contained(small: Dict[int, str], big: Dict[int, str]) -> bool:
+        """True if every (level, id) in `small` appears identically in `big`."""
+        return all(big.get(n) == v for n, v in small.items())
+
+    def _geo_compatible(self, ga: Dict[str, Any], gb: Dict[str, Any]) -> bool:
+        """Hard geo rule: two events may be the same place only if one's admin
+        id-path is *contained in* the other's (the lower-precision location is a
+        prefix of the higher-precision one). Different ids at any shared level
+        (e.g. Mérida vs Toluca, two distinct streets) ⇒ incompatible. A record
+        with no admin id-path at all (noloc) is incompatible with everything —
+        an unknown location can't be confirmed to match, which is what stops a
+        location-less record from becoming a name magnet that swallows every
+        same-named event across the country.
+        """
+        a, b = self._geo_id_path(ga), self._geo_id_path(gb)
+        if not a or not b:
+            return False
+        return self._contained(a, b) or self._contained(b, a)
+
     @staticmethod
     def _geo_distance_m(ga: Dict[str, Any], gb: Dict[str, Any]) -> Optional[float]:
         """Haversine meters between two geo blocks, or None if either lacks coords."""
@@ -648,6 +684,15 @@ class GeoEventStrategy:
         `llm_call` is the structured payload sent to the LLM (incoming +
         candidates + cap counts) when `path == "llm"`, else None.
         """
+        # Hard geo gate: drop geo-incompatible candidates so they never reach
+        # the deterministic gate or the LLM (an incompatible location can never
+        # be the same event, regardless of name/date).
+        if self.hard_geo_gate and candidate_ids:
+            inc_geo = prep.record.get("_geo") or {}
+            candidate_ids = {
+                cid for cid in candidate_ids
+                if self._geo_compatible(inc_geo, events[cid].get("_geo") or {})
+            }
         if not candidate_ids:
             return None, "no_candidates", [], None
         debug = self._candidate_debug(prep, candidate_ids, events)
@@ -737,9 +782,22 @@ class GeoEventStrategy:
                 base_dr["start"] = merged_s
                 base_dr["end"] = merged_e
 
-        # Promote location when the new record has more populated subfields
-        # and resolves to the same geo partition.
-        if self._same_geo_partition(base, new, prep.geo_key):
+        # Highest precision wins. Under the hard geo gate a merge only happens
+        # between geo-compatible records (one location contained in the other),
+        # so a more precise incoming location refines the canonical — and the
+        # re-registration below re-indexes it under the finer geo keys, so a
+        # coarse record can't stay a magnet. Without the gate, fall back to the
+        # legacy same-partition + populated-count promotion.
+        if self.hard_geo_gate:
+            new_prec = (new.get("_geo") or {}).get("precision_level") or 0
+            base_prec = (base.get("_geo") or {}).get("precision_level") or 0
+            if new_prec > base_prec:
+                if new.get("location"):
+                    base["location"] = new["location"]
+                base["_geo"] = new.get("_geo") or {}
+                if new.get("_geo_source"):
+                    base["_geo_source"] = new["_geo_source"]
+        elif self._same_geo_partition(base, new, prep.geo_key):
             new_loc = new.get("location") or {}
             base_loc = base.get("location") or {}
             if _populated_count(new_loc) > _populated_count(base_loc):

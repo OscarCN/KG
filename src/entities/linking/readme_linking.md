@@ -33,7 +33,8 @@ The geo strategy v1 spec in [`docs/todos/retrieval_linking_per_supertype.md`](..
 ```
 new event → schema parse (EntityLinker envelope)
           → strategy.prepare: geocode → geo partition keys + date window
-          → candidate lookup (CandidateIndex: event_type ∧ geo-key ∧ day-key overlap)
+          → candidate lookup (CandidateIndex: supertype ∧ geo-key ∧ day-key overlap)
+          → hard geo gate (drop candidates whose location isn't hierarchically contained either way)
           → deterministic gate (shares level_6/7_id ∧ day → skip the LLM, no name)
           → else LLM adjudication (gemini-2.5-flash-lite, capped candidate list)
           → match-id ? merge : create new
@@ -41,13 +42,13 @@ new event → schema parse (EntityLinker envelope)
 
 **Architecture.** `EntityLinker` (`link.py`) is supertype-agnostic: it parses the record envelope (`_source_id`, `_supertype`, `date_created`), selects a strategy by the schema's `meta.category`, and orchestrates the calls. All event-specific behaviour lives in `GeoEventStrategy` (`strategy.py`), which owns the full lifecycle — enrich → window/key construction → adjudication → merge/create → (re)index — against the `CandidateIndex` protocol (`index.py`, in-memory today, kgdb-backed later). A supertype with no schema is a logged drop (`no_schema`) — it no longer silently defaults to the event path.
 
-**Identity model (geo events).** Two records denote the same event iff: same class (`event_type`, exact), same place (hierarchical `level_N_id` + coordinate-grid partition, with the deterministic gate using haversine proximity), overlapping time (tiered fallbacks below), and co-referent content (the deterministic level-6/7-share gate, or the LLM over the description).
+**Identity model (geo events).** Two records denote the same event iff: same **supertype** (soft type — the leaf `event_type` may differ between sibling classes; `partition_on="event_type"` for the legacy exact-type rule), **geo-compatible** place (one location's admin id-path hierarchically contained in the other's — a *hard* gate under `hard_geo_gate=True`, never overruled by the LLM), overlapping time (tiered fallbacks below), and co-referent content (the deterministic level-6/7-share gate, or the LLM over the description).
 
 ### Candidate filter
 
 For each incoming event, candidates are the already-linked events sharing **all three** of:
 
-- same `event_type`
+- same **type partition** — by default the **supertype** (`partition_on="supertype"`, *soft type*): candidates span sibling leaf `event_type`s (e.g. a `concert` and a `festival` of the same `paid_mass_event` supertype can be the same event), and the leaf-type decision is left to the deterministic gate / LLM. `partition_on="event_type"` reproduces the legacy *hard type* partition (one bucket per leaf type).
 - overlapping **geo partition** — hierarchical (`geo_retrieval="hierarchy"`, the default; legacy `"level_2"` reproduces the old single state slug). A **located** record registers and looks up under its *fine* keys only — each available `level_N_id` below state (`partition_levels=(3,5,6,7)`) **and** a coordinate **grid cell** (`grid_size_deg≈0.01`, ~1 km). Lookup additionally probes the grid cell's **8 neighbors** (a same-event mention can land in an adjacent cell). This is deliberately *not* a shared state-wide bucket — that would re-merge every located event in the state (the single-state degeneracy). Cross-municipality recall is instead carried by the grid: two mentions of the same place that disagree on `level_3_id` (e.g. a sinkhole tagged Corregidora vs Querétaro-city) still meet in the same/adjacent cell. A record with no fine keys falls back to a **state-only** bucket (`so:<slug>`, from the geocoder `level_2` name or the extracted `location.state` via the `mx_states.py` catalogue) or, with no state at all, the **noloc** bucket (`""`). `_geo_source ∈ {geocoder, state_catalogue, none}` records which tier produced the state slug. Located lookups also probe the `so:`/noloc buckets as a one-way **bridge** so a precise mention can match an earlier vague one (the reverse is impossible — a vague record can't know the partition; accepted recall trade-off).
 - date-range overlap with **slack** applied symmetrically:
   - **max(±1 day, ±`precision_days`)** when the incoming event has an extracted `date_range` — an approximate mention ("en marzo" → `precision_days≈30`) widens its own window accordingly.
@@ -56,6 +57,10 @@ For each incoming event, candidates are the already-linked events sharing **all 
 Each linked event is registered in the candidate index under both its extracted-date window (when present, with its own slack) and its publication-date window (when present, with publication slack). That way the next incoming event finds it regardless of which date source it carries. Windows longer than `max_window_days` (365) are clamped at the start + 365 days and logged.
 
 The filter is intentionally broad (recall) — the **deterministic gate or the LLM** makes the actual same-vs-different judgment (precision), over a candidate list capped at `candidate_cap` (12, most recent first).
+
+#### Hard geo gate
+
+With `hard_geo_gate=True` (default), **geo is a hard candidate gate, not just a partition**: after retrieval, candidates whose location is not *hierarchically compatible* with the incoming event are dropped before the deterministic gate and the LLM ever see them. Two locations are compatible iff one's admin id-path (`level_1_id…level_7_id`, level 4 unused) is **contained in** the other's — the coarser location is a strict prefix of the finer one (e.g. `level_3` Querétaro-city ⊂ a `level_6` street within it). Different ids at any shared level (Mérida vs Toluca, two distinct streets in the same colonia) ⇒ incompatible, so the LLM can never overrule geo to merge them. A record with **no admin id-path at all** (noloc) is incompatible with everything: an unknown location can't be *confirmed* to match, which stops a location-less record from becoming a name magnet that swallows every same-named event across the country. This is what "hard geo" buys over the soft partition alone — the grid/neighbor probes and the `so:`/noloc bridge still widen *retrieval*, but the gate guarantees a merge never crosses an incompatible location. `hard_geo_gate=False` restores the legacy behaviour where geo only partitions and the LLM may merge across partitions it was shown.
 
 > **History.** v1 partitioned on a single state slug (after fixing a bug where it keyed on `_geo["level_2_id"]`, which the geocoder wrapper never emitted, so the partition never fired and all same-type/same-day events shared one bucket). That single-state partition is **superseded** by the hierarchical `level_N_id` + grid retrieval above (`geo_retrieval="hierarchy"`; `"level_2"` reproduces the v1 single-slug behaviour for regression). One observed geocoder quirk persists: the wrapper picks the highest-`precision_level` match regardless of state agreement, so a record whose extracted `state` says one state can land in another's partition; this is deterministic (cached), so partitioning stays consistent per location input.
 
@@ -73,8 +78,10 @@ The filter is intentionally broad (recall) — the **deterministic gate or the L
 | `bounded_merge_widening` | `True` | `False` (unconditional min/max) |
 | `candidate_cap` | `12` | `None` (unbounded) |
 | `geo_retrieval` | `"hierarchy"` | `"level_2"` (single state slug) |
+| `partition_on` | `"supertype"` (soft type — one partition per supertype, candidates span sibling leaf `event_type`s) | `"event_type"` (hard type — one partition per leaf type) |
 | `partition_levels` | `(3, 5, 6, 7)` | n/a (state only) |
 | `grid_size_deg` | `0.01` (~1 km cells) | n/a (no grid) |
+| `hard_geo_gate` | `True` (geo is a hard candidate gate — hierarchical containment) | `False` (geo only partitions; the LLM may overrule geo) |
 | `deterministic_merge` | `True` | `False` (LLM-always) |
 | `deterministic_share_levels` | `(6, 7)` | — |
 | `det_day_slack` | `1` | — |
@@ -134,7 +141,7 @@ When a match is found — by the deterministic gate or the LLM — the strategy:
 - appends the new record's `_source_id` to the canonical event's `source_ids` (de-duped),
 - fills nulls on `name`, `description`, `context`, `status` from the new record; keeps the earliest `publication_date`,
 - appends the incoming window to `_source_windows` and sets the canonical `date_range` to the **most precise extracted window seen** (smallest `precision_days`, `None` = exact; ties keep the earliest-seen) — the canonical range no longer widens unconditionally, which prevented one imprecise source from permanently inflating the window and snowballing future merges. Registration stays generous: the incoming window's day-keys are registered regardless, so recall is unchanged,
-- promotes the canonical record's `location` to the new one when it has more populated subfields **and** resolves to the same geo partition.
+- promotes the canonical record's `location` to the new one by **precision** under the hard geo gate (`hard_geo_gate=True`): a merge only joins geo-compatible records, so a higher-`precision_level` incoming location refines the canonical (`location`, `_geo`, `_geo_source`), and the re-registration step re-indexes the event under the finer geo keys — a coarse seed can't stay a magnet. With the gate off, it falls back to the legacy rule (promote when the new `location` has more populated subfields **and** resolves to the same geo partition).
 
 When no match is found, a new linked event is minted with id `{YYYYMMDD}_{state-slug-or-noloc}_{rand}`.
 
