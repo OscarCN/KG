@@ -45,6 +45,7 @@
         "schema": {
             "event_type": {
                 "type": "EnumStr",
+                "importance": "essential",
                 "required": true,
                 "description": "Type of closure or interruption. Choose the single most specific category that matches.",
                 "enum": [
@@ -55,10 +56,12 @@
             },
             "event_subtype": {
                 "type": "str",
+                "importance": "secondary",
                 "description": "More specific subtype, e.g. 'protest_blockade', 'road_closure_for_works', 'service_suspension', 'strike'."
             },
             "status": {
                 "type": "EnumStr",
+                "importance": "essential",
                 "description": "Current status of the closure/interruption.",
                 "enum": [
                     "planned",
@@ -69,22 +72,27 @@
             },
             "name": {
                 "type": "str",
+                "importance": "essential",
                 "description": "Name or identifier, if any."
             },
             "description": {
                 "type": "str",
+                "importance": "essential",
                 "description": "Brief description of the closure or interruption."
             },
             "tags": {
                 "type": "List[str]",
+                "importance": "secondary",
                 "description": "Keywords describing the event."
             },
             "context": {
                 "type": "str",
+                "importance": "essential",
                 "description": "Contextual information: negotiations, related demands, historical context."
             },
             "relevance": {
                 "type": "EnumStr",
+                "importance": "secondary",
                 "description": "Relevance within the article: 1 = main topic, 2 = secondary, 3 = implicit.",
                 "enum": [
                     "1",
@@ -94,30 +102,37 @@
             },
             "date_range": {
                 "type": "DateRangeFromUnstructured",
+                "importance": "essential",
                 "description": "Date or date range of the closure or interruption. Extract the start datetime and, if present, the end datetime."
             },
             "location": {
                 "type": "Location",
+                "importance": "essential",
                 "description": "Location of the closure or interruption."
             },
             "affected_routes": {
                 "type": "str",
+                "importance": "secondary",
                 "description": "Description of affected roads, routes, or services."
             },
             "cause": {
                 "type": "str",
+                "importance": "essential",
                 "description": "Reason for the closure or interruption."
             },
             "duration_mention": {
                 "type": "str",
+                "importance": "secondary",
                 "description": "Mentioned or estimated duration of the interruption."
             },
             "alternative_routes": {
                 "type": "str",
+                "importance": "secondary",
                 "description": "Alternative routes or workarounds mentioned."
             },
             "responsible_party": {
                 "type": "str",
+                "importance": "secondary",
                 "description": "Group or entity causing or managing the closure."
             }
         }

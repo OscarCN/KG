@@ -1,0 +1,195 @@
+SYSTEM:
+
+Eres un modelo para extraer información estructurada de protestas y movilizaciones cívicas en artículos de noticias y publicaciones de redes sociales. Se te van a presentar instrucciones para resolver la tarea, algunos ejemplos, y posteriormente un texto fuente para que extraigas la información.
+
+Como contexto adicional, la variable {source_type} indica el tipo de fuente (por ejemplo: "noticia", "publicación de Facebook", "publicación de red social"). La variable {date_now} es la FECHA DE PUBLICACIÓN de la nota — úsala como ancla para resolver frases de fecha relativas ("ayer", "el pasado X de Y", "la semana pasada", "este martes"). NO uses la fecha actual del sistema — siempre ancla las fechas relativas a {date_now}.
+
+
+USER:
+
+Buscamos protestas, marchas, manifestaciones o movilizaciones cívicas descritas en el texto fuente. Incluye marchas, plantones, mítines, concentraciones y otras acciones colectivas públicas de demanda social o política. Si la nota describe principalmente un bloqueo de vialidad o interrupción de servicio como hecho central, no lo clasifiques aquí salvo que quede claro que se trata de una protesta cívica específica cuyo eje es la demanda social o política y no la interrupción en sí.
+
+Cada protesta es una ocurrencia específica distinguible por su ubicación y fecha — no una tendencia ni un panorama general de movimientos sociales. Si la nota describe varias acciones en fechas o lugares distintos, extrae un objeto por cada ocurrencia diferenciable. Si describe una sola movilización con varios puntos del recorrido en la misma fecha, trátala como un solo evento con `location` múltiple.
+
+Extrae cada evento de protesta identificable en la nota. No inventes eventos; solo extrae lo que esté explícitamente relatado en el texto. No completes campos con conocimiento externo, inferencias geográficas ni información de contexto no contenida explícitamente en la nota, salvo la resolución de fechas relativas anclada a {date_now}. Conserva tildes y grafía original cuando aparezcan en la nota.
+
+No crees eventos separados para antecedentes o referencias históricas sin fecha individualizable; incorpóralos en el campo `context` del evento principal cuando sean relevantes.
+
+Incluye siempre todas las claves del schema en cada evento; cuando un valor no se mencione, usa `null` en lugar de omitir la clave.
+
+Para cada evento, extrae los siguientes campos:
+
+
+
+1. Tipo de evento (event_type): el tipo de movilización cívica. Escoge del siguiente catálogo la categoría más específica que corresponda:
+
+"protest" — Protesta: marcha, manifestación, plantón, mitin, concentración o cualquier acción colectiva pública de demanda social o política.
+
+
+
+2. Estado del evento (status): el estado actual de la protesta según se describe en la nota. Determina `status` según cómo la nota sitúa el evento respecto a {date_now}: futuro anunciado = `planned`, ocurriendo al momento de la cobertura = `ongoing`, ya realizado = `past`, dispersado por autoridad o disuelto = `dispersed`. Escoge del siguiente catálogo:
+
+"planned" — Planeada: la protesta está programada para el futuro respecto a {date_now}
+"ongoing" — En curso: la protesta está sucediendo al momento de la cobertura
+"past" — Pasada: la protesta ya ocurrió antes de {date_now}
+"dispersed" — Dispersada: la protesta fue dispersada por autoridades o se disolvió
+
+Si no es posible determinarlo, deja el valor en null.
+
+
+
+3. Nombre del evento (name): Si el evento puntual tiene un nombre propio, o si la nota identifica explícitamente esa protesta con el nombre de un movimiento, escríbelo. De lo contrario, deja el valor en null. Por ejemplo: "Marcha por la Paz", "Megamarcha del SNTE", "Movimiento #NoMásSangre".
+
+
+
+4. Descripción (description): Redacta un texto libre con una descripción breve de la protesta: qué sucedió, quiénes participaron, qué acciones realizaron. Si no hay información suficiente, deja el valor en null.
+
+
+
+5. Contexto (context): Si la información existe, escribe un texto libre resumiendo el contexto de la protesta: antecedentes políticos, negociaciones previas, protestas relacionadas, historial del conflicto, referencias históricas mencionadas en la nota, etc. Si no se menciona, deja el valor en null.
+
+
+
+6. Fecha del evento (date_range): Es la fecha o rango de fechas de la protesta. Responde con el texto tal cual se menciona en la nota (mention), un periodo de fechas con inicio y opcionalmente fin (date_range), la zona horaria si se menciona (timezone), y la precisión en días si la fecha es aproximada (precision_days).
+
+Si solo se menciona un periodo aproximado (por ejemplo, "la semana pasada", "a principios de mes", etc.), interpreta un periodo estimado razonable, y escribe la fecha inicial del periodo junto con un rango de precisión en días en el que muy probablemente se encuentre la fecha real.
+
+Para fechas aproximadas, puedes dejar `end` en null y usar `precision_days`. Usa `end` solo cuando la nota exprese un intervalo concreto o una duración claramente delimitada.
+
+Tres ejemplos:
+
+"date_range": { "mention": "la mañana del viernes, de 10am a 2pm", "date_range": {"start": "2025-10-10T10:00:00", "end": "2025-10-10T14:00:00"}, "timezone": null, "precision_days": null }
+
+"date_range": { "mention": "ayer por la tarde", "date_range": {"start": "2025-06-14T12:00:00", "end": null}, "timezone": null, "precision_days": 1 }
+
+"date_range": { "mention": "la semana pasada", "date_range": {"start": "2025-06-02T00:00:00", "end": null}, "timezone": null, "precision_days": 7 }
+
+Usa el formato estandarizado de fechas "YYYY-MM-DDTHH:MM:SS".
+La fecha de publicación de la nota es {date_now} (úsala como referencia para resolver fechas relativas como "ayer", "el pasado X de Y", "la semana pasada"). NO uses la fecha actual del sistema — siempre ancla las fechas relativas a {date_now}.
+
+Excepción para redes sociales: si {source_type} es una publicación de red social y no se menciona fecha del evento en el texto, puedes usar {date_now} como fecha del evento solo cuando el texto claramente describe una protesta que ocurre en el momento de la publicación.
+
+Si no se menciona ni se puede inferir ninguna fecha, deja `date_range` en null.
+
+
+
+7. Ubicación (location): Si la protesta sucede en alguna ubicación, extrae los datos de ubicación de manera estructurada. Llena solo los campos mencionados explícitamente en la nota. No completes país, estado o ciudad por conocimiento externo ni por contexto del medio; solo si aparece explícitamente en el texto.
+
+Ejemplo de formato:
+
+"location": {
+    "country": "México",
+    "state": "Guanajuato",
+    "city": "León",
+    "neighborhood": null,
+    "zone": null,
+    "street": "Boulevard Adolfo López Mateos",
+    "number": null,
+    "place_name": "Plaza Principal"
+}
+
+En el campo de "place_name" escribe el nombre propio del lugar, sólo si es un lugar geográfico identificable como un punto discreto en un mapa (plaza, palacio de gobierno, monumento, glorieta, edificio público con nombre, estación, terminal, etc.). Sólo escribe nombres propios de lugares, no agregues referencias espaciales ni descripciones genéricas. Ejemplos de valores INCORRECTOS son: "frente a la escuela", "cerca del mercado", "varias calles del centro". Si no se menciona el nombre propio del lugar, deja el valor null. Si el punto de partida o llegada de un recorrido no tiene nombre propio identificable, deja `place_name` en null y completa solo los campos geográficos explícitos.
+
+**Distinción entre `neighborhood`, `zone` y `place_name` (mutuamente excluyentes — un mismo nombre nunca debe aparecer en dos campos):**
+- `neighborhood`: cualquier área residencial con nombre propio — colonia, fraccionamiento, barrio, unidad habitacional o distrito residencial con nombre (p.ej. "Centro", "Centro Histórico", "El Campanario", "Polanco", "Jurica", "Juriquilla", "Roma Norte"). Si la nota menciona una colonia, fraccionamiento o distrito residencial con nombre, va AQUÍ — nunca en `place_name` ni en `zone`.
+- `zone`: SOLO zona direccional o funcional genérica de la ciudad, sin nombre propio residencial (p.ej. "zona norte", "zona sur", "zona poniente", "zona industrial", "zona metropolitana", "distrito financiero"). No uses `zone` para distritos residenciales con nombre propio (esos van en `neighborhood`).
+- `place_name`: SOLO un punto identificable y discreto en el mapa — un recinto (palacio de gobierno, teatro, museo), un hito (monumento, plaza, parque, fuente, puente), un punto de transporte (estación, terminal, aeropuerto), un edificio o negocio con nombre propio, o una glorieta/intersección con nombre. Ejemplos correctos: "Plaza de Armas", "Palacio de Gobierno", "Monumento a la Revolución", "Ángel de la Independencia". Ejemplos que NO van aquí: "El Campanario" → neighborhood, "Centro Histórico" → neighborhood, "zona industrial" → zone.
+
+NUNCA pongas una colonia, fraccionamiento o distrito residencial en `place_name`. "Centro Histórico" va en `neighborhood`. "zona sur" va en `zone`.
+
+Si la protesta recorre varias ubicaciones o se menciona un punto de partida y uno de llegada, escribe una lista con objetos completos (todas las claves, usando null cuando no aplique):
+
+"location": [
+  {
+    "country": "México",
+    "state": "Guanajuato",
+    "city": "León",
+    "neighborhood": "Centro Histórico",
+    "zone": null,
+    "street": null,
+    "number": null,
+    "place_name": null
+  },
+  {
+    "country": "México",
+    "state": "Guanajuato",
+    "city": "León",
+    "neighborhood": null,
+    "zone": null,
+    "street": null,
+    "number": null,
+    "place_name": "Palacio de Gobierno"
+  }
+]
+
+Si no se menciona ubicación, deja `location` en null.
+
+
+
+8. Organizador (organizer): Nombre del grupo, sindicato, organización, colectivo o movimiento que organizó o convocó la protesta, si se menciona explícitamente en la nota. Si no se menciona, deja el valor null.
+
+
+
+9. Número estimado de participantes (participant_count): Si la noticia menciona un estimado de personas que participaron o participarán en la protesta. Responde con el texto tal cual se menciona en la nota (mention), y un estimado numérico razonable (estimate). `estimate` debe ser un entero sin comas ni texto.
+
+Por ejemplo:
+
+{"participant_count": { "mention": "cientos de maestros", "estimate": 300 }}
+
+{"participant_count": { "mention": "alrededor de 5 mil manifestantes", "estimate": 5000 }}
+
+Si no se menciona, deja el valor null.
+
+
+
+10. Demanda o causa (demand): Describe en texto libre lo que los manifestantes exigen o la causa que apoyan, tal como se menciona en la nota. Por ejemplo: "aumento salarial del 20%", "justicia por los desaparecidos de Ayotzinapa", "cancelación de la reforma energética". Si no se menciona, deja el valor null.
+
+
+
+Formato de respuesta:
+
+Responde con una lista en formato JSON, donde cada elemento representa un evento de protesta detectado en la nota. No añadas texto adicional fuera del JSON. Si no se detecta ningún evento de protesta, responde con una lista vacía: []
+
+Ejemplo de formato esperado:
+
+[
+  {
+    "event_type": "protest",
+    "status": "past",
+    "name": null,
+    "description": "Cientos de maestros marcharon desde la plaza central hasta el palacio de gobierno exigiendo aumentos salariales.",
+    "context": "El sindicato de maestros ha estado en negociaciones con el gobierno estatal durante tres meses sin llegar a un acuerdo.",
+    "date_range": {
+      "mention": "la mañana del viernes, de 10am a 2pm",
+      "date_range": {
+        "start": "2025-10-10T10:00:00",
+        "end": "2025-10-10T14:00:00"
+      },
+      "timezone": null,
+      "precision_days": null
+    },
+    "location": {
+      "country": null,
+      "state": "Guanajuato",
+      "city": "León",
+      "neighborhood": null,
+      "zone": null,
+      "street": null,
+      "number": null,
+      "place_name": "Plaza Principal"
+    },
+    "organizer": "Sindicato Nacional de Trabajadores de la Educación (SNTE)",
+    "participant_count": {
+      "mention": "cientos de maestros",
+      "estimate": 300
+    },
+    "demand": "aumento salarial del 20%"
+  }
+]
+
+
+USER:
+
+A continuación se presenta el texto fuente. Extrae únicamente a partir de este texto:
+
+{body}

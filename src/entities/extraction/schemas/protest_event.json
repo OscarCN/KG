@@ -49,6 +49,7 @@
         "schema": {
             "event_type": {
                 "type": "EnumStr",
+                "importance": "essential",
                 "required": true,
                 "description": "Type of protest or civic mobilization. Choose the single most specific category that matches.",
                 "enum": [
@@ -57,10 +58,12 @@
             },
             "event_subtype": {
                 "type": "str",
+                "importance": "secondary",
                 "description": "More specific subtype, e.g. 'march', 'sit_in', 'rally', 'picket', 'vigil', 'strike', 'demonstration'."
             },
             "status": {
                 "type": "EnumStr",
+                "importance": "essential",
                 "description": "Current status of the protest.",
                 "enum": [
                     "planned",
@@ -71,22 +74,27 @@
             },
             "name": {
                 "type": "str",
+                "importance": "essential",
                 "description": "Name of the protest or movement, if it has one."
             },
             "description": {
                 "type": "str",
+                "importance": "essential",
                 "description": "Brief description of the protest."
             },
             "tags": {
                 "type": "List[str]",
+                "importance": "secondary",
                 "description": "Keywords describing the protest."
             },
             "context": {
                 "type": "str",
+                "importance": "essential",
                 "description": "Contextual information: political background, prior negotiations, related protests."
             },
             "relevance": {
                 "type": "EnumStr",
+                "importance": "secondary",
                 "description": "Relevance within the article: 1 = main topic, 2 = secondary, 3 = implicit.",
                 "enum": [
                     "1",
@@ -96,38 +104,47 @@
             },
             "date_range": {
                 "type": "DateRangeFromUnstructured",
+                "importance": "essential",
                 "description": "Date or date range of the protest. Extract the start datetime and, if present, the end datetime."
             },
             "location": {
                 "type": "Location",
+                "importance": "essential",
                 "description": "Location where the protest took place or is planned."
             },
             "organizer": {
                 "type": "str",
+                "importance": "essential",
                 "description": "Group, union, organization, or movement that organized the protest."
             },
             "participant_count": {
                 "type": "Attendance",
+                "importance": "essential",
                 "description": "Estimated number of participants, with original text mention and numeric estimate."
             },
             "demand": {
                 "type": "str",
+                "importance": "essential",
                 "description": "What the protesters are demanding or the cause they are supporting."
             },
             "route": {
                 "type": "str",
+                "importance": "secondary",
                 "description": "March route, if mentioned (e.g. 'de la Plaza Principal al Palacio de Gobierno')."
             },
             "affected_services": {
                 "type": "str",
+                "importance": "secondary",
                 "description": "Description of traffic, transit, or services affected by the protest."
             },
             "authorities_response": {
                 "type": "str",
+                "importance": "secondary",
                 "description": "Response from authorities (police presence, negotiations, statements), if mentioned."
             },
             "incidents": {
                 "type": "str",
+                "importance": "secondary",
                 "description": "Any incidents during the protest (clashes, arrests, injuries), if mentioned."
             }
         }

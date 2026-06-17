@@ -117,9 +117,27 @@ Each schema defines:
 - **`meta.example`**: a complete example of the expected JSON output (included in the generated prompt). Composite type fields must include ALL subfields defined by the type, with null for absent values — omitting fields causes generated prompts to miss them during extraction.
 - **`schema`**: field definitions, each with:
   - `type`: data type (same type system as `src/schema/types/`)
+  - `importance`: `"essential"` or `"secondary"` — drives tiered extraction (see [Field importance & tiered extraction](#field-importance--tiered-extraction)). Optional; an untagged field is treated as essential.
   - `description`: extraction instruction for the LLM — doubles as field documentation
   - `enum`: allowed values (for EnumStr fields, rendered as a catalogue in the prompt)
   - `required`: whether the field must be present
+
+### Field importance & tiered extraction
+
+Each event-schema field is tagged `"importance": "essential" | "secondary"` (right after `type`).
+**Essential** = the identification + summary fields (`event_type`, `name`, `description`,
+`context`, `status`, `date_range`, `location`) — exactly what the linker consumes. **Secondary**
+= enrichment (`event_subtype`, `tags`, `relevance`, and per-supertype fields like `price`,
+`attendance`, `casualties`, …).
+
+This powers a cheaper default extraction: an **essential-only prompt** (suffixed `_essn`,
+generated from just the essential fields) runs by default, saving input *and* output tokens; the
+full prompt is reserved for on-demand enrichment of important events. The split is declarative —
+re-tag a field and regenerate to move it between tiers. No required field is secondary, so
+essential-only records still validate against the full schema (absent secondary fields default to
+null). Themes/entities are untagged, so their generation/extraction is unaffected (they keep the
+full prompt). See [`../../../docs/todos/tiered_extraction_essential_fields.md`](../../../docs/todos/tiered_extraction_essential_fields.md)
+for the design, including the (still open) trigger for the on-demand full pass.
 
 ### Shared composite types
 
@@ -216,7 +234,7 @@ The generated draft is sent to a separate feedback LLM (potentially a different,
 
 ### Output
 
-Saved to `prompts/classes/{supertype}.txt` in `SYSTEM:/USER:/USER:` format, ready for `_load_prompt()` to load at extraction time.
+Saved to `prompts/classes/{supertype}.txt` (full) or `prompts/classes/{supertype}_essn.txt` (essential-only) in `SYSTEM:/USER:/USER:` format, ready for `_load_prompt()` to load at extraction time.
 
 ### Runtime context variables
 
@@ -234,8 +252,10 @@ Generated prompts include these template variables, substituted by `extract.py` 
 from src.entities.extraction.prompt_generator import PromptGeneration
 
 gen = PromptGeneration()
-gen.generate("emergency_event")  # generate one supertype
-gen.generate_all()            # generate all supertypes
+gen.generate("emergency_event")               # full prompt for one supertype
+gen.generate("emergency_event", essential_only=True)  # essential-only `_essn` prompt
+gen.generate_all()                            # full prompts for all supertypes
+gen.generate_all_essential()                  # `_essn` prompts for supertypes with a secondary field (events)
 ```
 
 ### LLM configuration
@@ -264,7 +284,7 @@ This flow avoids redundant extraction calls for keyword matches that don't corre
 - **`Ontology`** — loads `event_types.csv` and `keywords.xlsx`, evaluates matching rules (keywords, exclusions, categories, document type) against articles, resolves matched ontology classes to supertypes, and provides class descriptions for the classification step. Class descriptions (from `meta.description`) tell the classifier what ontology category each class belongs to and what distinguishes extractable items.
 - **`EntityExtractor`** — orchestrates the pipeline: `match()` finds candidate classes, `classify()` asks the LLM which classes actually apply, `extract_supertype()` extracts events scoped to a specific class, `extract()` runs the full three-step flow.
 - **`call_llm()`** — sends messages to an LLM via OpenRouter (`src/llm/openrouter/`). Requests JSON mode for reliable parsing. Model and API key configured via environment variables (see below).
-- **`_load_prompt()`** — reads prompt files from `prompts/classes/`, substitutes context variables (`{date_now}`, `{source_type}`, `{body}`).
+- **`_load_prompt()`** — reads prompt files from `prompts/classes/`, substitutes context variables (`{date_now}`, `{source_type}`, `{body}`). By default (`EntityExtractor(essential_prompts=True)`) it prefers the `_essn` prompt when one exists for the supertype, falling back to the full prompt otherwise (`_resolve_prompt_path()`). Set `essential_prompts=False` to always use the full prompt.
 - **`_validate_entity()`** — runs each extracted entity through the schema `Parser` for type coercion and validation.
 - **`_cache_read()` / `_cache_write()`** — file-based extraction cache keyed by `sha256(article_url|class_name)`, stored as JSON in `cache/`.
 - **`_classify_cache_read()` / `_classify_cache_write()`** — file-based classification cache keyed by `sha256(classify|article_url|sorted_classes)`, stored as JSON in `cache/`.
@@ -354,7 +374,9 @@ Both classification and per-class extraction results are cached to `cache/` (pro
 | Step | Key | Functions |
 |------|-----|-----------|
 | Classification | `sha256(classify\|article_url\|sorted_matched_classes)` | `_classify_cache_read()` / `_classify_cache_write()` |
-| Extraction | `sha256(article_url\|class_name)` | `_cache_read()` / `_cache_write()` |
+| Extraction | `sha256(article_url\|class_name[\|variant])` | `_cache_read()` / `_cache_write()` |
+
+The extraction key includes the prompt **variant** (`essn` vs `full`) so essential and full extractions of the same `(article, class)` cache separately. `full` is encoded as no suffix, so existing cache files stay valid.
 
 Classification cache is checked in `EntityExtractor.classify()` — the same article with the same set of candidate classes returns the cached confirmed list. Different candidate sets (e.g. from updated keyword rules) produce different cache keys and trigger a fresh LLM call.
 

@@ -1,0 +1,151 @@
+SYSTEM:
+
+Eres un modelo para extraer información estructurada de eventos masivos en artículos de noticias. Se te presentarán instrucciones para resolver la tarea, algunos ejemplos y posteriormente una noticia para que extraigas la información.
+
+Como contexto, la variable {source_type} indica el tipo de fuente (por ejemplo: "noticia", "publicación de Facebook", "publicación de red social"). La variable {date_now} es la FECHA DE PUBLICACIÓN de la nota — úsala como ancla para resolver fechas relativas ("ayer", "el pasado X de Y", "la semana pasada", "este martes"). NO uses la fecha actual del sistema.
+
+
+USER:
+
+Buscamos eventos masivos con asistencia pública descritos en un artículo de noticias. Incluye conciertos, festivales, ferias, eventos deportivos, eventos religiosos, eventos culturales, congresos, exposiciones, conferencias, convenciones e inauguraciones. Cada evento debe corresponder a una realización específica, distinguible por fecha y lugar — no a una tendencia, panorama general o tema genérico.
+
+Incluye el evento solo si la nota contiene una mención temporal explícita o relativa resoluble (por ejemplo, "mañana", "este viernes", "en agosto", "el próximo 15 de marzo"). Si no hay ninguna mención temporal en el texto, no extraigas el evento aunque conozcas la fecha de publicación.
+
+En publicaciones de redes sociales, usa {date_now} solo como ancla para expresiones relativas o referencias temporales implícitas en el texto; no infieras una fecha del evento únicamente porque conoces la fecha de publicación.
+
+Para cada evento mencionado en la nota que tenga una fecha (exacta o estimada), extrae los siguientes campos. Si no se menciona un campo, deja su valor null. No inventes eventos; solo extrae lo que esté explícitamente relacionado en la nota. Incluye todas las claves del esquema en cada objeto de evento; cuando un valor no se mencione o no se pueda determinar, usa `null`.
+
+
+
+1. Tipo de evento (event_type): obtén el tipo de evento del siguiente catálogo, usando la categoría que sea más específica al evento (e.g. Concierto es más específico que Evento cultural):
+
+"concert" — Concierto: presentación musical en vivo
+"festival" — Festival: evento de varios días o con múltiples actividades/artistas
+"party" — Fiesta: celebración social o evento festivo
+"fair" — Feria: feria comercial, artesanal, gastronómica, etc.
+"religious_event" — Evento religioso: procesión, misa especial, festividad religiosa
+"sports_event" — Evento deportivo: partido, torneo, competencia deportiva
+"congress" — Congreso: reunión formal de profesionales o académicos
+"exposition" — Exposición: muestra de arte, ciencia, tecnología, etc.
+"conference" — Conferencia: presentación o charla ante un público
+"convention" — Convención: reunión de miembros de un grupo, sector o comunidad
+"inauguration" — Inauguración: apertura formal de un espacio, obra, o evento
+"cultural_event" — Evento cultural: evento artístico o cultural que no encaja en las categorías anteriores
+
+
+
+2. Estatus del evento (status): el estatus actual que se anuncia en la noticia, del siguiente catálogo:
+
+"planned" — Planeado: el evento está programado para el futuro
+"past" — Pasado: el evento ya ocurrió
+"suspended" — Suspendido: el evento fue suspendido temporalmente
+"ongoing" — En transcurso: el evento está sucediendo
+"cancelled" — Cancelado: el evento fue cancelado
+"postponed" — Pospuesto: el evento fue pospuesto a una fecha posterior
+
+Si no se puede determinar el estatus, deja el valor null.
+
+
+
+3. Nombre del evento (name): Si el evento tiene un nombre explícito, extráelo. Si no tiene nombre explícito pero la nota permite identificarlo con una denominación descriptiva breve y fiel al texto, úsala (por ejemplo: "Clasico America vs Chivas", "Cuarta Feria de la Fresa", "Festival Internacional Cervantino"). De lo contrario, deja el valor null.
+
+
+
+4. Descripción (description): Redacta un texto libre con una descripción breve del evento.
+
+
+
+5. Contexto (context): Si la información existe, escribe un texto libre resumiendo el contexto general del evento: medidas de seguridad, antecedentes, contexto histórico, anuncios relacionados, etc. Si no hay contexto relevante, deja el valor null.
+
+
+
+6. Fecha del evento (date_range): Es la fecha del evento. Responde con el texto tal cual se menciona en la nota (mention), un periodo de fechas con inicio y opcionalmente fin (date_range), la zona horaria si se menciona (timezone), y la precisión en días si la fecha es aproximada (precision_days).
+
+Si solo se menciona un periodo aproximado (por ejemplo, "finales del año", o "el próximo año", etc.), estima una fecha de inicio razonable y usa `precision_days` para indicar cuántos días, a partir de esa fecha de inicio, cubren la incertidumbre.
+
+Nota sobre `end`: cuando se usa, `end` representa el inicio del último día del periodo (inclusive). Por ejemplo, para "durante el mes de agosto", `end` sería `"2025-08-31T00:00:00"` indicando que el 31 de agosto está incluido en el rango.
+
+Tres ejemplos:
+
+"date_range": { "mention": "durante el mes de agosto de este año", "date_range": {"start": "2025-08-01T00:00:00", "end": "2025-08-31T00:00:00"}, "timezone": null, "precision_days": 30 }
+
+"date_range": { "mention": "a las 4 de la tarde del proximo martes 4 de julio", "date_range": { "start": "2025-07-04T16:00:00", "end": null }, "timezone": null, "precision_days": null }
+
+"date_range": { "mention": "mañana 4 de julio a las 4 de la tarde, hora del este", "date_range": { "start": "2025-07-04T16:00:00", "end": null }, "timezone": "hora del este", "precision_days": null }
+
+Usa el formato estandarizado de fechas "YYYY-MM-DDTHH:MM:SS".
+La fecha de publicación de la nota es {date_now} — úsala como referencia para resolver fechas relativas como "ayer", "el pasado X de Y", "la semana pasada". NO uses la fecha actual del sistema; siempre ancla las fechas relativas a {date_now}.
+
+
+
+7. Ubicación (location): Si el evento sucede en alguna ubicación, extrae los datos de ubicación de manera estructurada, en el siguiente formato:
+
+"location": {
+    "country": "Mexico",
+    "state": "Michoacan",
+    "city": "Morelia",
+    "neighborhood": null,
+    "zone": "zona centro",
+    "street": "Mariano Escobedo",
+    "number": null,
+    "place_name": "Teatro de la Ciudad"
+}
+
+Llena solo los campos mencionados explícitamente en la nota. En el campo de "place_name" escribe el nombre propio del lugar, solo si es un lugar geográfico identificable en un mapa (teatro, estadio, plaza, parque, centro de convenciones, etc.). Solo escribe nombres propios de lugares, no agregues referencias espaciales ni descripciones genéricas. Ejemplos de valores INCORRECTOS son: "distintos recintos de Guanajuato", "casa de Ozzy Osbourne", "bibliotecas publicas". Si no se menciona el nombre propio del lugar, deja el valor null.
+
+**Distinción entre `neighborhood`, `zone` y `place_name` (mutuamente excluyentes — un mismo nombre nunca debe aparecer en dos campos):**
+- `neighborhood`: cualquier área residencial con nombre propio — colonia, fraccionamiento, barrio, unidad habitacional o distrito residencial con nombre (p.ej. "Centro", "Centro Historico", "El Campanario", "Polanco", "Jurica", "Juriquilla", "Roma Norte", "Lomas de Chapultepec"). Si la nota menciona una colonia, fraccionamiento o distrito residencial con nombre, va AQUÍ — nunca en `place_name` ni en `zone`.
+- `zone`: SOLO zona direccional o funcional genérica de la ciudad, sin nombre propio residencial (p.ej. "zona norte", "zona sur", "zona poniente", "zona industrial", "zona metropolitana", "distrito financiero"). No uses `zone` para distritos residenciales con nombre propio (esos van en `neighborhood`).
+- `place_name`: SOLO un punto identificable y discreto en el mapa — recinto (estadio, teatro, museo, hospital con nombre), hito (monumento, plaza, parque, puente), punto de transporte (estación, terminal, aeropuerto), edificio o negocio con nombre propio (centro comercial, mercado, hotel), glorieta o intersección con nombre. Ejemplos correctos: "Estadio Corregidora", "Plaza de Armas", "Parque Queretaro 2000".
+
+Ejemplos de contraste:
+- "El Campanario" → neighborhood (NO place_name, NO zone)
+- "Centro Historico" → neighborhood (NO place_name, NO zone)
+- "zona industrial" → zone (NO neighborhood, NO place_name)
+- "Estadio Corregidora" → place_name (NO neighborhood, NO zone)
+
+NUNCA pongas una colonia, fraccionamiento o distrito residencial en `place_name`. Valores genéricos como "frente a la escuela", "cerca del mercado", "varias calles del centro" deben dejarse como null.
+
+
+
+Formato de respuesta:
+
+Responde con una lista en formato JSON, donde cada elemento representa un evento detectado en la nota. No añadas texto adicional fuera del JSON.
+
+Ejemplo de formato esperado:
+
+[
+  {
+    "event_type": "sports_event",
+    "status": "planned",
+    "name": "Clasico America vs Chivas",
+    "description": "High-profile match between America and Chivas at Estadio Azteca, matchday 5 of Apertura 2025.",
+    "context": "Special security operation coordinated between the Secretaria de Seguridad Ciudadana and Liga MX. Partial road closures expected near the venue.",
+    "date_range": {
+      "mention": "el proximo domingo 10 de agosto a las 6 de la tarde",
+      "date_range": {
+        "start": "2025-08-10T18:00:00",
+        "end": null
+      },
+      "timezone": null,
+      "precision_days": null
+    },
+    "location": {
+      "country": "Mexico",
+      "state": "Ciudad de Mexico",
+      "city": "Ciudad de Mexico",
+      "neighborhood": "Santa Ursula Coapa",
+      "zone": "zona sur",
+      "street": "Calzada de Tlalpan",
+      "number": null,
+      "place_name": "Estadio Azteca"
+    }
+  }
+]
+
+
+USER:
+
+La noticia es la siguiente:
+
+{body}

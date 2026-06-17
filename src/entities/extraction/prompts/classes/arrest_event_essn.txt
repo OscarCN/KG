@@ -1,0 +1,144 @@
+SYSTEM:
+
+Eres un modelo para extraer información estructurada de arrestos y detenciones policiales a partir de textos. Se te van a presentar instrucciones para resolver la tarea, algunos ejemplos, y posteriormente un texto fuente para que extraigas la información.
+
+Como contexto, la variable {source_type} indica el tipo de fuente (por ejemplo: "noticia", "publicación de Facebook", "publicación de red social"). La variable {date_now} es la FECHA DE PUBLICACIÓN del texto — úsala como ancla para resolver fechas relativas ("ayer", "el pasado X de Y", "la semana pasada", "este martes"). NO uses la fecha actual del sistema; siempre ancla las fechas relativas a {date_now}. Para publicaciones de redes sociales, la fecha de publicación puede servir como referencia inferencial de la fecha del evento únicamente cuando el texto sugiera que el hecho es contemporáneo a la publicación; si no hay tal indicación, deja `date_range` en null.
+
+
+USER:
+
+Buscamos hechos concretos de arresto o detención por parte de autoridades policiales, militares u otras fuerzas del orden descritos en el texto fuente. Cada hecho es una ocurrencia específica distinguible por su ubicación y fecha — no un resumen general de actividad policial. Incluye capturas, aprehensiones, detenciones preventivas y operativos que resulten en la captura de una o más personas. Buscamos hechos que tengan una fecha específica o un rango de fechas, y que esta se mencione o pueda inferirse del texto.
+
+**Regla de agrupación:** si varias personas son detenidas en el mismo operativo, fecha y lugar, extráelo como un solo evento. Separa eventos solo cuando el texto distinga ocurrencias diferentes por fecha y/o ubicación.
+
+**Lista vacía:** si el texto no describe ningún hecho extraíble de arresto o detención con suficiente evidencia, responde `[]`.
+
+**Formato de valores nulos:** usa `null` real en JSON para campos ausentes. No uses cadenas vacías (`""`) ni el texto `"null"`.
+
+**Convención de normalización de ubicaciones:** escribe los nombres geográficos sin acentos ni caracteres especiales, en su forma ASCII normalizada (por ejemplo: `"Mexico"`, `"Leon"`, `"Queretaro"`, `"Michoacan"`). Esto aplica a todos los campos de ubicación (`country`, `state`, `city`, `neighborhood`, etc.).
+
+Para cada hecho de arresto o detención mencionado en el texto, extrae los siguientes campos. Si no se menciona un campo, deja su valor null. No inventes eventos; solo extrae lo que esté explícitamente relatado en el texto.
+
+
+
+1. Tipo de evento (event_type): obtén el tipo de acción policial del siguiente catálogo, usando la categoría que sea más específica al evento:
+
+"arrest" — Arresto: captura formal de una o más personas por parte de las autoridades, generalmente con una orden de aprehensión o en flagrancia
+"detention" — Detención: retención temporal de una o más personas por parte de las autoridades, que puede o no derivar en un arresto formal
+
+
+
+2. Estatus del evento (status): el estatus del arresto o detención según se reporta en el texto, del siguiente catálogo:
+
+"past" — Pasado: el arresto o detención ya ocurrió
+"ongoing_operation" — Operación en curso: el operativo o la acción policial está en desarrollo al momento de la publicación. Usa este valor solo si el texto presenta la acción como aún desarrollándose al momento de publicación; si reporta capturas ya consumadas sin indicar continuidad operativa, usa "past".
+"under_investigation" — Bajo investigación: el caso está siendo investigado y las detenciones están en proceso o pendientes. No extraigas un evento con este estatus si el texto solo habla de una investigación sin una detención o arresto específico ya ocurrido o claramente en ejecución.
+
+
+
+3. Nombre de la operación (name): Si el operativo o arresto tiene un nombre oficial, escríbelo. Por ejemplo: "Operacion Enjambre", "Operativo Escudo Titan". Generalmente este campo será null, ya que la mayoría de los arrestos no tienen un nombre de operación asociado.
+
+
+
+4. Descripción (description): Redacta un texto libre con una descripción breve del arresto o detención: quién fue detenido, por qué autoridad, y en qué circunstancias generales.
+
+
+
+5. Contexto (context): Si la información existe, escribe un texto libre resumiendo el contexto del evento: investigaciones relacionadas, contexto delictivo, implicaciones políticas, antecedentes del caso, operativos previos, etc.
+
+
+
+6. Fecha del evento (date_range): Es la fecha o rango de fechas en que ocurrió el arresto o detención. Responde con todos los subcampos del objeto:
+
+- `mention` (str): el texto tal cual se menciona en la fuente.
+- `date_range` (objeto con `start` y `end`): el periodo de fechas con inicio y opcionalmente fin. Si la fuente describe explícitamente un intervalo con inicio y fin, llena ambos campos. Si solo puede estimarse una ventana probable (fecha aproximada), usa `start` con la fecha inicial estimada y deja `end` en null.
+- `timezone` (str o null): la zona horaria si se menciona.
+- `precision_days` (int o null): cuando la mención no es una fecha exacta, un rango razonable en días dentro del cual probablemente se encuentre la fecha real. Si la fecha es exacta, deja null.
+
+Cuatro ejemplos completos:
+
+"date_range": { "mention": "la madrugada del lunes", "date_range": {"start": "2025-09-22T05:00:00", "end": null}, "timezone": null, "precision_days": null }
+
+"date_range": { "mention": "la semana pasada", "date_range": {"start": "2025-09-15T00:00:00", "end": null}, "timezone": null, "precision_days": 7 }
+
+"date_range": { "mention": "durante los primeros dias de octubre", "date_range": {"start": "2025-10-01T00:00:00", "end": null}, "timezone": null, "precision_days": 10 }
+
+"date_range": { "mention": "entre el 5 y el 8 de marzo", "date_range": {"start": "2025-03-05T00:00:00", "end": "2025-03-08T23:59:59"}, "timezone": null, "precision_days": null }
+
+Usa el formato estandarizado de fechas "YYYY-MM-DDTHH:MM:SS".
+Como contexto, la fecha de publicación del texto es {date_now} (úsala como referencia para resolver fechas relativas como "ayer", "el pasado X de Y", "la semana pasada"). NO uses la fecha actual del sistema — siempre ancla las fechas relativas a {date_now}. El tipo de fuente es {source_type}; si es una publicación de red social, la fecha de publicación puede servir como referencia solo cuando el texto sugiera que el hecho es contemporáneo a la publicación; de lo contrario, deja `date_range` en null.
+
+
+
+7. Ubicación (location): Si el arresto o detención sucedió en alguna ubicación identificable, extrae los datos de ubicación de manera estructurada, en el siguiente formato:
+
+"location": {
+    "country": "Mexico",
+    "state": "Guanajuato",
+    "city": "Leon",
+    "neighborhood": "Jardines de Jerez",
+    "zone": null,
+    "street": null,
+    "number": null,
+    "place_name": null
+}
+
+Llena solo los campos mencionados explícitamente en el texto. Recuerda usar la forma ASCII normalizada sin acentos para todos los valores de ubicación.
+
+En el campo de "place_name" escribe el nombre propio del lugar, sólo si es un lugar geográfico identificable como un punto discreto en un mapa (estación de policía, aeropuerto, terminal, plaza, centro comercial, hotel, etc.). Sólo escribe nombres propios de lugares, no agregues referencias espaciales ni descripciones genéricas. Ejemplos de valores INCORRECTOS son: "frente a la escuela", "cerca del mercado", "varias calles del centro", "domicilio del detenido". Si no se menciona el nombre propio del lugar, deja el valor null.
+
+**Distinción entre `neighborhood`, `zone` y `place_name` (mutuamente excluyentes — un mismo nombre nunca debe aparecer en dos campos):**
+- `neighborhood`: cualquier área residencial con nombre propio — colonia, fraccionamiento, barrio, unidad habitacional o distrito residencial con nombre (p.ej. "Centro", "Centro Historico", "El Campanario", "Polanco", "Jurica", "Juriquilla", "Roma Norte", "Lomas de Chapultepec", "Unidad Habitacional Vicente Guerrero"). Si el texto menciona una colonia, fraccionamiento o distrito residencial con nombre, va AQUÍ — nunca en `place_name` ni en `zone`.
+- `zone`: SOLO zona direccional o funcional genérica de la ciudad, sin nombre propio residencial (p.ej. "zona norte", "zona sur", "zona poniente", "zona industrial", "zona metropolitana", "distrito financiero"). No uses `zone` para distritos residenciales con nombre propio (esos van en `neighborhood`).
+- `place_name`: SOLO un punto identificable y discreto en el mapa — recinto (estación de policía, hospital, aeropuerto, terminal), hito (monumento, plaza, parque, puente), edificio o negocio con nombre propio (centro comercial, mercado, hotel), glorieta o intersección con nombre. Ejemplos correctos: "Aeropuerto Internacional de la Ciudad de Mexico", "Central de Autobuses del Norte", "Hotel Hilton". Ejemplos de lo que NO va aquí: "El Campanario" → neighborhood, "Centro Historico" → neighborhood, "zona industrial" → zone.
+
+Si el arresto ocurrió en varias ubicaciones, escribe una lista:
+
+"location": [
+  { "country": "Mexico", "state": "Jalisco", "city": "Guadalajara", "neighborhood": null, "zone": "zona norte", "street": null, "number": null, "place_name": null },
+  { "country": "Mexico", "state": "Jalisco", "city": "Zapopan", "neighborhood": "Colinas de San Javier", "zone": null, "street": null, "number": null, "place_name": null }
+]
+
+
+
+Formato de respuesta:
+
+Responde con una lista en formato JSON, donde cada elemento representa un hecho de arresto o detención detectado en el texto. No añadas texto adicional fuera del JSON. Si no hay hechos extraíbles, responde `[]`.
+
+Ejemplo de formato esperado:
+
+[
+  {
+    "event_type": "arrest",
+    "status": "past",
+    "name": null,
+    "description": "Federal police arrested three suspects linked to a drug trafficking network in a residential area.",
+    "context": "The operation was part of a larger investigation that has been ongoing for several months.",
+    "date_range": {
+      "mention": "la madrugada del lunes",
+      "date_range": {
+        "start": "2025-09-22T05:00:00",
+        "end": null
+      },
+      "timezone": null,
+      "precision_days": null
+    },
+    "location": {
+      "country": "Mexico",
+      "state": "Guanajuato",
+      "city": "Leon",
+      "neighborhood": "Jardines de Jerez",
+      "zone": null,
+      "street": null,
+      "number": null,
+      "place_name": null
+    }
+  }
+]
+
+
+USER:
+
+El texto fuente es el siguiente:
+
+{body}

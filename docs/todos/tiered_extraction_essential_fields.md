@@ -1,8 +1,25 @@
 # TODO — Tiered extraction: essential vs secondary fields (token savings)
 
-**Status:** open — design / idea
+**Status:** in progress — schema tags + plumbing **done**; prompt generation + on-demand enrichment trigger **open**
 **Area:** `src/entities/extraction/schemas/*.json`, `src/entities/extraction/prompt_generator.py`, `src/entities/extraction/extract.py`
 **Related:** [`../../src/entities/extraction/readme_extraction.md`](../../src/entities/extraction/readme_extraction.md), [`kgdb_event_persistence.md`](kgdb_event_persistence.md)
+
+## Implemented so far
+
+- All 9 event schemas tag every field `"importance": "essential" | "secondary"` (essential =
+  `event_type, name, description, context, status, date_range, location`). No required field is
+  secondary, so essential-only records still validate against the full schema.
+- `prompt_generator.py`: `PromptGenerationContextManager(supertype, essential_only=True)` filters
+  to essential fields (+ their composite types) and prunes `meta.example`; `generate(...,
+  essential_only=True)` saves `{supertype}_essn.txt`; `generate_all_essential()` does it for every
+  supertype with a secondary field (events only).
+- `extract.py`: `EntityExtractor(essential_prompts=True)` (the default) prefers `{supertype}_essn.txt`
+  via `_resolve_prompt_path()`, **falling back to the full prompt** when no `_essn` exists (themes/
+  entities, or before generation). Extraction cache key includes the variant (`essn`/`full`;
+  `full` = no suffix, backward compatible).
+
+**Still open:** generate the `_essn` prompts (`PromptGeneration().generate_all_essential()` — LLM
+cost), and design the **trigger** for the on-demand full (enrichment) pass (below).
 
 ## Idea
 

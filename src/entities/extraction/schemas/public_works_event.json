@@ -54,6 +54,7 @@
         "schema": {
             "event_type": {
                 "type": "EnumStr",
+                "importance": "essential",
                 "required": true,
                 "description": "Type of public works issue from the catalogue. Choose the single most specific category that matches.",
                 "enum": [
@@ -69,10 +70,12 @@
             },
             "event_subtype": {
                 "type": "str",
+                "importance": "secondary",
                 "description": "More specific subtype, e.g. 'road_damage', 'water_pipe_break', 'bus_route_change', 'bridge_repair', 'sewer_collapse', 'trash_odor', 'illegal_dumping', 'water_pipe_replacement', 'water_leak_repair', 'sewage_overflow_works', 'road_sinkhole'. For specific water-system works (pipe breaks, leaks, sewer collapses, sewage overflows that prompt repair) use this schema; for general water-supply or water-management issues (shortages, illegal extraction, service-quality complaints) use the public_infrastructure_event schema with event_type='water_issue'."
             },
             "status": {
                 "type": "EnumStr",
+                "importance": "essential",
                 "description": "Current status of the issue or works project.",
                 "enum": [
                     "reported",
@@ -85,22 +88,27 @@
             },
             "name": {
                 "type": "str",
+                "importance": "essential",
                 "description": "Name of the project if it has one, e.g. 'Rehabilitacion del Blvd. Torres Landa'."
             },
             "description": {
                 "type": "str",
+                "importance": "essential",
                 "description": "Brief description of the issue or project."
             },
             "tags": {
                 "type": "List[str]",
+                "importance": "secondary",
                 "description": "Keywords describing the issue."
             },
             "context": {
                 "type": "str",
+                "importance": "essential",
                 "description": "Contextual information: citizen complaints, political context, related projects."
             },
             "relevance": {
                 "type": "EnumStr",
+                "importance": "secondary",
                 "description": "Relevance within the article: 1 = main topic, 2 = secondary, 3 = implicit.",
                 "enum": [
                     "1",
@@ -110,30 +118,37 @@
             },
             "date_range": {
                 "type": "DateRangeFromUnstructured",
+                "importance": "essential",
                 "description": "Date or date range when the issue was reported or the works started/are scheduled. Extract the start datetime and, if present, the end datetime."
             },
             "location": {
                 "type": "Location",
+                "importance": "essential",
                 "description": "Location of the infrastructure issue or works project."
             },
             "responsible_authority": {
                 "type": "str",
+                "importance": "essential",
                 "description": "Government agency or authority responsible for the issue or project."
             },
             "affected_area": {
                 "type": "str",
+                "importance": "secondary",
                 "description": "Description of the affected area or stretch, e.g. 'tramo entre Blvd. A y Blvd. B'."
             },
             "estimated_cost": {
                 "type": "PriceRange",
+                "importance": "essential",
                 "description": "Estimated cost of works or repairs, with original mention, numeric bounds, and currency."
             },
             "completion_date": {
                 "type": "DateFromUnstructured",
+                "importance": "essential",
                 "description": "Expected completion date for the works project, if mentioned."
             },
             "impact_description": {
                 "type": "str",
+                "importance": "secondary",
                 "description": "Description of the impact on traffic, services, or citizens."
             }
         }

@@ -348,15 +348,35 @@ def _parse_comma_list(value) -> List[str]:
 # Prompt loader — reads cached prompt files
 # ---------------------------------------------------------------------------
 
-def _load_prompt(supertype: str, context: Dict[str, str]) -> List[Dict[str, str]]:
+def _resolve_prompt_path(supertype: str, essential: bool) -> Tuple[Path, str]:
+    """Resolve which prompt file to use and a variant tag for the cache key.
+
+    When `essential` is True and `{supertype}_essn.txt` exists, use the
+    essential-only prompt (variant ``"essn"``). Otherwise fall back to the
+    full `{supertype}.txt` (variant ``"full"``). The fallback is what lets
+    theme/entity supertypes — which have no `_essn` prompt — keep using their
+    full prompt, and keeps things working before `_essn` prompts are generated.
+    """
+    classes_dir = _PROMPTS_DIR / "classes"
+    if essential:
+        essn = classes_dir / f"{supertype}_essn.txt"
+        if essn.exists():
+            return essn, "essn"
+    return classes_dir / f"{supertype}.txt", "full"
+
+
+def _load_prompt(
+    supertype: str, context: Dict[str, str], essential: bool = True
+) -> List[Dict[str, str]]:
     """Load a cached prompt file and return LLM messages.
 
     Prompt files use the format:
         SYSTEM:\n<text>\n\nUSER:\n<text>\n\nUSER:\n<text>
 
-    Context variables like {date_now} and {body} are substituted.
+    Context variables like {date_now} and {body} are substituted. With
+    `essential` (the default), the `_essn` prompt is preferred when present.
     """
-    path = _PROMPTS_DIR / "classes" / f"{supertype}.txt"
+    path, _variant = _resolve_prompt_path(supertype, essential)
     if not path.exists():
         raise FileNotFoundError(
             f"No prompt file for supertype '{supertype}' at {path}. "
@@ -403,15 +423,23 @@ def _get_schema(supertype: str) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def _cache_key(article_url: str, class_name: str) -> str:
-    """Build a hex cache key from hash((article_url, class_name))."""
-    h = hashlib.sha256(f"{article_url}|{class_name}".encode()).hexdigest()
+def _cache_key(article_url: str, class_name: str, variant: str = "full") -> str:
+    """Build a hex cache key from hash((article_url, class_name[, variant])).
+
+    The prompt variant (`"essn"` vs `"full"`) is part of the key so essential
+    and full extractions of the same (article, class) cache separately. `"full"`
+    is encoded as no suffix to stay backward-compatible with existing cache files.
+    """
+    suffix = "" if variant == "full" else f"|{variant}"
+    h = hashlib.sha256(f"{article_url}|{class_name}{suffix}".encode()).hexdigest()
     return h
 
 
-def _cache_read(article_url: str, class_name: str) -> Optional[List[Dict[str, Any]]]:
+def _cache_read(
+    article_url: str, class_name: str, variant: str = "full"
+) -> Optional[List[Dict[str, Any]]]:
     """Return cached extraction results, or None on miss."""
-    path = _CACHE_DIR / f"{_cache_key(article_url, class_name)}.json"
+    path = _CACHE_DIR / f"{_cache_key(article_url, class_name, variant)}.json"
     if not path.exists():
         return None
     try:
@@ -422,11 +450,11 @@ def _cache_read(article_url: str, class_name: str) -> Optional[List[Dict[str, An
 
 
 def _cache_write(
-    article_url: str, class_name: str, entities: List[Dict[str, Any]]
+    article_url: str, class_name: str, entities: List[Dict[str, Any]], variant: str = "full"
 ) -> None:
     """Write extraction results to cache."""
     _CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    path = _CACHE_DIR / f"{_cache_key(article_url, class_name)}.json"
+    path = _CACHE_DIR / f"{_cache_key(article_url, class_name, variant)}.json"
     with open(path, "w", encoding="utf-8") as f:
         json.dump(entities, f, ensure_ascii=False, default=str)
 
@@ -679,19 +707,21 @@ def _build_extraction_messages(
     ontology: "Ontology",
     supertype: str,
     event_type: Optional[str],
+    essential: bool = True,
 ) -> List[Dict[str, str]]:
     """Build the base prompt messages for one (article, supertype) extraction.
 
     Resolves `{date_now}` to the article's publication date (falls back to
     wall-clock only when missing) and prepends a focus instruction when
-    extraction is scoped to a specific class.
+    extraction is scoped to a specific class. With `essential` (the default),
+    the `_essn` prompt is used when available.
     """
     context = {
         "date_now": _prompt_reference_date(article),
         "body": article.get("text", ""),
         "source_type": article.get("source_type", "news"),
     }
-    messages = _load_prompt(supertype, context)
+    messages = _load_prompt(supertype, context, essential=essential)
 
     if event_type:
         labels = ontology.type_labels.get(event_type, {})
@@ -818,8 +848,14 @@ class EntityExtractor:
         })
     """
 
-    def __init__(self, ontology: Optional[Ontology] = None):
+    def __init__(
+        self, ontology: Optional[Ontology] = None, essential_prompts: bool = True
+    ):
         self.ontology = ontology or Ontology()
+        # When True (default), extraction uses the essential-only `_essn` prompt
+        # for any supertype that has one (the event schemas), falling back to the
+        # full prompt otherwise. Set False to always use the full prompt.
+        self.essential_prompts = essential_prompts
 
     def match(self, article: Dict[str, Any]) -> Set[str]:
         """Match an article against the ontology. Returns matched ontology classes.
@@ -1011,6 +1047,7 @@ class EntityExtractor:
         """
         base_messages = _build_extraction_messages(
             article, self.ontology, supertype, event_type,
+            essential=self.essential_prompts,
         )
         article_id = article.get("id") or article.get("url")
         publication_date = _coerce_publication_date(article)
@@ -1105,14 +1142,16 @@ class EntityExtractor:
             # Single class → focused extraction; multiple → unfocused (all types)
             event_type = classes[0] if len(classes) == 1 else None
             cache_key_class = event_type or supertype
+            # Cache separately per prompt variant (essential vs full).
+            variant = _resolve_prompt_path(supertype, self.essential_prompts)[1]
 
             # Check cache
             if article_url:
-                cached = _cache_read(article_url, cache_key_class)
+                cached = _cache_read(article_url, cache_key_class, variant)
                 if cached is not None:
                     logger.debug(
-                        "Cache hit for (%s, %s) — %d entities",
-                        article_url, cache_key_class, len(cached),
+                        "Cache hit for (%s, %s, %s) — %d entities",
+                        article_url, cache_key_class, variant, len(cached),
                     )
                     all_entities.extend(cached)
                     continue
@@ -1124,7 +1163,7 @@ class EntityExtractor:
 
             # Write to cache
             if article_url:
-                _cache_write(article_url, cache_key_class, entities)
+                _cache_write(article_url, cache_key_class, entities, variant)
 
             all_entities.extend(entities)
 
