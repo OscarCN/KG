@@ -1,8 +1,46 @@
 # TODO — Extract a list of locations (streets / venues / places), not a single one
 
-**Status:** open
+**Status:** open — a **geocoder-side workaround now exists** (`refine_mentions`, see below) that covers the dominant compound-street case without the schema change; the linker/writer multi-location plumbing is still required
 **Area:** `src/entities/extraction/` (schema + prompt); knock-on in `src/entities/linking/` (`strategy.py`, `geocode.py`)
-**Related:** [`retrieval_linking_per_supertype.md`](retrieval_linking_per_supertype.md), [`../../src/entities/linking/readme_linking.md`](../../src/entities/linking/readme_linking.md)
+**Related:** [`retrieval_linking_per_supertype.md`](retrieval_linking_per_supertype.md), [`../../src/entities/linking/readme_linking.md`](../../src/entities/linking/readme_linking.md), geocoder [`flask.md` §`refine_mentions`](/Users/oscarcuellar/ocn/geocoding/docs/flask.md)
+
+## Geocoder-side workaround: `refine_mentions` (preferred for compound-street fields)
+
+The geocoder's Flask service now exposes a `refine_mentions` flag on `POST /geocoder`
+(geocoding repo, [`docs/flask.md`](/Users/oscarcuellar/ocn/geocoding/docs/flask.md)). Sending
+`{"refine_mentions": ["CALLE"]}` makes the geocoder reassemble each context group's mentions
+into an address-like string and **re-tag it through the NER**, replacing a single compound
+level-6 (`CALLE`) mention with the individual streets it contains — `y`/`con`/`e` conjunctions
+all split. So a `location.street` of `"Calle San Juan del Río y Calle Amealco de Bonfil"` resolves
+to **both** streets instead of falling back to the municipality centroid.
+
+This means the El Marqués / intersection case (a compound street **in one field**) is fixable
+**without** the `locations: List[Location]` schema change — keep the single `location`, let
+extraction concatenate the streets into `location.street`, and have the geocode wrapper pass
+`refine_mentions=["CALLE"]`. Notes:
+
+- **`["CALLE"]` only.** Do **not** refine `LUG` (venues) — the tagger over-segments proper venue
+  names (`"Lunario del Auditorio Nacional"` → `"Auditorio Nacional"`). Other admin levels arrive
+  clean and don't need it. Fail-soft: if the tagger returns nothing / errors, the original mention
+  is kept.
+- **Relevance is type-skewed:** common in `public_works` (many streets fixed at once) and
+  `violence`/`security` (locations given by streets and corners); rare in `paid_mass_event`, which
+  happens at named venues — so this does **not** block the persistence Step Zero on the paid fixture.
+- **Integration touchpoints (still needed):**
+  - `geocode.py` currently calls the `apify_client` `helpers.geocode.geocode` helper, **not** the
+    Flask `refine_mentions` flag — route through the flag (or confirm the helper forwards it).
+  - **Open question — does `refine_mentions` return *multiple matches* in the context group (one per
+    street), or a single combined match?** The response is keyed by context group with a *list* of
+    matches; verify against the live geocoder. The linker wants the **list** (each street → its own
+    `level_6_id` bucket), so the wrapper must return a list of `_geo` results, not just the
+    highest-precision one.
+  - The linker (`strategy.py`) multi-location keys/gate and the kgdb writer's per-location
+    `entity_locations` loop (proposed changes 3–5 below) are required **either way** — `refine_mentions`
+    replaces the *schema/prompt* half (changes 1–2) for the compound-street case, not the
+    list-handling half.
+
+The `locations: List[Location]` schema change (below) is still the answer for events that genuinely
+mention **separate** locations in distinct fields/sentences (not one compound street string).
 
 ## Problem
 
