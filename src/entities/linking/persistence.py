@@ -35,9 +35,10 @@ permanent (poison) drops.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
 from urllib.parse import urlparse
 
@@ -46,6 +47,20 @@ import psycopg2.extras
 from dateutil import parser as dateparser
 
 logger = logging.getLogger(__name__)
+
+
+def _json_default(value: Any) -> Any:
+    """JSON encoder hook: linked records from the linker carry datetime objects."""
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if isinstance(value, set):
+        return sorted(value)
+    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
+
+
+def _json(obj: Any) -> psycopg2.extras.Json:
+    """psycopg2 json adapter that tolerates datetimes/sets in metadata."""
+    return psycopg2.extras.Json(obj, dumps=lambda o: json.dumps(o, default=_json_default))
 
 
 def _parse_dt(value: Any) -> Optional[datetime]:
@@ -248,7 +263,7 @@ class KgdbWriter:
             "INSERT INTO entities (name, description, added, metadata) "
             "VALUES (%s, %s, %s, %s) RETURNING entity_id",
             (name, description, datetime.now(timezone.utc),
-             psycopg2.extras.Json(self._metadata(record))),
+             _json(self._metadata(record))),
         )
         entity_id = cur.fetchone()["entity_id"]
         cur.execute(
@@ -275,7 +290,7 @@ class KgdbWriter:
         """Refresh a canonical row after the linker merged a new source into it."""
         cur.execute(
             "UPDATE entities SET metadata = %s, modified = now() WHERE entity_id = %s",
-            (psycopg2.extras.Json(self._metadata(record)), entity_id),
+            (_json(self._metadata(record)), entity_id),
         )
         geo = record.get("_geo")
         if geo:  # location may have been promoted by precision on merge

@@ -1,0 +1,30 @@
+# Core runtime — schema, extraction, linking, kgdb persistence, streaming listener.
+# (The active pipeline: src/schema, src/entities/{extraction,linking}, src/listener.py.)
+openai==2.31.0
+requests==2.31.0
+pandas==2.1.3
+numpy==1.26.4
+openpyxl==3.1.2              # read catalogues/keywords.xlsx
+nltk==3.8.1                 # Spanish Snowball stemmer for keyword matching
+python-dateutil==2.9.0.post0
+pytz==2024.1
+python-dotenv==1.0.0
+tldextract==5.3.0
+psycopg2-binary==2.9.11     # kgdb persistence (KgdbWriter)
+pika==1.3.2                 # RabbitMQ streaming listener (src/listener.py)
+
+# Shared libs (live outside this repo; add to PYTHONPATH via each service's
+# setup_local.sh, not pip): elastic_client, schema_tools, es, utils, tools.
+
+# Optional — PoC / ML scripts (src/PoC/, sentence-pair model) and direct
+# ES / Mongo / Redis access. Not needed for extraction → linking → persistence →
+# listener; uncomment when running those paths.
+# torch==2.1.1
+# scikit-learn==1.7.2
+# matplotlib==3.8.2
+# tensorflow-hub
+# tensorflow-text
+# pymongo==4.6.1
+# elasticsearch==7.17.7
+# elasticsearch-dsl
+# redis==5.0.1
