@@ -142,13 +142,19 @@ The production end-state for the `kg` worker (workspace map: **`kg` consumes a *
 produces kgdb entities/events**). A long-lived worker that consumes **raw documents** and runs
 the full pipeline **inline per message** — `classify → extract → link → persist` — i.e. the
 [`run_entities.py`](../../src/entities/run_entities.py) loop (`match → extract → link_one →
-write_linked`) lifted into a pika consumer callback. **No** intermediate "linked-records"
+upsert_linked`) lifted into a pika consumer callback. **No** intermediate "linked-records"
 queue, and `rabbit_enqueuer` is producer-side only (not on the consume path).
 
-**Build after Step Zero**, because Step Zero ships the `KgdbWriter` this consumer calls per
-message and because the streaming worker needs the kgdb-backed `CandidateIndex` below.
+> **Wrapper implemented:** [`src/listener.py`](../../src/listener.py) — `KgPipeline`
+> (extract→link→persist, reusing the shared `record_to_article`) + `DocumentListener` (pika
+> `BlockingConnection` consumer with retry/DLX), plus a `--once <fixture>` offline smoke mode.
+> `KgdbWriter.upsert_linked` (added for streaming) updates the canonical row in place when the
+> linker *merges* a new source in, and re-raises DB errors so the message requeues. The
+> upsert path is validated against dev; the full extract→link→persist over a live broker
+> needs OpenRouter + geocoder + the dev vhost. **Still pending: the kgdb-backed
+> `CandidateIndex`** below (the real correctness blocker for restarts / multiple workers).
 
-### Module & reuse (`src/entities/stream.py`)
+### Module & reuse (`src/listener.py`)
 
 New module, modeled on the workspace's existing pika consumers
 [`social_tags/src/stream.py`](../../../../social_tags/src/stream.py) and
@@ -160,8 +166,9 @@ pieces (no reimplementation):
   see [`active_type_extraction.md`](active_type_extraction.md).
 - `EntityLinker.link_one(raw) -> LinkResult` (`linking/link.py`) — the streaming entry point,
   already exception-wrapped.
-- `KgdbWriter.write_linked(record)` (Step Zero, `linking/persistence.py`) — one record, one txn.
-- `_record_to_article(record)` (`run_entities.py`) — map a doc envelope to the extractor's
+- `KgdbWriter.upsert_linked(record)` (`linking/persistence.py`) — one record, one txn;
+  create, or update-in-place on a linker merge (`write_linked` is the batch/Step-Zero variant).
+- `record_to_article(record)` (`src/entities/document.py`) — map a doc envelope to the extractor's
   article dict; lift into a shared helper.
 
 ### Config & connection

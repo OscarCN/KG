@@ -3,7 +3,9 @@
 Step Zero of the kg event-persistence work (see
 ``docs/todos/kgdb_event_persistence.md``): a decoupled, idempotent writer.
 ``write_linked(record)`` writes one linked event/entity in a single transaction
-— the unit the future RabbitMQ streaming consumer will call per message.
+— the batch unit. ``upsert_linked(record)`` is the streaming unit the RabbitMQ
+listener calls per message: it creates a new canonical row or, when the linker
+``merged`` an incoming record into an existing one, updates that row in place.
 
 Connection via ``KGDB_HOST/PORT/USER/PASSWORD/NAME`` (mirrors
 ``scripts/build_customer_fixture.py``). Category-aware: ``event`` records get an
@@ -24,6 +26,11 @@ Write path per record (the corrected sketch from the TODO):
 at create). Direct-FK caveat: ``entity_locations.entity_id`` /
 ``event_properties.event_id`` FK straight to ``entities.entity_id`` — fine on
 create; a future in-DB merge step must rewrite them.
+
+Error handling differs by caller: ``write_linked`` (batch) swallows exceptions so
+a fixture run continues past a bad record; ``upsert_linked`` (stream) lets DB
+errors propagate so the listener can requeue, and returns ``None`` only for
+permanent (poison) drops.
 """
 
 from __future__ import annotations
@@ -61,6 +68,7 @@ class KgdbWriter:
         # (entity_type, parent_id|None) -> catalog row dict | None
         self._catalog: dict[tuple[str, Optional[int]], Optional[dict]] = {}
         self.written = 0
+        self.updated = 0
         self.skipped = 0
         self.dropped: dict[str, int] = {}
 
@@ -109,6 +117,20 @@ class KgdbWriter:
         cached = self._catalog[key]
         return cached["entity_type_id"] if cached else None
 
+    def _resolve_catalog(self, cur, record: dict):
+        """(entity_kind, supertype_id, child_id) — or None for a permanent drop."""
+        supertype = record.get("_supertype")
+        if not supertype:
+            self._bump("no_supertype")
+            return None
+        super_row = self._resolve_supertype(cur, supertype)
+        if not super_row:
+            self._bump(f"unseeded_supertype:{supertype}")
+            return None
+        leaf = record.get("event_type") or record.get("entity_type")
+        child_id = self._resolve_child(cur, leaf, super_row["entity_type_id"]) if leaf else None
+        return super_row["entity_kind"], super_row["entity_type_id"], child_id
+
     # -- field helpers --------------------------------------------------------
 
     @staticmethod
@@ -126,6 +148,12 @@ class KgdbWriter:
         if not description:
             description = name
         return name, description
+
+    def _metadata(self, record: dict) -> dict:
+        metadata = dict(record)
+        metadata["_link_id"] = record.get("id")
+        metadata["_link_run"] = self.run_tag
+        return metadata
 
     @staticmethod
     def _confidence_window(record: dict) -> tuple[Optional[datetime], Optional[datetime]]:
@@ -211,84 +239,106 @@ class KgdbWriter:
                 (entity_id, source_id, "news", pub, host, news_type),
             )
 
+    # -- create / update ------------------------------------------------------
+
+    def _create(self, cur, record: dict, kind: str, supertype_id: int,
+                child_id: Optional[int]) -> int:
+        name, description = self._name_desc(record)
+        cur.execute(
+            "INSERT INTO entities (name, description, added, metadata) "
+            "VALUES (%s, %s, %s, %s) RETURNING entity_id",
+            (name, description, datetime.now(timezone.utc),
+             psycopg2.extras.Json(self._metadata(record))),
+        )
+        entity_id = cur.fetchone()["entity_id"]
+        cur.execute(
+            "INSERT INTO entities_alias (original_entity_id, entity_alias, current_entity_id) "
+            "VALUES (%s, %s, %s) ON CONFLICT (original_entity_id) DO NOTHING",
+            (entity_id, name, entity_id),
+        )
+        cur.execute(
+            "INSERT INTO entity_types (entity_id, entity_type_id) VALUES (%s, %s)",
+            (entity_id, supertype_id),
+        )
+        if child_id:
+            cur.execute(
+                "INSERT INTO entity_types (entity_id, entity_type_id) VALUES (%s, %s)",
+                (entity_id, child_id),
+            )
+        self._write_location(cur, entity_id, record.get("_geo"))
+        if kind == "event":
+            self._write_event_properties(cur, entity_id, record)
+        self._write_documents(cur, entity_id, record)
+        return entity_id
+
+    def _update(self, cur, entity_id: int, record: dict, kind: Optional[str]) -> None:
+        """Refresh a canonical row after the linker merged a new source into it."""
+        cur.execute(
+            "UPDATE entities SET metadata = %s, modified = now() WHERE entity_id = %s",
+            (psycopg2.extras.Json(self._metadata(record)), entity_id),
+        )
+        geo = record.get("_geo")
+        if geo:  # location may have been promoted by precision on merge
+            cur.execute("DELETE FROM entity_locations WHERE entity_id = %s", (entity_id,))
+            self._write_location(cur, entity_id, geo)
+        if kind == "event":
+            self._write_event_properties(cur, entity_id, record)
+        self._write_documents(cur, entity_id, record)
+
+    def _find_existing(self, cur, link_id: Any) -> Optional[int]:
+        cur.execute(
+            "SELECT entity_id FROM entities "
+            "WHERE metadata->>'_link_id' = %s AND metadata->>'_link_run' = %s",
+            (str(link_id), self.run_tag),
+        )
+        row = cur.fetchone()
+        return row["entity_id"] if row else None
+
+    def _persist(self, record: dict, *, upsert: bool) -> Optional[int]:
+        """Core write. Raises on DB error; returns None for a permanent drop."""
+        with self._conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            existing = self._find_existing(cur, record.get("id"))
+            if existing is not None and not upsert:
+                self._conn.rollback()
+                self.skipped += 1
+                return existing
+            if existing is not None:
+                cat = self._resolve_catalog(cur, record)
+                self._update(cur, existing, record, cat[0] if cat else None)
+                result = existing
+                self.updated += 1
+            else:
+                cat = self._resolve_catalog(cur, record)
+                if cat is None:
+                    self._conn.rollback()
+                    return None
+                result = self._create(cur, record, *cat)
+                self.written += 1
+        self._conn.commit()
+        return result
+
     # -- public API -----------------------------------------------------------
 
     def write_linked(self, record: dict) -> Optional[int]:
-        """Write one linked record in a single transaction. Returns the
-        original_entity_id, or None if the record was dropped/errored."""
-        link_id = record.get("id")
-        supertype = record.get("_supertype")
-        if not supertype:
-            self._bump("no_supertype")
-            return None
+        """Batch write of one linked record. Idempotent (skips by ``_link_id``).
+        Swallows errors (logs + ``dropped['error']``) so a fixture run continues."""
         try:
-            with self._conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                # Idempotency: skip if this link_id was already written for this run.
-                cur.execute(
-                    "SELECT entity_id FROM entities "
-                    "WHERE metadata->>'_link_id' = %s AND metadata->>'_link_run' = %s",
-                    (str(link_id), self.run_tag),
-                )
-                existing = cur.fetchone()
-                if existing:
-                    self.skipped += 1
-                    return existing["entity_id"]
-
-                super_row = self._resolve_supertype(cur, supertype)
-                if not super_row:
-                    self._conn.rollback()
-                    self._bump(f"unseeded_supertype:{supertype}")
-                    return None
-                kind = super_row["entity_kind"]
-                supertype_id = super_row["entity_type_id"]
-                leaf = record.get("event_type") or record.get("entity_type")
-                child_id = self._resolve_child(cur, leaf, supertype_id) if leaf else None
-
-                # entities
-                name, description = self._name_desc(record)
-                metadata = dict(record)
-                metadata["_link_id"] = link_id
-                metadata["_link_run"] = self.run_tag
-                cur.execute(
-                    "INSERT INTO entities (name, description, added, metadata) "
-                    "VALUES (%s, %s, %s, %s) RETURNING entity_id",
-                    (name, description, datetime.now(timezone.utc),
-                     psycopg2.extras.Json(metadata)),
-                )
-                entity_id = cur.fetchone()["entity_id"]
-
-                # entities_alias (original == current == entity_id)
-                cur.execute(
-                    "INSERT INTO entities_alias "
-                    "(original_entity_id, entity_alias, current_entity_id) "
-                    "VALUES (%s, %s, %s) ON CONFLICT (original_entity_id) DO NOTHING",
-                    (entity_id, name, entity_id),
-                )
-
-                # entity_types: supertype (+ child when resolved)
-                cur.execute(
-                    "INSERT INTO entity_types (entity_id, entity_type_id) VALUES (%s, %s)",
-                    (entity_id, supertype_id),
-                )
-                if child_id:
-                    cur.execute(
-                        "INSERT INTO entity_types (entity_id, entity_type_id) VALUES (%s, %s)",
-                        (entity_id, child_id),
-                    )
-
-                self._write_location(cur, entity_id, record.get("_geo"))
-                if kind == "event":
-                    self._write_event_properties(cur, entity_id, record)
-                self._write_documents(cur, entity_id, record)
-
-            self._conn.commit()
-            self.written += 1
-            return entity_id
+            return self._persist(record, upsert=False)
         except Exception:
             self._conn.rollback()
-            logger.exception("write_linked failed for link_id=%s", link_id)
+            logger.exception("write_linked failed for link_id=%s", record.get("id"))
             self._bump("error")
             return None
+
+    def upsert_linked(self, record: dict) -> Optional[int]:
+        """Streaming write of one linked record: create, or update in place when
+        the linker merged it into an existing canonical row. Returns None for a
+        permanent (poison) drop; re-raises DB errors so the caller can requeue."""
+        try:
+            return self._persist(record, upsert=True)
+        except Exception:
+            self._conn.rollback()
+            raise
 
     def reset_run(self) -> int:
         """Delete all rows written under this run_tag (child -> parent order).

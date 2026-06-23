@@ -31,12 +31,14 @@ Deciding the correct entity from a set of candidates using features derived from
 
 ```
 src/
+  listener.py       # Streaming RabbitMQ consumer: documents → extract → link → persist (kgdb)
   schema/           # Schema system for data normalization
     schemas/        # Pipeline schema definitions (JSON + Python)
     types/          # Type parsers, composite types, registry
     parse_object.py # Core Parser class
   entities/         # Entity extraction and linking
     run_entities.py # Integration runner: streams documents through extraction, then linking
+    document.py     # record_to_article: map a raw document envelope to the extractor's input (shared)
     extraction/     # LLM-based structured extraction from text
       schemas/      # Entity schemas (one per supertype, JSON)
       catalogues/   # Ontology catalogues (event types CSV, keywords Excel)

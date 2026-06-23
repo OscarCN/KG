@@ -47,6 +47,7 @@ logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(mes
 logging.getLogger("src.entities.extraction").setLevel(logging.INFO)
 logging.getLogger("src.entities.linking").setLevel(logging.INFO)
 
+from src.entities.document import record_to_article as _record_to_article
 from src.entities.extraction.extract import EntityExtractor, Ontology
 from src.entities.linking.link import EntityLinker, LinkResult
 
@@ -89,64 +90,6 @@ def _json_default(value: Any) -> Any:
     if isinstance(value, set):
         return sorted(value)
     raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
-
-
-def _record_to_article(record: dict) -> dict:
-    """Map a fixture document to the article dict expected by EntityExtractor.
-
-    Supports:
-    - Facebook-style records with a nested ``message`` dict.
-    - News-style ES hits with flat ``text``, ``title``, ``url``, etc.
-    """
-    msg = record.get("message")
-    if isinstance(msg, dict):
-        body = msg.get("body", "") or ""
-        title = msg.get("title", "") or ""
-        url = msg.get("url") or record.get("_id") or ""
-        doc_type = (record.get("type") or msg.get("type") or "").lower()
-        publication_date = msg.get("timestamp") or msg.get("created_time")
-
-        categories: list[str] = []
-        cat = msg.get("source_category")
-        if cat:
-            categories.append(cat) if isinstance(cat, str) else categories.extend(cat)
-        tags = msg.get("source_tags")
-        if tags:
-            categories.extend(tags) if isinstance(tags, list) else categories.append(tags)
-    else:
-        body = record.get("text") or record.get("summary") or ""
-        title = record.get("title") or ""
-        url = record.get("url") or record.get("_id") or ""
-        doc_type = record.get("doctype") or record.get("type") or "news"
-        if not isinstance(doc_type, str):
-            doc_type = str(doc_type)
-        doc_type = doc_type.lower()
-        publication_date = (
-            record.get("article_date")
-            or record.get("date_created")
-            or record.get("date")
-            or record.get("published_at")
-        )
-
-        categories = []
-        custom = record.get("custom_categories") or {}
-        if isinstance(custom, dict):
-            for level_vals in custom.values():
-                if isinstance(level_vals, list):
-                    categories.extend(level_vals)
-                elif isinstance(level_vals, str):
-                    categories.append(level_vals)
-
-    source_id = str(record.get("_id") or url or id(record))
-    return {
-        "id": source_id,
-        "text": body,
-        "title": title,
-        "url": url,
-        "categories": categories,
-        "document_type": doc_type,
-        "publication_date": publication_date,
-    }
 
 
 def _load_source_records(files: list[Path]) -> list[dict]:
