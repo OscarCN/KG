@@ -53,19 +53,30 @@ foundation, not a throwaway.
 
 ### Prerequisites
 
-**P1 — fix `entity_locations` identity** (migration on dev kgdb): move identity off `entity_id`
-onto `record_id`; fold the live shape (corrected `entity_locations` names + `entities_documents`
-`parent_doc_id`/`news_type`) back into `media-backend-paid/db/kg_db/schema.sql`. New DDL:
-`media-backend-paid/docs/kg_event_persistence_kgdb.sql`.
+> **Done (dev).** P1 + P2 are authored and applied to the local dev kgdb (`kgunified` on the
+> Docker instance — see [`dev/docs/db/runbook.md`](../../../../dev/docs/db/runbook.md)).
+> `schema.sql` + `inserts_catalog_tables.sql` were first re-dumped from the live DB so the
+> baseline matches production (un-prefixed `entity_locations`, `entities_documents`
+> `parent_doc_id`/`news_type`, the generic catalog). The standalone DDL still needs applying to
+> **live** as a deliberate production step.
 
-**P2 — seed the type catalog** (`entity_types_kinds_available`): per event supertype, a supertype
-row (`entity_kind='event'`, `parent_entity_type=NULL`, `metadata_template` = the schema JSON from
-`src/entities/extraction/schemas/{supertype}.json`) + a child row per leaf type (parent = the
-supertype id). Supertype→child mapping from
-`src/entities/extraction/catalogues/event_types.csv`. Seed `legislative_initiative` (+children)
-too so the `entity` category is ready. Generator: `scripts/gen_kg_catalog_seed.py` →
-`media-backend-paid/docs/kg_catalog_seed_kgdb.sql`. (Recommend `UNIQUE (entity_type,
-parent_entity_type)` for `ON CONFLICT` re-runnability.)
+**P1 — fix `entity_locations` identity** ✅ — moved identity off `entity_id` onto `record_id`.
+Standalone idempotent DDL `media-backend-paid/docs/kg_event_persistence_kgdb.sql` (safe on
+populated live), **folded into** `media-backend-paid/db/kg_db/schema.sql`. The live-shape
+reconciliation (corrected `entity_locations` names + `entities_documents`
+`parent_doc_id`/`news_type`) was done via a fresh `pg_dump` of the live DB.
+
+**P2 — seed the type catalog** (`entity_types_kinds_available`) ✅ — per event/entity supertype, a
+supertype row (`entity_kind` from `meta.category`, `parent_entity_type=NULL`, `metadata_template`
+= the schema JSON from `src/entities/extraction/schemas/{supertype}.json`) + a child row per leaf
+type (parent = the supertype id). Supertype→child mapping from
+`src/entities/extraction/catalogues/event_types.csv`. Includes `legislative_initiative`
+(+children) so the `entity` category is ready; themes skipped (no `theme` kind yet). Generator
+`scripts/gen_kg_catalog_seed.py` → `media-backend-paid/docs/kg_catalog_seed_kgdb.sql` (10
+supertypes + 54 children). Upsert uses the existing live `UNIQUE (entity_type, entity_kind)`
+constraint for `ON CONFLICT` re-runnability. The seeded catalog will also gain an `active` flag
+as the source of truth for which types are extracted — designed in
+[`active_type_extraction.md`](active_type_extraction.md).
 
 ### `KgdbWriter` (`src/entities/linking/persistence.py`)
 
@@ -119,9 +130,99 @@ changes ids → `--reset` first. (A [deterministic linked id](#deferred) removes
   ≈ Σ`source_ids`; spot-check Zona Fest rows + their location/property joins.
 - Re-run without `--reset` → counts unchanged.
 
+## Streaming consumer (RabbitMQ listener)
+
+The production end-state for the `kg` worker (workspace map: **`kg` consumes a *doc queue* →
+produces kgdb entities/events**). A long-lived worker that consumes **raw documents** and runs
+the full pipeline **inline per message** — `classify → extract → link → persist` — i.e. the
+[`run_entities.py`](../../src/entities/run_entities.py) loop (`match → extract → link_one →
+write_linked`) lifted into a pika consumer callback. **No** intermediate "linked-records"
+queue, and `rabbit_enqueuer` is producer-side only (not on the consume path).
+
+**Build after Step Zero**, because Step Zero ships the `KgdbWriter` this consumer calls per
+message and because the streaming worker needs the kgdb-backed `CandidateIndex` below.
+
+### Module & reuse (`src/entities/stream.py`)
+
+New module, modeled on the workspace's existing pika consumers
+[`social_tags/src/stream.py`](../../../../social_tags/src/stream.py) and
+[`ai_assist/src/stream.py`](../../../../ai_assist/src/stream.py), composing already-built
+pieces (no reimplementation):
+
+- `EntityExtractor.match(article)` / `.extract(article, validate=True,
+  raise_validation_error=False)` (`extraction/extract.py`) — **restricted to active types**,
+  see [`active_type_extraction.md`](active_type_extraction.md).
+- `EntityLinker.link_one(raw) -> LinkResult` (`linking/link.py`) — the streaming entry point,
+  already exception-wrapped.
+- `KgdbWriter.write_linked(record)` (Step Zero, `linking/persistence.py`) — one record, one txn.
+- `_record_to_article(record)` (`run_entities.py`) — map a doc envelope to the extractor's
+  article dict; lift into a shared helper.
+
+### Config & connection
+
+`RabbitConfig.from_env()` mirroring [`social_tags/src/settings.py`](../../../../social_tags/src/settings.py):
+`RABBIT_HOST/PORT/USER/PASSWORD/VIRTUALHOST/EXCHANGE/QUEUE/ROUTING_KEY`, plus
+`RABBIT_PREFETCH_COUNT` (default 1), `RABBIT_RETRY_DELAY_SECONDS`, `RABBIT_MAX_RETRIES`,
+`RABBIT_DLX`. DB creds reuse Step Zero's `KGDB_*`. Connect with `pika.BlockingConnection`
+(heartbeat 600), declare durable exchange/queue, bind, `basic_qos(prefetch_count=1)`,
+`basic_consume`, signal handlers for graceful shutdown.
+
+### Per-message callback (= the `run_entities.py` loop)
+
+Parse JSON body → document record; pull `trace_id` from the **message top level** (dev
+convention — never inside the payload). Then `_record_to_article` → `match` (empty ⇒ ack,
+nothing to do) → `extract` → per extracted `raw`: `link_one`, routed by `LinkResult.status`:
+
+- `created` / `merged` → `writer.write_linked(result.record)`.
+- `skipped` → category not linked yet (theme / entity-concept) → **not persisted today**;
+  counted + logged (see the gap note below).
+- `dropped` / `error` → logged + counted, message still acked (poison content, not transient).
+
+**Ack/nack/retry** (mirror `social_tags/src/stream.py`): success ⇒ `ack`; transient failures
+(kgdb / geocoder / OpenRouter unreachable) ⇒ `sleep(retry_delay)` then `nack(requeue=True)` up
+to `max_retries`, then `nack(requeue=False)` → DLX; validation/poison ⇒ immediate
+`nack(requeue=False)`. Honors the global rule: a depended-on service being unreachable is
+**surfaced and requeued (bounded)**, never silently dropped.
+
+### Hard prerequisite — kgdb-backed `CandidateIndex`
+
+`link_one` resolves candidates against the in-memory `CandidateIndex` (`linker.events` /
+`linker.index`), which `readme_linking.md` marks "in-memory today, **kgdb-backed later**". A
+batch writer (Step Zero) builds that index in-process for one file and exits; a streaming
+worker must share candidate state across messages, restarts, and parallel workers ⇒ a
+**kgdb-backed `CandidateIndex`** (querying `event_properties` / `entity_locations` /
+`entity_types` per the readme lookup contract) is the real blocker for streaming, on top of
+the linking-quality sequencing above.
+
+### Persisting extracted non-event entities — current gap
+
+The write path stores **linked canonical *events* only**. Per-document raw extractions are
+**not** their own rows — each source survives as an `entities_documents` row (one per
+`source_id`) plus the merged `entities.metadata`; `data/extracted_raw/` is debug-only.
+
+- **Events** (`category=event`): linked → persisted (Step Zero + write path). ✅
+- **Entities/concepts** (`category=entity`): `KgdbWriter` is entity-ready, but the linker
+  **skips** `category=entity`, so they never reach the writer → Deferred *Entities/concepts*.
+- **Themes** (`category=theme`): **no write path** at all → Deferred *Themes*.
+
+So the listener routes `skipped` records to a counted no-op today; closing the gap is exactly
+the two Deferred items below.
+
+### Local dev loop (own local kgdb)
+
+Run the worker on the dev vhost `document_processing_dev` against a doc queue (e.g.
+`dev_kg_documents`); publish a sample document with a `dev/send_*.sh`-style script
+(`pika.BlockingConnection`, `delivery_mode=2`, top-level `trace_id`); reconstruct with a
+per-service logfile + `dev/trace.sh <trace_id>`. **The dev environment must stand up its own
+local Postgres kg database** (own instance + `media-backend-paid/db/kg_db/schema.sql` + the
+P1/P2 migrations applied), with the dev `KGDB_*` pointing the worker/`KgdbWriter` at it — so
+streaming writes never touch the current/real kgdb. This generalizes the existing
+`media-backend-paid → rabbit_enqueuer → event_report` dev loop to the **kg → kgdb** chain.
+
 ## Deferred (subsequent steps)
 
-- **Streaming consumer** — RabbitMQ worker calling `KgdbWriter.write_linked` per message.
+- **Streaming consumer** — designed in [Streaming consumer (RabbitMQ listener)](#streaming-consumer-rabbitmq-listener)
+  above; remaining build items: the kgdb-backed `CandidateIndex` and the local dev kgdb.
 - **In-DB merge** — alias `current_entity_id` repoint + direct-FK fixup on
   `entity_locations`/`event_properties` ([`canonical_reconciliation.md`](canonical_reconciliation.md)).
 - **Themes** — add `theme` to `entity_kinds_available` + degenerate single-entity write path.
