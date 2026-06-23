@@ -2,7 +2,7 @@
 
 This directory implements the knowledge graph entity pipeline: structured extraction from unstructured text (`extraction/`) and linking the extracted records into canonical entities (`linking/`). Three ontology categories — events, entities/concepts, and themes — share the same schema infrastructure, the same extraction pipeline, and the same target persistence model.
 
-> **Database status: design only.** The unified `kgdb` Postgres database (described in [`media-backend-paid/docs/DATABASE_POSTGRES.md`](../../../../media-backend-paid/docs/DATABASE_POSTGRES.md)) is the **planned** sink for linked records. Nothing is being written there yet — the schema and the persistence model documented in [`linking/readme_linking.md`](linking/readme_linking.md#kg-database-persistence) exist to guide our code/architecture decisions while we iterate on linking approaches.
+> **Database status: Step Zero implemented.** Linked records are written into the unified `kgdb` Postgres database (described in [`media-backend-paid/docs/DATABASE_POSTGRES.md`](../../../../media-backend-paid/docs/DATABASE_POSTGRES.md)) by the batch writer `linking/persistence.py` (`KgdbWriter`), driven by [`scripts/persist_linked.py`](../../scripts/persist_linked.py) from a `data/linked/<stem>.json` fixture (validated on dev). The streaming RabbitMQ consumer and the in-DB merge remain pending — see [`linking/readme_linking.md`](linking/readme_linking.md#kg-database-persistence) and [`docs/todos/kgdb_event_persistence.md`](../../docs/todos/kgdb_event_persistence.md).
 
 ## Directory Structure
 
@@ -52,7 +52,7 @@ entities/
 |---|---|---|---|
 | **Entities stream** (`run_entities.py`) | Incoming document fixtures under `data/<subdir>/` | Debug artifacts: extracted records and linked events | This file |
 | **Extraction** (`extraction/`) | News / social-media articles | A flat list of validated entity records, each tagged with `_source_id` and `_supertype` | [`extraction/readme_extraction.md`](extraction/readme_extraction.md) |
-| **Linking** (`linking/`) | Extracted event records | In-memory / JSON canonical event records (deduped, geocoded). Persistence to `kgdb` is a designed target, not yet implemented | [`linking/readme_linking.md`](linking/readme_linking.md) |
+| **Linking** (`linking/`) | Extracted event records | In-memory / JSON canonical event records (deduped, geocoded); `KgdbWriter` (`linking/persistence.py`) persists them into `kgdb` (Step Zero — batch writer done; streaming/merge pending) | [`linking/readme_linking.md`](linking/readme_linking.md) |
 | **Tags** (`tags/`) | Linked events + the article + its comments | Decoupled from extraction/linking; this code is moving to its own repository and is not driven by `linking/run_linking.py` | [`tags/readme_tags.md`](tags/readme_tags.md), [`tags/tags_overview.md`](tags/tags_overview.md), [`tags/tags_impl_plan.md`](tags/tags_impl_plan.md) |
 
 The full kgdb schema and cross-database conventions are documented in [`media-backend-paid/docs/DATABASE_POSTGRES.md`](../../../../media-backend-paid/docs/DATABASE_POSTGRES.md). The linker's [KG Database Persistence](linking/readme_linking.md#kg-database-persistence) section captures the pieces relevant to the (eventual) write path.

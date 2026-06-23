@@ -28,12 +28,18 @@ Persistence* section of [`readme_linking.md`](../../src/entities/linking/readme_
 [`DATABASE_POSTGRES.md`](../../../../media-backend-paid/docs/DATABASE_POSTGRES.md), **corrected
 to the live schema** (the docs are stale — see Live-schema facts).
 
-## Step Zero (first attempt)
+## Step Zero (DONE)
 
 A decoupled, idempotent **batch writer**: load an existing `data/linked/<stem>.json` and write
 its events into the local **dev** kgdb — **create/upsert only, no in-DB merge**. It builds the
 reusable `KgdbWriter` the streaming consumer will later call per message, so it's the
 foundation, not a throwaway.
+
+> **Implemented + validated on dev.** `src/entities/linking/persistence.py` (`KgdbWriter`) +
+> `scripts/persist_linked.py`. The `geo_qro_paid_mass_event` fixture writes 463 entities, 926
+> `entity_types`, 463 `event_properties` (slack-widened windows), 409 `entity_locations` (skipped
+> where `_geo` absent), 953 `entities_documents` (= Σ `source_ids`); re-runs are no-ops by
+> `_link_id`. The detailed spec below matches the implementation.
 
 ### Live-schema facts (verified via `local-kgunified-postgres-server` MCP)
 

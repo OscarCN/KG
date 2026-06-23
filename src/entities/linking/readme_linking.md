@@ -16,6 +16,7 @@ linking/
   mx_states.py            # Static catalogue of the 32 Mexican states (partition-key normalization + fallback)
   strategy.py             # GeoEventStrategy: enrich → window/keys → deterministic gate / adjudicate → merge/create
   link.py                 # EntityLinker: envelope parse + strategy orchestration + case log. link_one(raw) → LinkResult.
+  persistence.py          # KgdbWriter: idempotent write of a linked record into kgdb (Step Zero batch/stream writer)
   run_linking.py          # IPython runner — tests linking from extracted-record fixtures (env-configurable stem).
   readme_linking.md       # This file
 ```
@@ -221,7 +222,7 @@ The linker reads `OPENROUTER_API_KEY` (loaded from `kg/.env.local` automatically
 
 ## KG Database Persistence
 
-> **Status: not yet implemented.** The linker does **not** currently write anything to a database — its output is the in-memory / JSON record described in [Output record shape](#output-record-shape). The model in this section is the **target** persistence design for the **kgdb** Postgres database (the unified entities knowledge graph). It exists to guide code structure and architecture decisions while we iterate on different linking approaches; once linking stabilises, the pipeline will start writing to kgdb following this contract. The full schema and cross-database conventions are documented in [`media-backend-paid/docs/DATABASE_POSTGRES.md`](../../../../../media-backend-paid/docs/DATABASE_POSTGRES.md) — this section captures the pieces relevant to the linker's eventual write path.
+> **Status: Step Zero implemented (batch writer).** [`persistence.py`](persistence.py) (`KgdbWriter`) writes linked records into the **kgdb** Postgres database following the model below, and [`scripts/persist_linked.py`](../../../scripts/persist_linked.py) drives it from a `data/linked/<stem>.json` fixture — validated on dev (the `geo_qro_paid_mass_event` fixture: 463 entities + 926 `entity_types` + 463 `event_properties` + 953 `entities_documents`, idempotent re-runs). The **streaming RabbitMQ consumer** and the **in-DB merge** (canonical reconciliation) remain pending — see [`docs/todos/kgdb_event_persistence.md`](../../../docs/todos/kgdb_event_persistence.md). The linker's own output is still the in-memory / JSON record in [Output record shape](#output-record-shape); persistence is a separate, decoupled step. The full schema and cross-database conventions are documented in [`media-backend-paid/docs/DATABASE_POSTGRES.md`](../../../../../media-backend-paid/docs/DATABASE_POSTGRES.md).
 
 ### Persistence model — overview
 
@@ -314,19 +315,19 @@ The fields are small (3 timestamps, 1 status string) and tightly coupled to even
 
 If linking latency ever becomes the bottleneck, the cheaper move is to add the index above, not to denormalise.
 
-### Pipeline write path (sketch — not yet wired up)
+### Pipeline write path (`KgdbWriter.write_linked`)
 
-The steps below describe the eventual write path. None of them are implemented today; the linker stops at the in-memory linked record. For each linked record produced by the linker, the persistence layer (when added) will:
+`KgdbWriter` ([`persistence.py`](persistence.py)) implements the steps below — one transaction per linked record (the unit the future streaming consumer calls per message). Themes are not linked upstream, so the theme branch in step 1 is not exercised yet. For each linked record:
 
 1. Resolve or create the entity:
-   - For events/entities: insert a new `entities` row (with `metadata` = the validated record), then an `entities_alias` row with `original_entity_id = current_entity_id = entities.entity_id`.
-   - For themes: look up the canonical `(theme_type, level_1, level_2, level_3)` entity and reuse its `entity_id`, or create one if absent.
-2. Insert `entity_types` rows linking the entity (via `entities_alias.original_entity_id`) to the supertype's `entity_type_id` and, when known, the child type's.
-3. For each geocoded location, insert an `entity_locations` row with the geocoder's level breakdown.
-4. For events, insert/update the `event_properties` row with `date_start`, `date_end`, `status`.
-5. For each source document that mentions the linked record, upsert `entities_documents (entity_id, doc_id)` to register the link (org-agnostic, per the existing sentiment write path).
+   - For events/entities: insert a new `entities` row (`metadata` = the validated record **+** `_link_id`/`_link_run` provenance), then an `entities_alias` row with `original_entity_id = current_entity_id = entities.entity_id`.
+   - *(Planned)* For themes: look up the canonical `(theme_type, level_1, level_2, level_3)` entity and reuse its `entity_id`, or create one if absent.
+2. Insert `entity_types` rows linking the entity (via `entities_alias.original_entity_id`) to the supertype's `entity_type_id` and, when the leaf resolves, the child type's.
+3. For the geocoded location (`record["_geo"]`), insert an `entity_locations` row with the geocoder's level breakdown (skipped when no `_geo`). One row today; multi-row once [list locations](../../../docs/todos/location_level_list_extraction.md) land.
+4. For events, upsert the `event_properties` row (`ON CONFLICT (event_id)`) with the **slack-widened** `date_start`/`date_end` (so a `tstzrange &&` index reproduces the candidate date filter) and `status`.
+5. For each `source_ids` entry, upsert `entities_documents (entity_id, doc_id)` (`doc_index='news'`, `doc_date_created`=publication date, `doc_source`=host), org-agnostic, per the existing sentiment write path.
 
-`entity_id` in step 5 (and in any user-facing references) is always `entities_alias.original_entity_id`, so later entity merges don't break the link.
+`entity_id` everywhere is `entities_alias.original_entity_id` (== `entity_id` at create), so later entity merges don't break the link. **Idempotency:** records already written under the run (`metadata->>'_link_id'`) are skipped; `KgdbWriter.reset_run()` deletes a run (child→parent order) for a clean re-write. Drop buckets: `no_supertype`, `unseeded_supertype:<name>`, `error`.
 
 ### Direct-FK exception (recap)
 
