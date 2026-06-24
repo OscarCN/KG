@@ -61,6 +61,15 @@ When the firehose volume makes "match in worker" wasteful, move the coarse filte
 2. **Precise route (worker).** `Ontology.match` stays as the per-class router (the ES OR is coarse
    recall; the per-row ANDs + class assignment are the precise step).
 
+## Testing producer (exists)
+
+`scripts/enqueue_from_es.py` is the interim hand-run producer for a city-or-two test corpus:
+ES date-window fetch (`period=[start,end]`) scoped by `cvegeo` to `level_2_id ∈ {48409, 48422}`
+(`location_type="mentioned"`), then keeps only docs whose **same `locations_mentioned` entry** has
+one of those ids **and** `precision_level >= 3`, drops category `Deportes`, and publishes each to
+`RABBIT_QUEUE` with a `trace_id`. No keyword filter (that stays in the listener). `--dry-run`
+validates the filter first. This is the throwaway stand-in for the MVP fanout / ES retriever below.
+
 ## MVP work (small)
 
 - **Fanout tap on `gp3`** (cross-repo): publish enriched docs to an exchange the kg queue binds to
