@@ -110,13 +110,29 @@ Deduplicates and merges extracted **events** (the output of `src/entities/extrac
 2. **Candidate filter** — events that share `event_type`, the same geo partition (located lookups also probe the no-location bucket), and date-range overlap (slack widened by the extraction's `precision_days` on approximate dates; publication-date fallback at ±2 days).
 3. **LLM disambiguation** — a single call to `google/gemini-2.5-flash-lite` (via OpenRouter) given the incoming event's `name`, `description`, structured address, and `date`, plus those same fields for each candidate (capped, most recent first). The LLM returns the matching candidate id or `null`.
 4. **Merge or create** based on the LLM's answer. Merges keep the most precise extracted date window as the canonical range (per-source windows are tracked on the record) instead of widening unconditionally.
-5. **Persist** the linked record into the unified `kgdb` Postgres database (canonical `entities` row + supertype/child `entity_types` + geocoded `entity_locations` + event lookup `event_properties` + per-source `entities_documents`). **Step Zero implemented** — `linking/persistence.py` (`KgdbWriter`) does an idempotent, one-transaction-per-record write; `scripts/persist_linked.py` drives it from a `data/linked/<stem>.json` fixture (validated on dev). The streaming RabbitMQ consumer and in-DB merge remain pending. Persistence is a decoupled step; the linker's own output is still the in-memory / JSON record.
+5. **Persist** the linked record into the unified `kgdb` Postgres database (canonical `entities` row + supertype/child `entity_types` + geocoded `entity_locations` + event lookup `event_properties` + per-source `entities_documents`), via `linking/persistence.py` (`KgdbWriter`) — an idempotent, one-transaction-per-record write. Run either as a batch over a `data/linked/<stem>.json` fixture (`scripts/persist_linked.py`) or, in production, inline per message by the streaming consumer (`src/listener.py`) with **kgdb-backed candidate retrieval** so dedup holds across workers/restarts. See the **Streaming pipeline & kgdb persistence** section below. The remaining open work is the **in-DB canonical↔canonical merge** (reconciliation) and the production **producer/retriever**.
 
 Both geocode and LLM responses are cached on disk (`cache/geocode/`, `cache/link_llm/`), keyed by sha256 of the canonical input — re-runs avoid re-billing. Themes and entities are not linked yet (skipped). See [`src/entities/linking/readme_linking.md`](src/entities/linking/readme_linking.md) for the linking pipeline and the [KG Database Persistence](src/entities/linking/readme_linking.md#kg-database-persistence) section for the (target) kgdb write model. Full kgdb schema and cross-database conventions live in [`media-backend-paid/docs/DATABASE_POSTGRES.md`](../../media-backend-paid/docs/DATABASE_POSTGRES.md).
 
 The linker runner is a local test harness for linking after extraction: it reads an extracted-record fixture from `data/extracted_raw/`, streams records through `EntityLinker.link_one(raw)`, and writes linked canonical events to `data/linked/`. It does not fetch article/comment content or run tags.
 
 For an end-to-end local simulation of the production shape, use `src/entities/run_entities.py`: it reads incoming document fixtures from `data/<subdir>/`, processes one document at a time through `EntityExtractor.extract(article)`, immediately streams each extracted record through `EntityLinker.link_one(raw)`, and writes debug artifacts to `data/extracted_raw/` and `data/linked/`.
+
+### Streaming pipeline & kgdb persistence (`src/listener.py`, `linking/persistence.py`, `linking/kgdb_retrieval.py`)
+
+The production shape: a long-lived worker that consumes **raw documents** off a RabbitMQ queue and runs the full pipeline **inline per message** — `classify → extract → link → persist` — writing canonical events into the unified **kgdb** Postgres database. **Implemented and validated on dev** (multi-hundred-document live batches). See [`src/entities/linking/readme_linking.md`](src/entities/linking/readme_linking.md) (KG Database Persistence) and the design TODOs ([`kgdb_event_persistence.md`](docs/todos/kgdb_event_persistence.md), [`kgdb_candidate_index.md`](docs/todos/kgdb_candidate_index.md), [`document_retrieval_strategy.md`](docs/todos/document_retrieval_strategy.md)) for depth.
+
+**Streaming consumer** (`src/listener.py`) — a `pika` `BlockingConnection` consumer (modeled on the workspace's `social_tags`/`ai_assist` workers): durable queue, `prefetch=1`, dead-letter exchange, bounded retry→requeue, `trace_id` at the message top level, graceful shutdown. Per message it does document-level dedup first (below), then `record_to_article → Ontology.match` (the keyword pre-filter; non-matches are dropped) `→ extract → link_one → KgdbWriter.upsert_linked`. Scale by running N listeners — cross-worker dedup holds. A `--once <fixture>` mode runs the same pipeline offline (no broker). Producers today are test-only: `scripts/enqueue_from_es.py` (ES date-window fetch → doc queue) and `scripts/publish_document.py`; the eventual global retriever is the open producer-side work.
+
+**kgdb-backed retrieval** (`linking/kgdb_retrieval.py`) — so dedup works **across restarts and multiple workers**, candidate lookup reads from kgdb instead of per-process memory. `index.py` defines two swappable backends — `CandidateIndex` (id retrieval) and `RecordStore` (id→record). The in-memory pair is used for batch/test runs; the kgdb pair for streaming: `KgdbCandidateIndex` reconstructs the candidate set with one SQL query over the rows the writer already persists (`event_properties` date `&&`, `entity_locations` level ids / grid block, `entity_types` supertype), and `KgdbRecordStore` resolves records from `entities.metadata`. The hard geo gate / deterministic gate / LLM still run on the resolved records.
+
+**Merge mechanism** — the same real-world event reported across many news sites collapses into **one canonical entity**: on a match the linker merges (most-precise date window and highest-precision location win; `source_ids` grows de-duped), and `upsert_linked` updates the kgdb row in place — refreshing `entities.metadata`, adding the new `entities_documents` row, and updating the `event_properties` window. (Observed live: a single festival merged from 26 distinct sources.)
+
+**Three idempotency layers** (cheapest first): (1) **Redis doc-skip** — `src/processed_store.py` (`ProcessedStore`) marks each fully-processed `doc_id` with a 2-week TTL and skips repeats *before any extraction*; (2) **linker kgdb dedup** — a redelivered/duplicate document re-matches its existing event and merges rather than duplicating; (3) **writer `_link_id` upsert** — `KgdbWriter` keys on `metadata->>'_link_id'` so re-writing the same linked record is a no-op/update. `reset_run(tag)` deletes a run for clean re-processing.
+
+**Persistence** (`linking/persistence.py`, `KgdbWriter`) — one transaction per record into `entities` (`metadata` = the validated record + `_link_id`/`_link_run`), `entities_alias`, `entity_types` (supertype + child), `entity_locations` (from `_geo`), `event_properties` (events, slack-widened window), `entities_documents` (per source). The whole KG ontology maps onto **existing kgdb tables — no new tables**; the type catalog (`entity_types_kinds_available`) holds each supertype's JSON schema in `metadata_template` (seeded by `scripts/gen_kg_catalog_seed.py`). `entity_id` written everywhere is the alias `original_entity_id` so later merges stay stable (direct-FK exception on `entity_locations`/`event_properties` noted in the docs). The full schema is `media-backend-paid/db/kg_db/schema.sql`; the local **dev kgdb** (Docker Postgres on `:5334`) setup is in [`media/dev/docs/db/runbook.md`](../../dev/docs/db/runbook.md).
+
+**Configuration** — RabbitMQ (`RABBIT_HOST/PORT/USER/PASSWORD/VIRTUALHOST/QUEUE`, `RABBIT_PREFETCH_COUNT`, `RABBIT_DLX`), kgdb (`KGDB_HOST/PORT/USER/PASSWORD/NAME`), Redis (`REDIS_HOST/PORT/PASSWORD`, `KG_PROCESSED_TTL_SECONDS`), `KG_RUN_TAG` (provenance), plus OpenRouter + geocoder. The listener loads `kg/.env.local`.
 
 ### Tags (`src/entities/tags/`)
 
@@ -174,16 +190,17 @@ A related future direction is **multi-class entities** — a single entity insta
 
 | Service | Purpose |
 |---------|---------|
-| PostgreSQL | Knowledge base storage, geographic queries |
-| Redis | LSH cache for fuzzy name matching |
-| Elasticsearch | News article indexing and retrieval |
+| PostgreSQL | Unified **kgdb** knowledge graph (entities/events) + geographic queries; candidate retrieval. Local dev DB on Docker `:5334` (see `media/dev/docs/db/runbook.md`) |
+| RabbitMQ | Document queue feeding the streaming listener (`src/listener.py`) |
+| Redis | Document-level dedup guard (`processed_store.py`, 2-week TTL). *(Legacy: LSH name-match cache — not wired into the current pipeline.)* |
+| Elasticsearch | News article indexing and retrieval (source of the document corpus) |
 | MongoDB | Crawler/source metadata |
 | OpenRouter | LLM calls for extraction (`OPENROUTER_MODEL`), prompt generation (`OPENROUTER_GENERATION_MODEL`), prompt feedback (`OPENROUTER_FEEDBACK_MODEL`), event linking (`OPENROUTER_LINKER_MODEL`), tags bootstrap / tagger / adjudicator / clusterer (`OPENROUTER_BOOTSTRAP_MODEL`, `OPENROUTER_TAGGER_MODEL`, `OPENROUTER_ADJUDICATOR_MODEL`, `OPENROUTER_CLUSTERER_MODEL`) |
 | OpenAI API | Embeddings |
 
 ## Key Dependencies
 
-`openai`, `requests`, `torch`, `tensorflow_hub`, `sklearn`, `pandas`, `numpy`, `psycopg2`, `pymongo`, `elasticsearch`, `redis`, `dateutil`, `tldextract`, `matplotlib`
+`openai`, `requests`, `pika`, `psycopg2`, `redis`, `pandas`, `numpy`, `nltk`, `openpyxl`, `dateutil`, `tldextract`, `elasticsearch` — plus PoC/ML extras (`torch`, `tensorflow_hub`, `sklearn`, `matplotlib`, `pymongo`). Pinned in [`requirements.txt`](requirements.txt) (core vs. optional).
 
 ## Roadmap / TODOs
 
