@@ -42,7 +42,7 @@ new event → schema parse (EntityLinker envelope)
           → match-id ? merge : create new
 ```
 
-**Architecture.** `EntityLinker` (`link.py`) is supertype-agnostic: it parses the record envelope (`_source_id`, `_supertype`, `date_created`), selects a strategy by the schema's `meta.category`, and orchestrates the calls. All event-specific behaviour lives in `GeoEventStrategy` (`strategy.py`), which owns the full lifecycle — enrich → window/key construction → adjudication → merge/create → (re)index — against the `CandidateIndex` protocol (`index.py`, in-memory today, kgdb-backed later). A supertype with no schema is a logged drop (`no_schema`) — it no longer silently defaults to the event path.
+**Architecture.** `EntityLinker` (`link.py`) is supertype-agnostic: it parses the record envelope (`_source_id`, `_supertype`, `date_created`), selects a strategy by the schema's `meta.category`, and orchestrates the calls. All event-specific behaviour lives in `GeoEventStrategy` (`strategy.py`), which owns the full lifecycle — enrich → window/key construction → adjudication → merge/create → (re)index — against the `CandidateIndex` protocol (`index.py`): the in-memory pair for batch/test runs, the kgdb-backed `KgdbCandidateIndex`/`KgdbRecordStore` (`kgdb_retrieval.py`) for the streaming consumer. A supertype with no schema is a logged drop (`no_schema`) — it no longer silently defaults to the event path.
 
 **Identity model (geo events).** Two records denote the same event iff: same **supertype** (soft type — the leaf `event_type` may differ between sibling classes; `partition_on="event_type"` for the legacy exact-type rule), **geo-compatible** place (one location's admin id-path hierarchically contained in the other's — a *hard* gate under `hard_geo_gate=True`, never overruled by the LLM), overlapping time (tiered fallbacks below), and co-referent content (the deterministic level-6/7-share gate, or the LLM over the description).
 
@@ -186,6 +186,7 @@ Each linked event extends the original schema with these link-level fields:
 | `publication_date` | str | Earliest publication timestamp across the merged sources (when any source had one) |
 | `_date_source` | str | Provenance of the first source's window (`extracted` / `publication`) |
 | `_source_windows` | List[dict] | Every source's resolved window: `{start, end, slack_days, source, precision_days}` |
+| `_sources` | List[dict] | Per-source document metadata, de-duped by `source_id`: `{source_id, publication_date, news_type}` — each source's OWN publication date and `news_type` (carried article → record → `_sources`), so `entities_documents` can be written per source rather than stamping the canonical earliest date on every document |
 | `_geo_source` | str | Which tier produced the geo partition key (`geocoder` / `state_catalogue` / `none`) |
 
 Linked events also carry the canonical `date_range` (the most precise extracted window seen across sources), the most-populated `location` fields seen across sources within the same geo partition, and the `_geo` block from the geocoder.
@@ -225,7 +226,7 @@ The linker reads `OPENROUTER_API_KEY` (loaded from `kg/.env.local` automatically
 
 ## KG Database Persistence
 
-> **Status: Step Zero implemented (batch writer).** [`persistence.py`](persistence.py) (`KgdbWriter`) writes linked records into the **kgdb** Postgres database following the model below, and [`scripts/persist_linked.py`](../../../scripts/persist_linked.py) drives it from a `data/linked/<stem>.json` fixture — validated on dev (the `geo_qro_paid_mass_event` fixture: 463 entities + 926 `entity_types` + 463 `event_properties` + 953 `entities_documents`, idempotent re-runs). The **streaming RabbitMQ consumer** wrapper is implemented in [`src/listener.py`](../../listener.py) (consume documents → extract → link → `KgdbWriter.upsert_linked`), with the kgdb-backed `CandidateIndex` and the **in-DB merge** (canonical reconciliation) still pending — see [`docs/todos/kgdb_event_persistence.md`](../../../docs/todos/kgdb_event_persistence.md). The linker's own output is still the in-memory / JSON record in [Output record shape](#output-record-shape); persistence is a separate, decoupled step. The full schema and cross-database conventions are documented in [`media-backend-paid/docs/DATABASE_POSTGRES.md`](../../../../../media-backend-paid/docs/DATABASE_POSTGRES.md).
+> **Status: streaming + kgdb-backed retrieval implemented (validated on dev).** [`persistence.py`](persistence.py) (`KgdbWriter`) writes linked records into the **kgdb** Postgres database following the model below — in batch via [`scripts/persist_linked.py`](../../../scripts/persist_linked.py) from a `data/linked/<stem>.json` fixture (validated on dev: the `geo_qro_paid_mass_event` fixture — 463 entities + 926 `entity_types` + 463 `event_properties` + 953 `entities_documents`, idempotent re-runs) and inline per message by the **streaming RabbitMQ consumer** [`src/listener.py`](../../listener.py) (consume documents → extract → link → `KgdbWriter.upsert_linked`). The consumer uses kgdb-backed candidate retrieval ([`kgdb_retrieval.py`](kgdb_retrieval.py): `KgdbCandidateIndex`/`KgdbRecordStore`), so dedup holds across restarts and workers (validated on dev over multi-hundred-document batches). Still pending: the **in-DB canonical↔canonical merge** (reconciliation) and the production **producer/retriever** — see [`docs/todos/kgdb_event_persistence.md`](../../../docs/todos/kgdb_event_persistence.md). Residual risk: candidate-lookup→adjudicate→create runs in the linker outside any DB lock, so under true multi-worker parallelism duplicate canonicals are still possible — covered by [`docs/todos/canonical_reconciliation.md`](../../../docs/todos/canonical_reconciliation.md). The full schema and cross-database conventions are documented in [`media-backend-paid/docs/DATABASE_POSTGRES.md`](../../../../../media-backend-paid/docs/DATABASE_POSTGRES.md).
 
 ### Persistence model — overview
 
@@ -316,7 +317,7 @@ The fields are small (3 timestamps, 1 status string) and tightly coupled to even
 2. Status updates are far more frequent than full-record rewrites. Keeping them off `entities` means status churn doesn't dirty the canonical row (and its embedding/keywords/metadata) on every state transition, and doesn't compete for autovacuum on a much larger table.
 3. The linker's join cost is bounded by `(entity_type_id, level_2_id, date overlap)`, all highly selective; a covering index on `event_properties (date_start, date_end)` plus the existing `event_id` constraint keeps the candidate fetch cheap.
 
-If linking latency ever becomes the bottleneck, the cheaper move is to add the index above, not to denormalise.
+The kgdb candidate-retrieval predicates ([`kgdb_retrieval.py`](kgdb_retrieval.py)) are now backed by indexes in the schema (`media-backend-paid/db/kg_db/schema.sql`, asserted by [`test_kgdb_indexes.py`](test_kgdb_indexes.py)): expression indexes on `entities (metadata->>'_link_id')` and `(metadata->>'_supertype')`, a GiST on the `event_properties` date range, btrees on `entity_locations.level_N_id`, and a GiST on coords. So the date/geo/type/`_link_id` lookups don't scan. Denormalising `event_properties` into `entities` remains unnecessary.
 
 ### Pipeline write path (`KgdbWriter.write_linked`)
 
@@ -328,9 +329,15 @@ If linking latency ever becomes the bottleneck, the cheaper move is to add the i
 2. Insert `entity_types` rows linking the entity (via `entities_alias.original_entity_id`) to the supertype's `entity_type_id` and, when the leaf resolves, the child type's.
 3. For the geocoded location (`record["_geo"]`), insert an `entity_locations` row with the geocoder's level breakdown (skipped when no `_geo`). One row today; multi-row once [list locations](../../../docs/todos/location_level_list_extraction.md) land.
 4. For events, upsert the `event_properties` row (`ON CONFLICT (event_id)`) with the **slack-widened** `date_start`/`date_end` (so a `tstzrange &&` index reproduces the candidate date filter) and `status`.
-5. For each `source_ids` entry, upsert `entities_documents (entity_id, doc_id)` (`doc_index='news'`, `doc_date_created`=publication date, `doc_source`=host), org-agnostic, per the existing sentiment write path.
+5. For each `_sources` entry, upsert `entities_documents (entity_id, doc_id)` (`doc_index='news'`) carrying that source's OWN `doc_date_created` (its `publication_date`) and `news_type` — not the canonical earliest date — with `doc_source`=host, org-agnostic, per the existing sentiment write path. (Old records without `_sources` fall back to `source_ids` + the canonical date.)
 
-`entity_id` everywhere is `entities_alias.original_entity_id` (== `entity_id` at create), so later entity merges don't break the link. **Idempotency:** records already written under the run (`metadata->>'_link_id'`) are skipped; `KgdbWriter.reset_run()` deletes a run (child→parent order) for a clean re-write. Drop buckets: `no_supertype`, `unseeded_supertype:<name>`, `error`.
+`entity_id` everywhere is `entities_alias.original_entity_id` (== `entity_id` at create), so later entity merges don't break the link.
+
+**Idempotency.** The batch path (`write_linked`) is run-scoped: records already written under the run (`metadata->>'_link_id'` **+** `_link_run`) are skipped, and `KgdbWriter.reset_run()` deletes a run (child→parent order) for a clean re-write. The streaming path (`upsert_linked`) matches an existing canonical by `metadata->>'_link_id'` **alone** (run-tag-independent), so a new run or backfill merges into an existing canonical instead of duplicating it.
+
+**Concurrent merges are additive.** The in-place update locks the canonical row (`SELECT … FOR UPDATE`) and UNIONs the DB's `source_ids` / `_source_windows` / `_sources` accumulators with the incoming record before writing, so two workers merging different sources into the same canonical don't clobber each other's source accumulators (no last-writer-wins loss).
+
+Drop buckets: `no_supertype`, `unseeded_supertype:<name>`, `error`.
 
 ### Direct-FK exception (recap)
 

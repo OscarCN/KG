@@ -14,10 +14,14 @@ OpenRouter unreachable — sleep ``retry_delay_seconds`` and requeue, up to
 ``max_retries`` per message, then dead-letter. ``upsert_linked`` re-raises DB
 errors precisely so they requeue rather than silently drop.
 
-State caveat: the linker's ``CandidateIndex`` is in-memory, so a single
-long-lived worker holds dedup state only for its lifetime. Cross-restart /
-multi-worker correctness needs the kgdb-backed ``CandidateIndex`` — see
-``docs/todos/kgdb_event_persistence.md`` ("Streaming consumer").
+Dedup state: streaming uses the kgdb-backed ``KgdbCandidateIndex`` /
+``KgdbRecordStore`` (not the in-memory pair), so candidate lookup reads from
+kgdb and dedup holds across restarts and workers. Residual risk: the
+candidate-lookup -> adjudicate -> create decision happens in the linker
+outside any DB lock, so true multi-worker parallelism can still create
+duplicate canonicals for the same real-world event; the fix is the deferred
+in-DB reconciliation merge — see ``docs/todos/canonical_reconciliation.md``
+and ``docs/todos/kgdb_event_persistence.md``.
 
 Env:
   RabbitMQ  RABBIT_HOST/PORT/USER/PASSWORD/VIRTUALHOST/EXCHANGE/QUEUE/ROUTING_KEY,
@@ -120,9 +124,10 @@ class RabbitConfig:
 class KgPipeline:
     """Stateful per-worker pipeline: extract -> link -> persist one document.
 
-    The extractor, linker (with its in-memory CandidateIndex), and KgdbWriter
-    live for the worker's lifetime — that's what keeps dedup state across
-    messages. ``process`` raises on transient persistence failures so the caller
+    The extractor, linker (wired to the kgdb-backed ``KgdbCandidateIndex`` /
+    ``KgdbRecordStore``), and KgdbWriter live for the worker's lifetime; dedup
+    state lives in kgdb, so it holds across restarts and workers, not just this
+    process. ``process`` raises on transient persistence failures so the caller
     can requeue.
     """
 
