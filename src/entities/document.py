@@ -61,5 +61,6 @@ def record_to_article(record: Dict[str, Any]) -> Dict[str, Any]:
         "url": url,
         "categories": categories,
         "document_type": doc_type,
+        "source_type": doc_type,
         "publication_date": publication_date,
     }
