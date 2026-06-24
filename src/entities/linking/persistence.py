@@ -302,19 +302,34 @@ class KgdbWriter:
             self._write_event_properties(cur, entity_id, record)
         self._write_documents(cur, entity_id, record)
 
-    def _find_existing(self, cur, link_id: Any) -> Optional[int]:
-        cur.execute(
-            "SELECT entity_id FROM entities "
-            "WHERE metadata->>'_link_id' = %s AND metadata->>'_link_run' = %s",
-            (str(link_id), self.run_tag),
-        )
+    def _find_existing(self, cur, link_id: Any, *, run_scoped: bool) -> Optional[int]:
+        """Locate an existing canonical row by its logical ``_link_id``.
+
+        Batch (``run_scoped=True``) scopes the match to this run's ``_link_run``
+        so idempotency / ``reset_run`` stay per run_tag. Streaming
+        (``run_scoped=False``) matches by ``_link_id`` alone: a backfill/new run
+        merging into a canonical written under another run must update that one
+        row, not create a duplicate — identity for the streaming path is the
+        logical ``_link_id`` globally (as ``KgdbCandidateIndex`` retrieves it)."""
+        if run_scoped:
+            cur.execute(
+                "SELECT entity_id FROM entities "
+                "WHERE metadata->>'_link_id' = %s AND metadata->>'_link_run' = %s",
+                (str(link_id), self.run_tag),
+            )
+        else:
+            cur.execute(
+                "SELECT entity_id FROM entities "
+                "WHERE metadata->>'_link_id' = %s",
+                (str(link_id),),
+            )
         row = cur.fetchone()
         return row["entity_id"] if row else None
 
     def _persist(self, record: dict, *, upsert: bool) -> Optional[int]:
         """Core write. Raises on DB error; returns None for a permanent drop."""
         with self._conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            existing = self._find_existing(cur, record.get("id"))
+            existing = self._find_existing(cur, record.get("id"), run_scoped=not upsert)
             if existing is not None and not upsert:
                 self._conn.rollback()
                 self.skipped += 1
