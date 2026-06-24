@@ -4,6 +4,7 @@ Uses a fake psycopg2 connection/cursor — no live DB. The fake cursor records
 every execute(sql, params) call and returns canned fetchone/fetchall values
 (as dicts, matching RealDictCursor)."""
 
+import json
 from typing import Any, List, Optional, Tuple
 
 from src.entities.linking.persistence import KgdbWriter
@@ -153,3 +154,47 @@ def test_write_documents_falls_back_to_canonical_without_sources():
     assert len(inserts) == 1
     assert inserts[0][1][3] == "2026-01-01T00:00:00"
     assert inserts[0][1][5] == "ElUniversal"
+
+
+# --- Fix D: concurrent merge must union accumulators -------------------------
+
+
+def test_update_locks_and_unions_metadata():
+    # The DB currently holds a source the worker's local record doesn't know.
+    db_metadata = {
+        "source_ids": ["http://a/1"],
+        "_source_windows": [{"start": "2026-01-01", "end": "2026-01-01", "slack_days": 1}],
+        "_sources": [{"source_id": "http://a/1", "publication_date": "2026-01-01", "news_type": "A"}],
+    }
+
+    def plan(sql, params):
+        if "FOR UPDATE" in sql:
+            return {"metadata": db_metadata}
+        return None
+
+    conn = FakeConn(fetch_plan=plan)
+    w = KgdbWriter("run-x", conn=conn)
+
+    incoming = {
+        "id": "L9",
+        "source_ids": ["http://b/2"],
+        "_source_windows": [{"start": "2026-02-02", "end": "2026-02-02", "slack_days": 1}],
+        "_sources": [{"source_id": "http://b/2", "publication_date": "2026-02-02", "news_type": "B"}],
+    }
+    w._update(conn.cursor_obj, 55, incoming, kind=None)
+
+    sqls = _sql_texts(conn)
+    # (1) a locking reload was issued
+    assert any("FOR UPDATE" in s and "metadata" in s for s in sqls), sqls
+
+    # (2) the written metadata unions DB + incoming accumulators
+    update_calls = [c for c in conn.cursor_obj.calls if c[0].startswith("UPDATE entities SET metadata")]
+    assert update_calls
+    written = update_calls[0][1][0]
+    meta = written.adapted if hasattr(written, "adapted") else written
+    # tolerate sets/Json — normalize via json round trip
+    meta = json.loads(json.dumps(meta, default=str))
+    assert set(meta["source_ids"]) == {"http://a/1", "http://b/2"}
+    src_ids = {s["source_id"] for s in meta["_sources"]}
+    assert src_ids == {"http://a/1", "http://b/2"}
+    assert len(meta["_source_windows"]) == 2
