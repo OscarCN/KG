@@ -10,8 +10,8 @@ Location fields → geocoder level keys (per `levels` in geocode.py):
     country      → PAIS  (level 1)
     state        → EST   (level 2)
     city         → MUN   (level 3)
-    neighborhood → COL   (level 5)   (zone is appended here too)
-    zone         → COL   (level 5)
+    neighborhood → COL   (level 5)
+    zone         → (not geocoded — a generic directional/functional area; see _build_mentions)
     street (+ number) → CALLE (level 6)
     place_name   → LUG   (level 7)
 
@@ -96,9 +96,14 @@ def _build_mentions(loc: Dict[str, Any]) -> Dict[str, List[Tuple[str, int]]]:
     add("EST", loc.get("state") or "")
     add("MUN", loc.get("city") or "")
 
-    # Neighborhood + zone both fold into COL (level 5) — geocoder has no level-4 slot.
+    # Neighborhood (a named colonia/fraccionamiento) → COL (level 5). `zone` is
+    # deliberately NOT geocoded: per the Location schema it's a generic directional
+    # / functional area with no residential proper name ("zona norte", "corredor
+    # industrial"), so the geocoder mis-matches it to a literal colonia of that name
+    # (e.g. "sur" → colonia SUR, Sonora; "corredor industrial" → a colonia in
+    # Tamaulipas), producing cross-state precision mismatches. It stays on the
+    # extracted record, just isn't used for geocoding.
     add("COL", loc.get("neighborhood") or "")
-    add("COL", loc.get("zone") or "")
 
     street = (loc.get("street") or "").strip()
     number = (loc.get("number") or "").strip()

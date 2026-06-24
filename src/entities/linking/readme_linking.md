@@ -167,9 +167,11 @@ When no match is found, a new linked event is minted with id `{YYYYMMDD}_{state-
 | `country` | `PAIS` | 1 |
 | `state` | `EST` | 2 |
 | `city` | `MUN` | 3 |
-| `neighborhood`, `zone` | `COL` | 5 |
+| `neighborhood` | `COL` | 5 |
 | `street` (+ `number`) | `CALLE` | 6 |
 | `place_name` | `LUG` | 7 |
+
+`zone` is **not** geocoded. Per the `Location` schema it is a generic directional/functional area with no residential proper name ("zona norte", "corredor industrial"), distinct from `neighborhood` (a named colonia). Sent as `COL` it mis-matched a literal colonia of that name in another state — e.g. `zone="corredor industrial"` dragged *caseta de cobro Palmillas* to a Tamaulipas colonia (precision 5), and `zone="sur"` dragged *Riviera Maya* to colonia SUR, Sonora. Dropping it removed those cross-state mismatches (and let Palmillas resolve correctly to its level-7 caseta in Querétaro). `zone` is still kept on the extracted record, just not used for geocoding.
 
 The geocoder is deepriver's own NLP + geocoding microservice pair, reached via `NLP_URL` and `GEOCODING_URL` env vars. The wrapper picks the highest-precision match from context group `'1'` of the response and exposes `geoid`, `precision_level` (int 1–7), `formatted_name`, the full admin hierarchy as both names (`level_1`…`level_7`) and hierarchical ids (`level_1_id`…`level_7_id`), and `matched_lat`/`matched_lon`. The `level_N_id`s nest as strict prefixes (`_484` ⊂ `_48422` ⊂ `_48422016`), mirror kgdb `entity_locations.level_N_id`, and are what the geo partition keys are built from. Results are cached as JSON under `cache/geocode/<sha256>.json` keyed by the canonicalized Location dict, so re-runs avoid hitting the geocoding service — note the cache stores the normalized output, so changing which fields the wrapper retains requires clearing `cache/geocode/` to repopulate.
 
