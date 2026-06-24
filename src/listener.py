@@ -62,6 +62,7 @@ from src.entities.linking.kgdb_retrieval import (  # noqa: E402
 )
 from src.entities.linking.link import EntityLinker  # noqa: E402
 from src.entities.linking.persistence import KgdbWriter  # noqa: E402
+from src.processed_store import ProcessedStore  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -185,9 +186,11 @@ class KgPipeline:
 class DocumentListener:
     """pika BlockingConnection consumer driving ``KgPipeline`` per message."""
 
-    def __init__(self, *, rabbit_config: RabbitConfig, pipeline: KgPipeline):
+    def __init__(self, *, rabbit_config: RabbitConfig, pipeline: KgPipeline,
+                 processed: Optional[ProcessedStore] = None):
         self.cfg = rabbit_config
         self.pipeline = pipeline
+        self.processed = processed  # document-level dedup guard (None = disabled)
         self.channel = None
         self._retry_counts: dict[str, int] = {}
 
@@ -233,12 +236,22 @@ class DocumentListener:
     def process_document(self, channel, method, properties, body, args) -> None:
         del properties, args
         identity = str(method.delivery_tag)
+        doc_id = ""
         try:
             message = json.loads(body)
             trace_id = message.get("trace_id") if isinstance(message, dict) else None
             if isinstance(message, dict):
-                identity = str(message.get("_id") or message.get("url") or method.delivery_tag)
+                doc_id = str(message.get("_id") or message.get("url") or "")
+                identity = doc_id or str(method.delivery_tag)
+            # Document-level idempotency: skip docs already fully processed.
+            if doc_id and self.processed is not None and self.processed.seen(doc_id):
+                logger.info("skip already-processed doc=%s", doc_id)
+                self._ack_or_nack(channel, method.delivery_tag, ack=True, requeue=False)
+                return
             self.pipeline.process(message, trace_id=trace_id)
+            # Mark processed only after success (failures requeue and retry).
+            if doc_id and self.processed is not None:
+                self.processed.mark(doc_id)
         except (json.JSONDecodeError, ValueError):
             logger.exception("malformed message; dead-lettering tag=%s", method.delivery_tag)
             self._ack_or_nack(channel, method.delivery_tag, ack=False, requeue=False)
@@ -325,7 +338,11 @@ def main() -> int:
         geocode=not args.no_geocode,
         run_tag=os.environ.get("KG_RUN_TAG", "stream"),
     )
-    listener = DocumentListener(rabbit_config=RabbitConfig.from_env(), pipeline=pipeline)
+    listener = DocumentListener(
+        rabbit_config=RabbitConfig.from_env(),
+        pipeline=pipeline,
+        processed=ProcessedStore.from_env(),
+    )
     listener.start_listening()
     return 0
 

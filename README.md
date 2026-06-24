@@ -32,6 +32,7 @@ Deciding the correct entity from a set of candidates using features derived from
 ```
 src/
   listener.py       # Streaming RabbitMQ consumer: documents → extract → link → persist (kgdb)
+  processed_store.py # Redis doc-level idempotency guard (skip already-processed doc ids; 2-week TTL)
   schema/           # Schema system for data normalization
     schemas/        # Pipeline schema definitions (JSON + Python)
     types/          # Type parsers, composite types, registry

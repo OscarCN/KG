@@ -183,7 +183,11 @@ pieces (no reimplementation):
 ### Per-message callback (= the `run_entities.py` loop)
 
 Parse JSON body → document record; pull `trace_id` from the **message top level** (dev
-convention — never inside the payload). Then `_record_to_article` → `match` (empty ⇒ ack,
+convention — never inside the payload). **Document-level dedup first:** if the doc id
+(`_id`/`url`) is already in the Redis `ProcessedStore` (`src/processed_store.py`, 2-week TTL),
+**ack and skip** before any extraction; mark it processed only after a successful run. This is
+the cheap idempotency layer (skips redelivered/re-enqueued docs entirely) on top of the linker's
+kgdb dedup and the writer's `_link_id` upsert. Then `_record_to_article` → `match` (empty ⇒ ack,
 nothing to do) → `extract` → per extracted `raw`: `link_one`, routed by `LinkResult.status`:
 
 - `created` / `merged` → `writer.write_linked(result.record)`.

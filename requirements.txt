@@ -12,6 +12,7 @@ python-dotenv==1.0.0
 tldextract==5.3.0
 psycopg2-binary==2.9.11     # kgdb persistence (KgdbWriter)
 pika==1.3.2                 # RabbitMQ streaming listener (src/listener.py)
+redis==5.0.1                # document-level dedup guard (src/processed_store.py)
 
 # Shared libs (live outside this repo; add to PYTHONPATH via each service's
 # setup_local.sh, not pip): elastic_client, schema_tools, es, utils, tools.
@@ -27,4 +28,3 @@ pika==1.3.2                 # RabbitMQ streaming listener (src/listener.py)
 # pymongo==4.6.1
 # elasticsearch==7.17.7
 # elasticsearch-dsl
-# redis==5.0.1
