@@ -304,11 +304,62 @@ class KgdbWriter:
         self._write_documents(cur, entity_id, record)
         return entity_id
 
+    @staticmethod
+    def _union_accumulators(metadata: dict, current: Optional[dict]) -> dict:
+        """Fold the source-level accumulators from the DB's current metadata into
+        ``metadata`` so a concurrent merge is additive (not last-writer-wins).
+
+        Unions ``source_ids`` and ``_sources`` (de-duped by source id) and
+        concatenates ``_source_windows``. Mutates and returns ``metadata``."""
+        if not current:
+            return metadata
+
+        # source_ids — de-dupe preserving order (DB first, then incoming).
+        merged_ids: list = []
+        for sid in (current.get("source_ids") or []) + (metadata.get("source_ids") or []):
+            if sid not in merged_ids:
+                merged_ids.append(sid)
+        if merged_ids:
+            metadata["source_ids"] = merged_ids
+
+        # _sources — de-dupe by source_id (DB first, then incoming).
+        merged_sources: list = []
+        seen: set = set()
+        for s in (current.get("_sources") or []) + (metadata.get("_sources") or []):
+            key = s.get("source_id") if isinstance(s, dict) else s
+            if key in seen:
+                continue
+            seen.add(key)
+            merged_sources.append(s)
+        if merged_sources:
+            metadata["_sources"] = merged_sources
+
+        # _source_windows — concatenate (DB first, then incoming).
+        merged_windows = (current.get("_source_windows") or []) + (
+            metadata.get("_source_windows") or []
+        )
+        if merged_windows:
+            metadata["_source_windows"] = merged_windows
+        return metadata
+
     def _update(self, cur, entity_id: int, record: dict, kind: Optional[str]) -> None:
-        """Refresh a canonical row after the linker merged a new source into it."""
+        """Refresh a canonical row after the linker merged a new source into it.
+
+        Locks and reloads the current row (``SELECT ... FOR UPDATE``) and unions
+        the source-level accumulators (``source_ids`` / ``_source_windows`` /
+        ``_sources``) from the DB into the metadata being written, so two workers
+        merging different sources into the same canonical concurrently both keep
+        their sources instead of the later commit clobbering the earlier."""
+        cur.execute(
+            "SELECT metadata FROM entities WHERE entity_id = %s FOR UPDATE",
+            (entity_id,),
+        )
+        row = cur.fetchone()
+        current = row["metadata"] if row else None
+        metadata = self._union_accumulators(self._metadata(record), current)
         cur.execute(
             "UPDATE entities SET metadata = %s, modified = now() WHERE entity_id = %s",
-            (_json(self._metadata(record)), entity_id),
+            (_json(metadata), entity_id),
         )
         geo = record.get("_geo")
         if geo:  # location may have been promoted by precision on merge
