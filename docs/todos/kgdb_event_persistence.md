@@ -197,7 +197,11 @@ to `max_retries`, then `nack(requeue=False)` → DLX; validation/poison ⇒ imme
 `nack(requeue=False)`. Honors the global rule: a depended-on service being unreachable is
 **surfaced and requeued (bounded)**, never silently dropped.
 
-### Hard prerequisite — kgdb-backed `CandidateIndex`
+### Hard prerequisite — kgdb-backed `CandidateIndex` (DONE)
+
+> **Implemented** — see [`kgdb_candidate_index.md`](kgdb_candidate_index.md) (the full backend
+> contract — CandidateIndex + record store — and the column-reconstruction retrieval design).
+> The listener now dedups against kgdb across processes; validated cross-process on dev.
 
 `link_one` resolves candidates against the in-memory `CandidateIndex` (`linker.events` /
 `linker.index`), which `readme_linking.md` marks "in-memory today, **kgdb-backed later**". A
@@ -234,8 +238,10 @@ streaming writes never touch the current/real kgdb. This generalizes the existin
 
 ## Deferred (subsequent steps)
 
-- **Streaming consumer** — designed in [Streaming consumer (RabbitMQ listener)](#streaming-consumer-rabbitmq-listener)
-  above; remaining build items: the kgdb-backed `CandidateIndex` and the local dev kgdb.
+- **Streaming consumer** — **implemented** (`src/listener.py`) and validated; the kgdb-backed
+  `CandidateIndex` + record store ([`kgdb_candidate_index.md`](kgdb_candidate_index.md)) and the
+  local dev kgdb are both done. Remaining: live broker round-trip at scale + the multi-worker race
+  backstop (in-DB merge below).
 - **In-DB merge** — alias `current_entity_id` repoint + direct-FK fixup on
   `entity_locations`/`event_properties` ([`canonical_reconciliation.md`](canonical_reconciliation.md)).
 - **Themes** — add `theme` to `entity_kinds_available` + degenerate single-entity write path.

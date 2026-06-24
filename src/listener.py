@@ -56,6 +56,10 @@ import pika  # noqa: E402
 
 from src.entities.document import record_to_article  # noqa: E402
 from src.entities.extraction.extract import EntityExtractor, Ontology  # noqa: E402
+from src.entities.linking.kgdb_retrieval import (  # noqa: E402
+    KgdbCandidateIndex,
+    KgdbRecordStore,
+)
 from src.entities.linking.link import EntityLinker  # noqa: E402
 from src.entities.linking.persistence import KgdbWriter  # noqa: E402
 
@@ -124,8 +128,17 @@ class KgPipeline:
     def __init__(self, *, geocode: bool = True, run_tag: str = "stream",
                  writer: Optional[KgdbWriter] = None):
         self.extractor = EntityExtractor(ontology=Ontology())
-        self.linker = EntityLinker(geocode=geocode)
         self.writer = writer or KgdbWriter(run_tag=run_tag)
+        # Candidate lookup + record resolution read from kgdb (durable dedup
+        # across restarts / workers), on a SEPARATE autocommit connection so
+        # reads see every committed upsert and never sit in the writer's tx.
+        self._read_conn = KgdbWriter._connect()
+        self._read_conn.autocommit = True
+        self.linker = EntityLinker(
+            geocode=geocode,
+            index=KgdbCandidateIndex(self._read_conn),
+            record_store=KgdbRecordStore(self._read_conn),
+        )
         self.documents = 0
 
     def process(self, message: dict, trace_id: Optional[str] = None) -> dict:
@@ -164,6 +177,9 @@ class KgPipeline:
 
     def close(self) -> None:
         self.writer.close()
+        if self._read_conn is not None:
+            self._read_conn.close()
+            self._read_conn = None
 
 
 class DocumentListener:

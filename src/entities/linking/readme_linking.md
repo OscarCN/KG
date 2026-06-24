@@ -12,7 +12,8 @@ linking/
   geo_util.py             # Coords-only helpers: haversine (meters), grid_cell/grid_neighbors (~330m retrieval buckets)
   text_util.py            # name_similarity (character-trigram Jaccard, accent-insensitive) — name strings only
   link_llm.py             # LLM disambiguator (gemini-2.5-flash-lite) with file cache
-  index.py                # CandidateIndex protocol + in-memory implementation (dumb key→ids store)
+  index.py                # CandidateIndex + RecordStore protocols + in-memory implementations
+  kgdb_retrieval.py       # kgdb-backed CandidateIndex (SQL column-reconstruction) + RecordStore (reads entities.metadata)
   mx_states.py            # Static catalogue of the 32 Mexican states (partition-key normalization + fallback)
   strategy.py             # GeoEventStrategy: enrich → window/keys → deterministic gate / adjudicate → merge/create
   link.py                 # EntityLinker: envelope parse + strategy orchestration + case log. link_one(raw) → LinkResult.

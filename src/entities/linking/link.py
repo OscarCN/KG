@@ -29,7 +29,12 @@ from typing import Any, Dict, Iterable, List, Literal, Optional
 from src.schema.parse_object import Parser
 from src.schema.schemas.read_schema import load_schema
 
-from .index import CandidateIndex, InMemoryCandidateIndex
+from .index import (
+    CandidateIndex,
+    InMemoryCandidateIndex,
+    InMemoryRecordStore,
+    RecordStore,
+)
 from .strategy import build_strategies
 
 
@@ -100,12 +105,16 @@ class EntityLinker:
         geocode: bool = True,
         strategy_params: Optional[Dict[str, Any]] = None,
         index: Optional[CandidateIndex] = None,
+        record_store: Optional[RecordStore] = None,
         case_log_path: Optional[Path] = None,
     ):
         self.geocode = geocode
 
-        # Linked events, keyed by minted id.
-        self.events: Dict[str, Dict[str, Any]] = {}
+        # id -> linked record. In-memory dict by default; a kgdb-backed store
+        # (reading entities.metadata) for streaming. See index.py / kgdb_retrieval.py.
+        self.events: RecordStore = (
+            record_store if record_store is not None else InMemoryRecordStore()
+        )
 
         # Candidate retrieval backend (key construction is the strategy's job).
         self.index: CandidateIndex = index if index is not None else InMemoryCandidateIndex()
@@ -188,7 +197,7 @@ class EntityLinker:
             self.dropped[drop_reason] += 1
             return LinkResult(status="dropped", reason=drop_reason)
 
-        candidate_ids = self.index.lookup(strategy.lookup_keys(prep))
+        candidate_ids = self.index.lookup_candidates(strategy, prep)
         match_id, path, candidate_debug, llm_call = strategy.adjudicate(
             prep, candidate_ids, self.events
         )

@@ -100,6 +100,29 @@ class PreparedEvent:
     partition: str = ""  # type dimension of the candidate partition (supertype or event_type)
 
 
+@dataclass
+class RetrievalCriteria:
+    """Structured retrieval criteria — the column-reconstruction projection of
+    `lookup_keys`, consumed by a kgdb-backed `CandidateIndex` to build SQL.
+
+    Mirrors the in-memory probe keys: same type partition, geo overlap (shared
+    fine `level_N_id`, the 3×3 grid block, or the coarse-state/noloc bridge),
+    and date-window overlap. The hard geo gate / deterministic gate / LLM still
+    run downstream on the resolved records, so this only needs to reproduce the
+    *retrieval* set (recall), not the final precision decision.
+    """
+
+    partition_field: str            # 'metadata' json key matched against partition_value
+    partition_value: str            # supertype (default) or event_type
+    level_ids: Dict[int, str]       # incoming fine ids: {n: level_N_id} for n in partition_levels
+    grid_bbox: Optional[Tuple[float, float, float, float]]  # (lat_lo, lat_hi, lon_lo, lon_hi) or None
+    located: bool                   # incoming has fine ids or coordinates
+    level_2_id: Optional[str]       # incoming state id (for the coarse-state bridge)
+    probe_noloc: bool               # also retrieve coarse/noloc candidates (the bridge)
+    win_start: Optional[datetime]   # slack-widened lookup window
+    win_end: Optional[datetime]
+
+
 # ---------------------------------------------------------------------------
 # Payload builder for the LLM disambiguator
 # (moved verbatim from link.py — the sha256 cache keys depend on this shape)
@@ -418,6 +441,48 @@ class GeoEventStrategy:
         )
         geo_keys = self._lookup_geo_keys(prep.record)
         return [(prep.partition, gk, dk) for gk in geo_keys for dk in day_keys]
+
+    def retrieval_criteria(self, prep: PreparedEvent) -> RetrievalCriteria:
+        """Column-reconstruction projection of `lookup_keys` for a kgdb index.
+
+        Same dimensions as the opaque keys — type partition, geo overlap (fine
+        `level_N_id` / 3×3 grid block / coarse-state bridge), date window — but
+        as structured values a SQL query can use directly.
+        """
+        geo = prep.record.get("_geo") or {}
+        level_ids = {
+            n: lid
+            for n in self.partition_levels
+            if (lid := (geo.get(f"level_{n}_id") or "").strip())
+        }
+        cell = grid_cell(geo.get("matched_lat"), geo.get("matched_lon"), self.grid_size_deg)
+        grid_bbox = None
+        if cell is not None:
+            g = self.grid_size_deg
+            r, c = cell
+            grid_bbox = ((r - 1) * g, (r + 2) * g, (c - 1) * g, (c + 2) * g)
+        located = bool(level_ids) or grid_bbox is not None
+
+        win = prep.window
+        ws, we = win.start or win.end, win.end or win.start
+        win_start = win_end = None
+        if ws and we:
+            lo, hi = (ws, we) if ws <= we else (we, ws)
+            win_start = lo - timedelta(days=win.slack_days)
+            win_end = hi + timedelta(days=win.slack_days)
+
+        partition_field = "_supertype" if self.partition_on == "supertype" else "event_type"
+        return RetrievalCriteria(
+            partition_field=partition_field,
+            partition_value=prep.partition,
+            level_ids=level_ids,
+            grid_bbox=grid_bbox,
+            located=located,
+            level_2_id=(geo.get("level_2_id") or "").strip() or None,
+            probe_noloc=self.probe_noloc_bucket,
+            win_start=win_start,
+            win_end=win_end,
+        )
 
     def _register(
         self,

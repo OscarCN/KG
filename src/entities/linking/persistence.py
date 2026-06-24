@@ -231,6 +231,8 @@ class KgdbWriter:
 
     def _write_event_properties(self, cur, entity_id: int, record: dict) -> None:
         start, end = self._confidence_window(record)
+        if start and end and start > end:  # guard inverted windows (bad extracted range)
+            start, end = end, start
         cur.execute(
             "INSERT INTO event_properties (event_id, date_start, date_end, status) "
             "VALUES (%s, %s, %s, %s) "
