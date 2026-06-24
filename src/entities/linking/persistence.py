@@ -244,9 +244,25 @@ class KgdbWriter:
 
     @staticmethod
     def _write_documents(cur, entity_id: int, record: dict) -> None:
-        pub = record.get("publication_date")
-        news_type = record.get("news_type")
-        for source_id in record.get("source_ids") or []:
+        """One entities_documents row per source. With a per-source ``_sources``
+        ledger each source records its OWN publication date and news_type;
+        absent it (old records), fall back to ``source_ids`` + the canonical
+        publication_date/news_type."""
+        sources = record.get("_sources")
+        if sources:
+            rows = [
+                (s.get("source_id"), s.get("publication_date"), s.get("news_type"))
+                for s in sources
+                if s.get("source_id")
+            ]
+        else:
+            pub = record.get("publication_date")
+            news_type = record.get("news_type")
+            rows = [
+                (source_id, pub, news_type)
+                for source_id in record.get("source_ids") or []
+            ]
+        for source_id, pub, news_type in rows:
             host = urlparse(source_id).netloc or None
             cur.execute(
                 "INSERT INTO entities_documents "

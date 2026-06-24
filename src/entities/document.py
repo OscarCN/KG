@@ -21,6 +21,7 @@ def record_to_article(record: Dict[str, Any]) -> Dict[str, Any]:
         url = msg.get("url") or record.get("_id") or ""
         doc_type = (record.get("type") or msg.get("type") or "").lower()
         publication_date = msg.get("timestamp") or msg.get("created_time")
+        news_type = msg.get("news_type")
 
         categories: list[str] = []
         cat = msg.get("source_category")
@@ -43,6 +44,7 @@ def record_to_article(record: Dict[str, Any]) -> Dict[str, Any]:
             or record.get("date")
             or record.get("published_at")
         )
+        news_type = record.get("news_type")
 
         categories = []
         custom = record.get("custom_categories") or {}
@@ -63,4 +65,5 @@ def record_to_article(record: Dict[str, Any]) -> Dict[str, Any]:
         "document_type": doc_type,
         "source_type": doc_type,
         "publication_date": publication_date,
+        "news_type": news_type,
     }
