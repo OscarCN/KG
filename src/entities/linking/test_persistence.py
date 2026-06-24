@@ -105,3 +105,51 @@ def test_persist_batch_path_check_is_run_scoped():
     sel = conn.cursor_obj.calls[0][0]
     assert "_link_id" in sel
     assert "_link_run" in sel
+
+
+# --- Fix C: per-source doc_date_created + news_type --------------------------
+
+
+def test_write_documents_uses_per_source_date_and_news_type():
+    cur = FakeCursor()
+    record = {
+        "publication_date": "2026-01-01T00:00:00",  # canonical/earliest — must NOT be used
+        "news_type": None,
+        "source_ids": ["http://a/1", "http://b/2"],
+        "_sources": [
+            {
+                "source_id": "http://a/1",
+                "publication_date": "2026-01-05T00:00:00",
+                "news_type": "ElUniversal",
+            },
+            {
+                "source_id": "http://b/2",
+                "publication_date": "2026-03-09T00:00:00",
+                "news_type": "Milenio",
+            },
+        ],
+    }
+    KgdbWriter._write_documents(cur, 42, record)
+
+    inserts = [c for c in cur.calls if "INSERT INTO entities_documents" in c[0]]
+    assert len(inserts) == 2
+    # params order: (entity_id, source_id, "news", date_created, host, news_type)
+    by_doc = {c[1][1]: c[1] for c in inserts}
+    assert by_doc["http://a/1"][3] == "2026-01-05T00:00:00"
+    assert by_doc["http://a/1"][5] == "ElUniversal"
+    assert by_doc["http://b/2"][3] == "2026-03-09T00:00:00"
+    assert by_doc["http://b/2"][5] == "Milenio"
+
+
+def test_write_documents_falls_back_to_canonical_without_sources():
+    cur = FakeCursor()
+    record = {
+        "publication_date": "2026-01-01T00:00:00",
+        "news_type": "ElUniversal",
+        "source_ids": ["http://a/1"],
+    }
+    KgdbWriter._write_documents(cur, 7, record)
+    inserts = [c for c in cur.calls if "INSERT INTO entities_documents" in c[0]]
+    assert len(inserts) == 1
+    assert inserts[0][1][3] == "2026-01-01T00:00:00"
+    assert inserts[0][1][5] == "ElUniversal"
