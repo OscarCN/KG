@@ -243,16 +243,22 @@ class DocumentListener:
             if isinstance(message, dict):
                 doc_id = str(message.get("_id") or message.get("url") or "")
                 identity = doc_id or str(method.delivery_tag)
-            # Document-level idempotency: skip docs already fully processed.
-            if doc_id and self.processed is not None and self.processed.seen(doc_id):
-                logger.info("skip already-processed doc=%s", doc_id)
-                self._ack_or_nack(channel, method.delivery_tag, ack=True, requeue=False)
-                return
+            # Document-level idempotency: atomically claim the doc before doing
+            # any work. claim() fails if the doc is already PROCESSED or another
+            # worker holds an in-flight PROCESSING claim, so duplicate deliveries
+            # can't both be processed.
+            if doc_id and self.processed is not None:
+                if not self.processed.claim(doc_id):
+                    logger.info("skip already-processed-or-in-flight doc=%s", doc_id)
+                    self._ack_or_nack(channel, method.delivery_tag, ack=True, requeue=False)
+                    return
             self.pipeline.process(message, trace_id=trace_id)
-            # Mark processed only after success (failures requeue and retry).
+            # Promote the claim to a PROCESSED marker only after success.
             if doc_id and self.processed is not None:
                 self.processed.mark(doc_id)
         except (json.JSONDecodeError, ValueError):
+            # Malformed: dead-letter. No claim is held (claim happens after parse
+            # for a valid dict), so nothing to release.
             logger.exception("malformed message; dead-lettering tag=%s", method.delivery_tag)
             self._ack_or_nack(channel, method.delivery_tag, ack=False, requeue=False)
             return
@@ -265,8 +271,13 @@ class DocumentListener:
                     attempts, method.delivery_tag, body,
                 )
                 self._retry_counts.pop(identity, None)
+                # Dead-letter: leave the in-flight claim to expire via its TTL so
+                # the doc is not silently re-claimed/reprocessed during the window.
                 self._ack_or_nack(channel, method.delivery_tag, ack=False, requeue=False)
                 return
+            # Retryable: release the claim so the requeued delivery can re-claim.
+            if doc_id and self.processed is not None:
+                self.processed.release(doc_id)
             logger.exception("retryable failure (attempt %d); requeueing after delay", attempts)
             time.sleep(self.cfg.retry_delay_seconds)
             self._ack_or_nack(channel, method.delivery_tag, ack=False, requeue=True)
