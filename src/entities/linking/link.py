@@ -270,19 +270,21 @@ class EntityLinker:
     def _normalize_envelope(self, raw: Dict[str, Any], supertype: str) -> Dict[str, Any]:
         """Schema-parse the payload, then re-attach the provenance fields.
 
-        The envelope fields (`_source_id`, `_supertype`, `date_created`) ride
-        on extracted records but are not part of the supertype schema, so
-        they're stripped before parsing and merged back after.
+        The envelope fields (`_source_id`, `_supertype`, `date_created`,
+        `news_type`) ride on extracted records but are not part of the
+        supertype schema, so they're stripped before parsing and merged back
+        after — otherwise the schema Parser drops them as unknown fields.
         """
         meta = {
             "_source_id": raw.get("_source_id"),
             "_supertype": supertype,
             "date_created": raw.get("date_created"),
+            "news_type": raw.get("news_type"),
         }
         clean = {
             k: v
             for k, v in raw.items()
-            if k not in ("_source_id", "_supertype", "date_created")
+            if k not in ("_source_id", "_supertype", "date_created", "news_type")
         }
         record = self._parse_with_schema(clean, supertype)
         record.update({k: v for k, v in meta.items() if v is not None})
