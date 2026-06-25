@@ -14,10 +14,14 @@ OpenRouter unreachable — sleep ``retry_delay_seconds`` and requeue, up to
 ``max_retries`` per message, then dead-letter. ``upsert_linked`` re-raises DB
 errors precisely so they requeue rather than silently drop.
 
-State caveat: the linker's ``CandidateIndex`` is in-memory, so a single
-long-lived worker holds dedup state only for its lifetime. Cross-restart /
-multi-worker correctness needs the kgdb-backed ``CandidateIndex`` — see
-``docs/todos/kgdb_event_persistence.md`` ("Streaming consumer").
+Dedup state: streaming uses the kgdb-backed ``KgdbCandidateIndex`` /
+``KgdbRecordStore`` (not the in-memory pair), so candidate lookup reads from
+kgdb and dedup holds across restarts and workers. Residual risk: the
+candidate-lookup -> adjudicate -> create decision happens in the linker
+outside any DB lock, so true multi-worker parallelism can still create
+duplicate canonicals for the same real-world event; the fix is the deferred
+in-DB reconciliation merge — see ``docs/todos/canonical_reconciliation.md``
+and ``docs/todos/kgdb_event_persistence.md``.
 
 Env:
   RabbitMQ  RABBIT_HOST/PORT/USER/PASSWORD/VIRTUALHOST/EXCHANGE/QUEUE/ROUTING_KEY,
@@ -120,9 +124,10 @@ class RabbitConfig:
 class KgPipeline:
     """Stateful per-worker pipeline: extract -> link -> persist one document.
 
-    The extractor, linker (with its in-memory CandidateIndex), and KgdbWriter
-    live for the worker's lifetime — that's what keeps dedup state across
-    messages. ``process`` raises on transient persistence failures so the caller
+    The extractor, linker (wired to the kgdb-backed ``KgdbCandidateIndex`` /
+    ``KgdbRecordStore``), and KgdbWriter live for the worker's lifetime; dedup
+    state lives in kgdb, so it holds across restarts and workers, not just this
+    process. ``process`` raises on transient persistence failures so the caller
     can requeue.
     """
 
@@ -243,16 +248,22 @@ class DocumentListener:
             if isinstance(message, dict):
                 doc_id = str(message.get("_id") or message.get("url") or "")
                 identity = doc_id or str(method.delivery_tag)
-            # Document-level idempotency: skip docs already fully processed.
-            if doc_id and self.processed is not None and self.processed.seen(doc_id):
-                logger.info("skip already-processed doc=%s", doc_id)
-                self._ack_or_nack(channel, method.delivery_tag, ack=True, requeue=False)
-                return
+            # Document-level idempotency: atomically claim the doc before doing
+            # any work. claim() fails if the doc is already PROCESSED or another
+            # worker holds an in-flight PROCESSING claim, so duplicate deliveries
+            # can't both be processed.
+            if doc_id and self.processed is not None:
+                if not self.processed.claim(doc_id):
+                    logger.info("skip already-processed-or-in-flight doc=%s", doc_id)
+                    self._ack_or_nack(channel, method.delivery_tag, ack=True, requeue=False)
+                    return
             self.pipeline.process(message, trace_id=trace_id)
-            # Mark processed only after success (failures requeue and retry).
+            # Promote the claim to a PROCESSED marker only after success.
             if doc_id and self.processed is not None:
                 self.processed.mark(doc_id)
         except (json.JSONDecodeError, ValueError):
+            # Malformed: dead-letter. No claim is held (claim happens after parse
+            # for a valid dict), so nothing to release.
             logger.exception("malformed message; dead-lettering tag=%s", method.delivery_tag)
             self._ack_or_nack(channel, method.delivery_tag, ack=False, requeue=False)
             return
@@ -265,8 +276,13 @@ class DocumentListener:
                     attempts, method.delivery_tag, body,
                 )
                 self._retry_counts.pop(identity, None)
+                # Dead-letter: leave the in-flight claim to expire via its TTL so
+                # the doc is not silently re-claimed/reprocessed during the window.
                 self._ack_or_nack(channel, method.delivery_tag, ack=False, requeue=False)
                 return
+            # Retryable: release the claim so the requeued delivery can re-claim.
+            if doc_id and self.processed is not None:
+                self.processed.release(doc_id)
             logger.exception("retryable failure (attempt %d); requeueing after delay", attempts)
             time.sleep(self.cfg.retry_delay_seconds)
             self._ack_or_nack(channel, method.delivery_tag, ack=False, requeue=True)

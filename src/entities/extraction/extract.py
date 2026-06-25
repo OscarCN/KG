@@ -1167,11 +1167,15 @@ class EntityExtractor:
 
             all_entities.extend(entities)
 
-        # Backfill `date_created` on every entity, including those that came
-        # from older caches that predated this provenance field.
-        if publication_date:
+        # Backfill `date_created` and `news_type` on every entity, including
+        # those that came from older caches that predated these provenance
+        # fields. Post-validation so it survives schema normalization.
+        news_type = article.get("news_type")
+        if publication_date or news_type:
             for entity in all_entities:
-                if not entity.get("date_created"):
+                if publication_date and not entity.get("date_created"):
                     entity["date_created"] = publication_date
+                if news_type and not entity.get("news_type"):
+                    entity["news_type"] = news_type
 
         return all_entities

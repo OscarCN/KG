@@ -244,9 +244,25 @@ class KgdbWriter:
 
     @staticmethod
     def _write_documents(cur, entity_id: int, record: dict) -> None:
-        pub = record.get("publication_date")
-        news_type = record.get("news_type")
-        for source_id in record.get("source_ids") or []:
+        """One entities_documents row per source. With a per-source ``_sources``
+        ledger each source records its OWN publication date and news_type;
+        absent it (old records), fall back to ``source_ids`` + the canonical
+        publication_date/news_type."""
+        sources = record.get("_sources")
+        if sources:
+            rows = [
+                (s.get("source_id"), s.get("publication_date"), s.get("news_type"))
+                for s in sources
+                if s.get("source_id")
+            ]
+        else:
+            pub = record.get("publication_date")
+            news_type = record.get("news_type")
+            rows = [
+                (source_id, pub, news_type)
+                for source_id in record.get("source_ids") or []
+            ]
+        for source_id, pub, news_type in rows:
             host = urlparse(source_id).netloc or None
             cur.execute(
                 "INSERT INTO entities_documents "
@@ -288,11 +304,62 @@ class KgdbWriter:
         self._write_documents(cur, entity_id, record)
         return entity_id
 
+    @staticmethod
+    def _union_accumulators(metadata: dict, current: Optional[dict]) -> dict:
+        """Fold the source-level accumulators from the DB's current metadata into
+        ``metadata`` so a concurrent merge is additive (not last-writer-wins).
+
+        Unions ``source_ids`` and ``_sources`` (de-duped by source id) and
+        concatenates ``_source_windows``. Mutates and returns ``metadata``."""
+        if not current:
+            return metadata
+
+        # source_ids — de-dupe preserving order (DB first, then incoming).
+        merged_ids: list = []
+        for sid in (current.get("source_ids") or []) + (metadata.get("source_ids") or []):
+            if sid not in merged_ids:
+                merged_ids.append(sid)
+        if merged_ids:
+            metadata["source_ids"] = merged_ids
+
+        # _sources — de-dupe by source_id (DB first, then incoming).
+        merged_sources: list = []
+        seen: set = set()
+        for s in (current.get("_sources") or []) + (metadata.get("_sources") or []):
+            key = s.get("source_id") if isinstance(s, dict) else s
+            if key in seen:
+                continue
+            seen.add(key)
+            merged_sources.append(s)
+        if merged_sources:
+            metadata["_sources"] = merged_sources
+
+        # _source_windows — concatenate (DB first, then incoming).
+        merged_windows = (current.get("_source_windows") or []) + (
+            metadata.get("_source_windows") or []
+        )
+        if merged_windows:
+            metadata["_source_windows"] = merged_windows
+        return metadata
+
     def _update(self, cur, entity_id: int, record: dict, kind: Optional[str]) -> None:
-        """Refresh a canonical row after the linker merged a new source into it."""
+        """Refresh a canonical row after the linker merged a new source into it.
+
+        Locks and reloads the current row (``SELECT ... FOR UPDATE``) and unions
+        the source-level accumulators (``source_ids`` / ``_source_windows`` /
+        ``_sources``) from the DB into the metadata being written, so two workers
+        merging different sources into the same canonical concurrently both keep
+        their sources instead of the later commit clobbering the earlier."""
+        cur.execute(
+            "SELECT metadata FROM entities WHERE entity_id = %s FOR UPDATE",
+            (entity_id,),
+        )
+        row = cur.fetchone()
+        current = row["metadata"] if row else None
+        metadata = self._union_accumulators(self._metadata(record), current)
         cur.execute(
             "UPDATE entities SET metadata = %s, modified = now() WHERE entity_id = %s",
-            (_json(self._metadata(record)), entity_id),
+            (_json(metadata), entity_id),
         )
         geo = record.get("_geo")
         if geo:  # location may have been promoted by precision on merge
@@ -302,19 +369,34 @@ class KgdbWriter:
             self._write_event_properties(cur, entity_id, record)
         self._write_documents(cur, entity_id, record)
 
-    def _find_existing(self, cur, link_id: Any) -> Optional[int]:
-        cur.execute(
-            "SELECT entity_id FROM entities "
-            "WHERE metadata->>'_link_id' = %s AND metadata->>'_link_run' = %s",
-            (str(link_id), self.run_tag),
-        )
+    def _find_existing(self, cur, link_id: Any, *, run_scoped: bool) -> Optional[int]:
+        """Locate an existing canonical row by its logical ``_link_id``.
+
+        Batch (``run_scoped=True``) scopes the match to this run's ``_link_run``
+        so idempotency / ``reset_run`` stay per run_tag. Streaming
+        (``run_scoped=False``) matches by ``_link_id`` alone: a backfill/new run
+        merging into a canonical written under another run must update that one
+        row, not create a duplicate — identity for the streaming path is the
+        logical ``_link_id`` globally (as ``KgdbCandidateIndex`` retrieves it)."""
+        if run_scoped:
+            cur.execute(
+                "SELECT entity_id FROM entities "
+                "WHERE metadata->>'_link_id' = %s AND metadata->>'_link_run' = %s",
+                (str(link_id), self.run_tag),
+            )
+        else:
+            cur.execute(
+                "SELECT entity_id FROM entities "
+                "WHERE metadata->>'_link_id' = %s",
+                (str(link_id),),
+            )
         row = cur.fetchone()
         return row["entity_id"] if row else None
 
     def _persist(self, record: dict, *, upsert: bool) -> Optional[int]:
         """Core write. Raises on DB error; returns None for a permanent drop."""
         with self._conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            existing = self._find_existing(cur, record.get("id"))
+            existing = self._find_existing(cur, record.get("id"), run_scoped=not upsert)
             if existing is not None and not upsert:
                 self._conn.rollback()
                 self.skipped += 1

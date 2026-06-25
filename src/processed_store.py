@@ -1,15 +1,26 @@
-"""Redis-backed set of processed document ids — a document-level idempotency guard.
+"""Redis-backed document-level idempotency guard with atomic in-flight claims.
 
-The listener marks a document id as processed (with a TTL) once it has been fully
-extracted/linked/persisted and acked, and skips any document already marked. This
-avoids re-extracting a redelivered or re-enqueued document — cheaper than relying
-on the linker's kgdb dedup, and it sidesteps the noloc re-link duplicate edge case.
+Two key namespaces give a single document a small state machine so that two
+duplicate deliveries (multi-worker) cannot both be processed:
 
-Per-document keys with `EX` (not a single hash): each id gets its own TTL, which a
-Redis hash can't do on 5.x (`HEXPIRE` is 7.4+).
+- `kg:processing:<doc_id>` — short-TTL in-flight claim. `claim()` does
+  `SET NX EX`, so exactly one worker wins; everyone else (and anyone seeing a
+  doc already PROCESSED) is rejected. The TTL bounds how long a crashed worker
+  holds the claim before another delivery can re-claim.
+- `kg:processed:<doc_id>` — long-TTL terminal marker set by `mark()` once the
+  document is fully extracted/linked/persisted and acked.
+
+Flow in the listener: `claim()` → process → `mark()` (success, which also clears
+the processing claim) or `release()` (retryable failure, so the requeued
+delivery can re-claim). A doc that is already PROCESSED, or currently claimed as
+PROCESSING by another worker, is not claimable.
+
+Per-document keys with `EX` (not a single hash): each id gets its own TTL, which
+a Redis hash can't do on 5.x (`HEXPIRE` is 7.4+).
 
 Env: REDIS_HOST, REDIS_PORT (default 6379), REDIS_PASSWORD,
-     KG_PROCESSED_TTL_SECONDS (default 2 weeks).
+     KG_PROCESSED_TTL_SECONDS (processed marker, default 2 weeks),
+     KG_PROCESSING_TTL_SECONDS (in-flight claim, default 600s).
 """
 
 from __future__ import annotations
@@ -23,15 +34,20 @@ import redis
 logger = logging.getLogger(__name__)
 
 TWO_WEEKS_SECONDS = 14 * 24 * 3600
+PROCESSING_TTL_SECONDS = 600
 
 
 class ProcessedStore:
-    """Redis set of processed doc ids, keyed `kg:processed:<doc_id>` with a TTL."""
+    """Doc-id idempotency: `kg:processing:<id>` claim + `kg:processed:<id>` marker."""
 
     def __init__(self, *, ttl_seconds: int = TWO_WEEKS_SECONDS,
-                 prefix: str = "kg:processed:", client=None):
+                 processing_ttl_seconds: int = PROCESSING_TTL_SECONDS,
+                 prefix: str = "kg:processed:",
+                 processing_prefix: str = "kg:processing:", client=None):
         self._ttl = ttl_seconds
+        self._processing_ttl = processing_ttl_seconds
         self._prefix = prefix
+        self._processing_prefix = processing_prefix
         self._redis = client if client is not None else self._connect()
 
     @staticmethod
@@ -64,14 +80,43 @@ class ProcessedStore:
             logger.warning("REDIS_HOST not set — document-level dedup disabled")
             return None
         ttl = int(os.environ.get("KG_PROCESSED_TTL_SECONDS") or TWO_WEEKS_SECONDS)
-        return cls(ttl_seconds=ttl)
+        processing_ttl = int(
+            os.environ.get("KG_PROCESSING_TTL_SECONDS") or PROCESSING_TTL_SECONDS
+        )
+        return cls(ttl_seconds=ttl, processing_ttl_seconds=processing_ttl)
 
     def _key(self, doc_id: str) -> str:
         return f"{self._prefix}{doc_id}"
 
+    def _processing_key(self, doc_id: str) -> str:
+        return f"{self._processing_prefix}{doc_id}"
+
     def seen(self, doc_id: str) -> bool:
         return bool(doc_id) and bool(self._redis.exists(self._key(doc_id)))
 
+    def claim(self, doc_id: str) -> bool:
+        """Atomically claim a doc for processing.
+
+        Returns True only if the caller won the claim: the doc is not already
+        PROCESSED and not already PROCESSING. Uses SET NX EX (short TTL) so the
+        win is atomic across workers; a crashed holder's claim expires.
+        """
+        if not doc_id:
+            return False
+        if self.seen(doc_id):
+            return False
+        won = self._redis.set(
+            self._processing_key(doc_id), 1, nx=True, ex=self._processing_ttl
+        )
+        return bool(won)
+
+    def release(self, doc_id: str) -> None:
+        """Drop the in-flight claim so a requeued delivery can re-claim."""
+        if doc_id:
+            self._redis.delete(self._processing_key(doc_id))
+
     def mark(self, doc_id: str) -> None:
+        """Mark a doc PROCESSED (long TTL) and clear its in-flight claim."""
         if doc_id:
             self._redis.set(self._key(doc_id), 1, ex=self._ttl)
+            self._redis.delete(self._processing_key(doc_id))

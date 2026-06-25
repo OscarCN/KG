@@ -794,6 +794,18 @@ class GeoEventStrategy:
         # canonical date range can be chosen (not just widened) on merges.
         linked["_date_source"] = window.source
         linked["_source_windows"] = [window.to_json()]
+        # Per-source ledger: each source records its OWN publication date and
+        # news_type, so the persistence layer can write a faithful
+        # entities_documents row per source (not the canonical/earliest date).
+        if record.get("_source_id"):
+            linked["_sources"] = [
+                {
+                    "source_id": record["_source_id"],
+                    "publication_date": record.get("date_created")
+                    or record.get("publication_date"),
+                    "news_type": record.get("news_type"),
+                }
+            ]
         self._register(linked, prep.partition, window, index)
         return eid, linked
 
@@ -811,6 +823,20 @@ class GeoEventStrategy:
         sid = new.get("_source_id")
         if sid and sid not in base["source_ids"]:
             base["source_ids"].append(sid)
+
+        # Per-source ledger: append the incoming source's own publication date
+        # and news_type (de-duped by source_id).
+        if sid:
+            sources = base.setdefault("_sources", [])
+            if not any(s.get("source_id") == sid for s in sources):
+                sources.append(
+                    {
+                        "source_id": sid,
+                        "publication_date": new.get("date_created")
+                        or new.get("publication_date"),
+                        "news_type": new.get("news_type"),
+                    }
+                )
 
         # Fillna for selected fields, including publication_date (keep the
         # earliest publication date we've seen).
