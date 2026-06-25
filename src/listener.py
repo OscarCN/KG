@@ -64,7 +64,7 @@ from src.entities.linking.kgdb_retrieval import (  # noqa: E402
     KgdbCandidateIndex,
     KgdbRecordStore,
 )
-from src.entities.linking.link import EntityLinker  # noqa: E402
+from src.entities.linking.link import EntityLinker, _category_for  # noqa: E402
 from src.entities.linking.persistence import KgdbWriter  # noqa: E402
 from src.processed_store import ProcessedStore  # noqa: E402
 
@@ -162,13 +162,29 @@ class KgPipeline:
         )
         statuses: dict[str, int] = {}
         persisted = 0
+        extraction_model = os.environ.get("OPENROUTER_MODEL")
+        prompt_variant = "essn" if getattr(self.extractor, "essential_prompts", True) else "full"
         for raw in extracted:
             result = self.linker.link_one(raw)
             statuses[result.status] = statuses.get(result.status, 0) + 1
+            entity_id = None
             if result.status in ("created", "merged") and result.record is not None:
                 # Raises on DB error -> message requeues; None only for poison drops.
-                if self.writer.upsert_linked(result.record) is not None:
+                entity_id = self.writer.upsert_linked(result.record)
+                if entity_id is not None:
                     persisted += 1
+            # Persist the per-document extraction (pre-merge ground truth) for
+            # EVERY record, including ones the linker skipped/dropped/errored
+            # (which produce no entities_documents row). Raises -> requeue.
+            self.writer.write_extraction(
+                raw,
+                link_status=result.status,
+                linked_entity_id=entity_id,
+                link_reason=result.reason,
+                category=_category_for(raw.get("_supertype")),
+                extraction_model=extraction_model,
+                prompt_variant=prompt_variant,
+            )
 
         logger.info(
             "trace=%s doc=%s extracted=%d persisted=%d statuses=%s",

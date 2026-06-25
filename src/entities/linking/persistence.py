@@ -35,6 +35,7 @@ permanent (poison) drops.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -439,6 +440,59 @@ class KgdbWriter:
             self._conn.rollback()
             raise
 
+    @staticmethod
+    def _record_hash(record: dict) -> str:
+        """Stable content hash of an extracted record — dedups redeliveries while
+        keeping two DISTINCT same-type records from one document apart."""
+        canonical = json.dumps(record, sort_keys=True, ensure_ascii=False, default=str)
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+    def write_extraction(
+        self, record: dict, *, link_status: str,
+        linked_entity_id: Optional[int] = None, link_reason: Optional[str] = None,
+        category: Optional[str] = None, extraction_model: Optional[str] = None,
+        prompt_variant: Optional[str] = None,
+    ) -> None:
+        """Persist one per-document extracted record (pre-merge ground truth) into
+        ``document_extractions`` — including records the linker skipped/dropped
+        (which produce no ``entities_documents`` row). Idempotent on
+        ``(doc_id, record_hash)``; refreshes the link outcome on redelivery.
+        Raises on DB error so the streaming caller can requeue."""
+        doc_id = record.get("_source_id")
+        if not doc_id:  # can't attribute or dedup without a document id
+            return
+        entity_type = (
+            record.get("event_type")
+            or record.get("theme_type")
+            or record.get("entity_type")
+        )
+        try:
+            with self._conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO document_extractions "
+                    "(doc_id, record_hash, supertype, entity_type, category, record, "
+                    " linked_entity_id, link_status, link_reason, extraction_model, "
+                    " prompt_variant, run_tag) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
+                    "ON CONFLICT (doc_id, record_hash) DO UPDATE SET "
+                    "linked_entity_id = EXCLUDED.linked_entity_id, "
+                    "link_status = EXCLUDED.link_status, "
+                    "link_reason = EXCLUDED.link_reason, "
+                    "run_tag = EXCLUDED.run_tag, "
+                    "extraction_model = EXCLUDED.extraction_model, "
+                    "prompt_variant = EXCLUDED.prompt_variant",
+                    (
+                        str(doc_id), self._record_hash(record),
+                        record.get("_supertype"), entity_type, category,
+                        _json(record), linked_entity_id, link_status, link_reason,
+                        extraction_model, prompt_variant, self.run_tag,
+                    ),
+                )
+            self._conn.commit()
+        except Exception:
+            self._conn.rollback()
+            raise
+
     def reset_run(self) -> int:
         """Delete all rows written under this run_tag (child -> parent order).
         Returns the number of entities removed."""
@@ -455,5 +509,8 @@ class KgdbWriter:
                 cur.execute("DELETE FROM entity_types WHERE entity_id = ANY(%s)", (ids,))
                 cur.execute("DELETE FROM entities_alias WHERE original_entity_id = ANY(%s)", (ids,))
                 cur.execute("DELETE FROM entities WHERE entity_id = ANY(%s)", (ids,))
+            # document_extractions are keyed by run_tag (incl. skipped/dropped
+            # records that never produced an entity), so delete them by tag.
+            cur.execute("DELETE FROM document_extractions WHERE run_tag = %s", (self.run_tag,))
         self._conn.commit()
         return len(ids)
