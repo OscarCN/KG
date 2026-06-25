@@ -198,3 +198,61 @@ def test_update_locks_and_unions_metadata():
     src_ids = {s["source_id"] for s in meta["_sources"]}
     assert src_ids == {"http://a/1", "http://b/2"}
     assert len(meta["_source_windows"]) == 2
+
+
+# --- document_extractions: per-document pre-merge ground truth ----------------
+
+
+def _last_insert(conn):
+    inserts = [c for c in conn.cursor_obj.calls if "INSERT INTO document_extractions" in c[0]]
+    assert inserts, _sql_texts(conn)
+    return inserts[-1]
+
+
+def test_write_extraction_inserts_linked_row():
+    conn = FakeConn()
+    w = KgdbWriter("run-x", conn=conn)
+    raw = {
+        "_source_id": "http://a/1",
+        "_supertype": "paid_mass_event",
+        "event_type": "concert",
+        "name": "Show",
+    }
+    w.write_extraction(
+        raw, link_status="created", linked_entity_id=42, category="event",
+        extraction_model="m1", prompt_variant="essn",
+    )
+    sql, params = _last_insert(conn)
+    assert "ON CONFLICT" in sql and "document_extractions" in sql
+    assert "http://a/1" in params          # doc_id
+    assert "paid_mass_event" in params     # supertype
+    assert "concert" in params             # entity_type
+    assert 42 in params                    # linked_entity_id
+    assert "created" in params             # link_status
+    assert conn.committed >= 1
+
+
+def test_write_extraction_skipped_has_null_entity_and_reason():
+    conn = FakeConn()
+    w = KgdbWriter("run-x", conn=conn)
+    raw = {"_source_id": "http://a/2", "_supertype": "security", "theme_type": "crime_trends"}
+    w.write_extraction(raw, link_status="skipped", linked_entity_id=None,
+                       link_reason="category:theme", category="theme")
+    sql, params = _last_insert(conn)
+    assert "crime_trends" in params        # entity_type from theme_type
+    assert None in params                  # linked_entity_id null
+    assert "skipped" in params and "category:theme" in params
+
+
+def test_write_extraction_skips_when_no_doc_id():
+    conn = FakeConn()
+    w = KgdbWriter("run-x", conn=conn)
+    w.write_extraction({"_supertype": "paid_mass_event"}, link_status="created")
+    assert not [c for c in conn.cursor_obj.calls if "document_extractions" in c[0]]
+
+
+def test_record_hash_stable_and_distinct():
+    a = {"_source_id": "d", "_supertype": "x", "name": "one"}
+    b = {"_source_id": "d", "_supertype": "x", "name": "two"}
+    assert KgdbWriter._record_hash(a) == KgdbWriter._record_hash(dict(a))
+    assert KgdbWriter._record_hash(a) != KgdbWriter._record_hash(b)
