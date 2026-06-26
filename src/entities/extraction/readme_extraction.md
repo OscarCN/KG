@@ -107,6 +107,25 @@ Multiple keywords can map to the same ontology class across different rows with 
 
 The legacy `keywords.csv` is kept for reference but is not used by the system.
 
+#### Rule source: Excel or kgdb
+
+`Ontology` loads its matching rules from one of two sources, selected by
+`KG_ONTOLOGY_SOURCE` (or the `source=` constructor arg):
+
+- **`xlsx`** (default) — `catalogues/keywords.xlsx`, as described above. Used for
+  local dev and tests.
+- **`db`** — the kgdb `ontology_matching_rules` table (production). One row per
+  rule, with the list columns (`kw`, `phrase`, `not_kw`, `categories`,
+  `dismiss_categories`, `document_type`) stored **raw/human-editable** and
+  normalized at load time exactly like the Excel path, so matching is identical.
+  Disabled rows are kept (with `enabled = false`) but skipped at load.
+
+The table is seeded from the Excel by [`scripts/seed_ontology_rules.py`](../../../scripts/seed_ontology_rules.py)
+(full refresh: `TRUNCATE` + insert all rows). DDL lives in
+`media-backend-paid/db/kg_db/schema.sql`. This is the single, queryable,
+editable source of truth for production matching — see
+[`docs/todos/productionization_streaming_kg.md`](../../../docs/todos/productionization_streaming_kg.md).
+
 ## Schemas
 
 Entity schemas live in `schemas/` and use the same JSON format as the pipeline schemas in `src/schema/schemas/`. They are loaded with the same `load_schema()` infrastructure.
