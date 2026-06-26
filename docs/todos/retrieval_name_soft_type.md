@@ -2,7 +2,7 @@
 
 **Status:** partially implemented — **soft type** (`partition_on="supertype"`) and **hard hierarchical geo compatibility** (`hard_geo_gate=True`) are live in `strategy.py`; **name-similarity retrieval** and the **name-OR retrieval path** (with the multi-match collapse it feeds) remain open.
 **Area:** `src/entities/linking/strategy.py` (candidate filter + adjudication), eventual kgdb retrieval (`event_properties`, `entity_locations`, `entities.name`)
-**Related:** [`canonical_reconciliation.md`](canonical_reconciliation.md), [`retrieval_linking_per_supertype.md`](retrieval_linking_per_supertype.md), [`location_level_list_extraction.md`](location_level_list_extraction.md), [`../../src/entities/linking/readme_linking.md`](../../src/entities/linking/readme_linking.md)
+**Related:** [`canonical_reconciliation.md`](canonical_reconciliation.md), [`retrieval_linking_per_supertype.md`](retrieval_linking_per_supertype.md), [`location_level_list_extraction.md`](location_level_list_extraction.md), [`../linking.md`](../linking.md)
 
 ## Idea
 

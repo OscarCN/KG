@@ -1,31 +1,22 @@
 # Knowledge Graph — Entity Linking System
 
-Entity linking system that matches entities found in unstructured and semi-structured sources (news articles, social media, websites, contracts, databases) to ground truth entities in a knowledge base.
+Entity linking system that matches entities found in unstructured and semi-structured sources (news articles, social media, websites, contracts, databases) to ground truth entities in a knowledge base. Spanish-language / Mexico-focused.
 
-## System Components
+A document flows **extraction → linking → persistence**: LLM-based structured extraction pulls typed records out of article text, the linker deduplicates and merges them into canonical entities, and the writer persists each linked record into the unified **kgdb** Postgres database. In production this whole chain runs **inline per message** in a long-lived RabbitMQ consumer (`src/listener.py`). See [docs/architecture.md](docs/architecture.md) for the system overview.
 
-### Knowledge Base (KB)
+## Documentation
 
-Two knowledge bases:
+| Doc | Covers |
+|---|---|
+| [docs/architecture.md](docs/architecture.md) | System overview — KB, retrieval, disambiguation, ontology categories, class inheritance, data flow |
+| [docs/entities.md](docs/entities.md) | The entity pipeline overview (extraction + linking, ontology categories, the full supertype catalogue) |
+| [docs/extraction.md](docs/extraction.md) | LLM-based structured extraction, ontology routing, schemas, prompt generation, the extraction pipeline |
+| [docs/linking.md](docs/linking.md) | Event deduplication/merging, geocoding, candidate filter, deterministic gate, LLM disambiguation |
+| [docs/storage.md](docs/storage.md) | The kgdb persistence model and the streaming pipeline (single source of truth for storage/kgdb) |
+| [src/schema/readme_schema.md](src/schema/readme_schema.md) | The schema system (JSON definitions + the Python normalization pipeline) |
+| Tags (decoupled) | Customer-anchored stances + per-event claims — docs (`readme_tags.md`, `tags_overview.md`, `tags_impl_plan.md`) live with the tags code, which is moving to its own repository |
 
-- **Geographic KB** — Hierarchical geographic entities (countries, provinces, cities, neighborhoods, streets, places) linked by "is in" relations. Each entity has coordinates, shape, and aliases.
-- **Entities/Events KB** — Entities, concepts, themes, and events typed by an ontology. See [Ontology categories](#ontology-categories) below for the distinction between these types. Each entry has attributes defined by its ontology class schema.
-
-Each entity has an **ontology class** that defines its schema (attributes, identifying features) and how it should be uniquely described. Ontology schemas are defined in JSON and parsed by the schema system.
-
-### Retrieval
-
-Multiple retrieval strategies depending on entity type:
-- **Name similarity** — Locality-sensitive hashing (LSH) via Redis for efficient fuzzy name matching
-- **Geographic** — Coordinate-based queries (point-in-shape, nearest) via PostgreSQL
-- **Semantic** — Embedding-based similarity on descriptions via vector database
-
-### Disambiguation / Linking
-
-Deciding the correct entity from a set of candidates using features derived from:
-- Language (descriptions, narratives)
-- Location (coordinates, addresses)
-- Time, taxonomies, identifiers
+Full kgdb schema and cross-database conventions live in [`media-backend-paid/docs/DATABASE_POSTGRES.md`](../../media-backend-paid/docs/DATABASE_POSTGRES.md). The local **dev kgdb** (Docker Postgres on `:5334`) setup is in [`media/dev/docs/db/runbook.md`](../../dev/docs/db/runbook.md).
 
 ## Repository Structure
 
@@ -33,21 +24,20 @@ Deciding the correct entity from a set of candidates using features derived from
 src/
   listener.py       # Streaming RabbitMQ consumer: documents → extract → link → persist (kgdb)
   processed_store.py # Redis doc-level idempotency guard (skip already-processed doc ids; 2-week TTL)
-  schema/           # Schema system for data normalization
+  schema/           # Schema system for data normalization (docs: src/schema/readme_schema.md)
     schemas/        # Pipeline schema definitions (JSON + Python)
     types/          # Type parsers, composite types, registry
     parse_object.py # Core Parser class
-  entities/         # Entity extraction and linking
+  entities/         # Entity extraction and linking (overview: docs/entities.md)
     run_entities.py # Integration runner: streams documents through extraction, then linking
     document.py     # record_to_article: map a raw document envelope to the extractor's input (shared)
-    extraction/     # LLM-based structured extraction from text
+    extraction/     # LLM-based structured extraction from text (docs: docs/extraction.md)
       schemas/      # Entity schemas (one per supertype, JSON)
       catalogues/   # Ontology catalogues (event types CSV, keywords Excel)
       prompts/classes/ # Generated LLM extraction prompts (one per supertype)
       extract.py    # Extraction pipeline
       prompt_generator.py # Schema → LLM prompt auto-generation
-      readme_extraction.md # Extraction subsystem docs
-    linking/        # Event linking/deduplication and KG database persistence
+    linking/        # Event linking/deduplication and KG database persistence (docs: docs/linking.md, docs/storage.md)
       geocode.py    # Thin client for deepriver's geocoder microservice (structured-input)
       link_llm.py   # LLM disambiguator (gemini-2.5-flash-lite) with file cache
       index.py      # CandidateIndex + RecordStore protocols + in-memory implementations
@@ -57,14 +47,12 @@ src/
       link.py       # EntityLinker: envelope parse + strategy orchestration (events only). Exposes link_one(raw) → LinkResult for streaming callers.
       persistence.py# KgdbWriter: idempotent write of a linked record into kgdb (Step Zero batch/stream writer)
       run_linking.py# IPython runner: tests linking from extracted_raw/*.json fixtures → linked/*.json
-      readme_linking.md # Linking subsystem docs (incl. KG database persistence)
     tags/           # Customer-anchored stances + per-event claim clusters (Stage 1, in-memory)
       models/       # Pure data structures: customer.py, source_item.py, stance_catalog.py, claim_catalog.py
       bootstrap.py / tagging.py / stance_adjudicator.py / claim_clusterer.py / apply.py
       retrieval.py / persistence.py / stats.py
       prompts/      # Spanish prompts for the four LLM phases
       tags_overview.md / tags_impl_plan.md / readme_tags.md
-    readme_entities.md # Overview, ontology categories, links to subsystem docs
   llm/              # LLM provider clients
     openrouter/     # OpenRouter API client (OpenAI-compatible)
   PoC/              # Proof-of-concept implementations (legacy)
@@ -92,110 +80,24 @@ scripts/
   publish_document.py        # Publish a JSON document file to a RabbitMQ queue (dev-vhost listener loop)
 cache/              # Extraction + linking LLM-call cache (sha256-keyed, auto-generated)
 docs/
+  architecture.md   # System overview
+  entities.md / extraction.md / linking.md / storage.md  # Subsystem docs
   todos/            # Roadmap / design TODOs — one self-contained file per TODO
 ```
 
-### Schema System (`src/schema/`)
+## Subsystems at a glance
 
-Declarative schema definitions in JSON with a Python normalization pipeline. See [`src/schema/readme_schema.md`](src/schema/readme_schema.md) for full documentation.
-
-- Schemas defined in JSON with string type references, meta descriptions, and support for callable defaults/validators
-- Reusable composite types (e.g. `DateRangeFromUnstructured`, `DateFromUnstructured`, `Location`, `PriceRange`, `CasualtyCount`) auto-resolved across schemas, including inside lists (e.g. `List[DateRangeFromUnstructured]`)
-- Parser pipeline: structure mapping → type parsing → defaults → validation
-
-### Entity Linking (`src/entities/linking/`)
-
-Deduplicates and merges extracted **events** (the output of `src/entities/extraction/`) into canonical event records, each carrying a `source_ids` list of every document that mentions it. The supertype-specific behaviour lives in a strategy object (`GeoEventStrategy`) behind a `CandidateIndex` protocol; `EntityLinker` only parses the envelope and orchestrates. The flow:
-
-1. **Geocode** the structured `Location` via deepriver's geocoder microservice; the state (`level_2`, normalized through a static Mexican-state catalogue, with the extracted `location.state` text as deterministic fallback) becomes the geo partition key.
-2. **Candidate filter** — events that share `event_type`, the same geo partition (located lookups also probe the no-location bucket), and date-range overlap (slack widened by the extraction's `precision_days` on approximate dates; publication-date fallback at ±2 days).
-3. **LLM disambiguation** — a single call to `google/gemini-2.5-flash-lite` (via OpenRouter) given the incoming event's `name`, `description`, structured address, and `date`, plus those same fields for each candidate (capped, most recent first). The LLM returns the matching candidate id or `null`.
-4. **Merge or create** based on the LLM's answer. Merges keep the most precise extracted date window as the canonical range (per-source windows are tracked on the record) instead of widening unconditionally.
-5. **Persist** the linked record into the unified `kgdb` Postgres database (canonical `entities` row + supertype/child `entity_types` + geocoded `entity_locations` + event lookup `event_properties` + per-source `entities_documents`), via `linking/persistence.py` (`KgdbWriter`) — an idempotent, one-transaction-per-record write. Run either as a batch over a `data/linked/<stem>.json` fixture (`scripts/persist_linked.py`) or, in production, inline per message by the streaming consumer (`src/listener.py`) with **kgdb-backed candidate retrieval** so dedup holds across workers/restarts. See the **Streaming pipeline & kgdb persistence** section below. The remaining open work is the **in-DB canonical↔canonical merge** (reconciliation) and the production **producer/retriever**.
-
-Both geocode and LLM responses are cached on disk (`cache/geocode/`, `cache/link_llm/`), keyed by sha256 of the canonical input — re-runs avoid re-billing. Themes and entities are not linked yet (skipped). See [`src/entities/linking/readme_linking.md`](src/entities/linking/readme_linking.md) for the linking pipeline and the [KG Database Persistence](src/entities/linking/readme_linking.md#kg-database-persistence) section for the (target) kgdb write model. Full kgdb schema and cross-database conventions live in [`media-backend-paid/docs/DATABASE_POSTGRES.md`](../../media-backend-paid/docs/DATABASE_POSTGRES.md).
-
-The linker runner is a local test harness for linking after extraction: it reads an extracted-record fixture from `data/extracted_raw/`, streams records through `EntityLinker.link_one(raw)`, and writes linked canonical events to `data/linked/`. It does not fetch article/comment content or run tags.
-
-For an end-to-end local simulation of the production shape, use `src/entities/run_entities.py`: it reads incoming document fixtures from `data/<subdir>/`, processes one document at a time through `EntityExtractor.extract(article)`, immediately streams each extracted record through `EntityLinker.link_one(raw)`, and writes debug artifacts to `data/extracted_raw/` and `data/linked/`.
-
-### Streaming pipeline & kgdb persistence (`src/listener.py`, `linking/persistence.py`, `linking/kgdb_retrieval.py`)
-
-The production shape: a long-lived worker that consumes **raw documents** off a RabbitMQ queue and runs the full pipeline **inline per message** — `classify → extract → link → persist` — writing canonical events into the unified **kgdb** Postgres database. **Implemented and validated on dev** (multi-hundred-document live batches), robust for a single long-lived worker and now deduping across restarts via kgdb-backed retrieval. **Residual risk (honest):** the candidate-lookup → adjudicate → create decision runs in the linker *outside* any DB lock, so under true multi-worker parallelism two workers can still create duplicate canonicals for the same real-world event (a writer-only lock can't fix it). The real fix is the deferred in-DB canonical reconciliation — open TODO [`docs/todos/canonical_reconciliation.md`](docs/todos/canonical_reconciliation.md). See [`src/entities/linking/readme_linking.md`](src/entities/linking/readme_linking.md) (KG Database Persistence) and the design TODOs ([`kgdb_event_persistence.md`](docs/todos/kgdb_event_persistence.md), [`kgdb_candidate_index.md`](docs/todos/kgdb_candidate_index.md), [`document_retrieval_strategy.md`](docs/todos/document_retrieval_strategy.md)) for depth.
-
-**Streaming consumer** (`src/listener.py`) — a `pika` `BlockingConnection` consumer (modeled on the workspace's `social_tags`/`ai_assist` workers): durable queue, `prefetch=1`, dead-letter exchange, bounded retry→requeue, `trace_id` at the message top level, graceful shutdown. Per message it does document-level dedup first (below), then `record_to_article → Ontology.match` (the keyword pre-filter; non-matches are dropped) `→ extract → link_one → KgdbWriter.upsert_linked`. Scale by running N listeners — cross-worker dedup holds. A `--once <fixture>` mode runs the same pipeline offline (no broker). Producers today are test-only: `scripts/enqueue_from_es.py` (ES date-window fetch → doc queue) and `scripts/publish_document.py`; the eventual global retriever is the open producer-side work.
-
-**kgdb-backed retrieval** (`linking/kgdb_retrieval.py`) — so dedup works **across restarts and multiple workers**, candidate lookup reads from kgdb instead of per-process memory. `index.py` defines two swappable backends — `CandidateIndex` (id retrieval) and `RecordStore` (id→record). The in-memory pair is used for batch/test runs; the kgdb pair for streaming: `KgdbCandidateIndex` reconstructs the candidate set with one SQL query over the rows the writer already persists (`event_properties` date `&&`, `entity_locations` level ids / grid block, `entity_types` supertype), and `KgdbRecordStore` resolves records from `entities.metadata`. The hard geo gate / deterministic gate / LLM still run on the resolved records. These retrieval predicates are backed by indexes in the kgdb schema (expression indexes on `entities (metadata->>'_link_id')` and `(metadata->>'_supertype')`, a GiST on the `event_properties` date range, btrees on `entity_locations.level_N_id`, GiST on coords; asserted by `src/entities/linking/test_kgdb_indexes.py`), so the lookups don't scan.
-
-**Merge mechanism** — the same real-world event reported across many news sites collapses into **one canonical entity**: on a match the linker merges (most-precise date window and highest-precision location win; `source_ids` grows de-duped), and `upsert_linked` updates the kgdb row in place — refreshing `entities.metadata`, adding the new per-source `entities_documents` row (each source's OWN publication date and `news_type`), and updating the `event_properties` window. The in-place update locks the row (`SELECT … FOR UPDATE`) and UNIONs the DB's `source_ids`/`_source_windows`/`_sources` accumulators before writing, so concurrent merges into the same canonical are additive (no lost sources). (Observed live: a single festival merged from 26 distinct sources.)
-
-**Three idempotency layers** (cheapest first): (1) **Redis atomic claim** — `src/processed_store.py` (`ProcessedStore`) takes an atomic in-flight claim (`SET NX EX` on a short-TTL `kg:processing:<id>` key) before any extraction and rejects docs already marked processed or claimed by another worker, so concurrent duplicate deliveries can't both pass; on success it sets the long-TTL processed marker and clears the claim, on retryable failure it releases the claim, and dead-letter lets the claim expire by TTL; (2) **linker kgdb dedup** — a redelivered/duplicate document re-matches its existing event and merges rather than duplicating; (3) **writer `_link_id` upsert** — the streaming `upsert_linked` finds an existing canonical by `metadata->>'_link_id'` **alone** (run-tag-independent), so a new run or backfill merges into the existing row instead of duplicating; the batch `write_linked` stays run-scoped (`_link_id` + `_link_run`) for per-run idempotency and `reset_run(tag)`.
-
-**Persistence** (`linking/persistence.py`, `KgdbWriter`) — one transaction per record into `entities` (`metadata` = the validated record + `_link_id`/`_link_run`), `entities_alias`, `entity_types` (supertype + child), `entity_locations` (from `_geo`), `event_properties` (events, slack-widened window), `entities_documents` (per source). The **canonical** entity/event mapping reuses **existing kgdb tables** — no new tables for the ontology itself; the type catalog (`entity_types_kinds_available`) holds each supertype's JSON schema in `metadata_template` (seeded by `scripts/gen_kg_catalog_seed.py`). `entity_id` written everywhere is the alias `original_entity_id` so later merges stay stable (direct-FK exception on `entity_locations`/`event_properties` noted in the docs). The full schema is `media-backend-paid/db/kg_db/schema.sql`; the local **dev kgdb** (Docker Postgres on `:5334`) setup is in [`media/dev/docs/db/runbook.md`](../../dev/docs/db/runbook.md).
-
-**Per-document extractions** (`document_extractions`) — alongside the merged canonical, the listener persists **every extracted record before the merge** (`KgdbWriter.write_extraction`), one row each, *including the ones the linker skips/drops/errors* (themes, entities, no-date) which produce no `entities_documents` row. Each row carries the validated record JSON, provenance (`extraction_model`, `prompt_variant`, `run_tag`), and a nullable `linked_entity_id` (the canonical it folded into). Idempotent on `(doc_id, record_hash)`. **Why it earns a table:** it's the pre-merge ground truth — it lets us **re-link without re-paying the LLM** when linking logic changes, preserves what each source actually said before fillna/most-precise-wins collapses it, and gives training/debug data for the over/under-merge cases. See [`docs/todos/persist_document_extractions.md`](docs/todos/persist_document_extractions.md).
-
-**Ontology rules in kgdb** (`ontology_matching_rules`) — the keyword/category matching rules (the in-worker `Ontology.match` pre-filter) can live in kgdb instead of `keywords.xlsx`, selected by `KG_ONTOLOGY_SOURCE` (`xlsx` default for dev/test, `db` for production). The table stores rules **raw and human-editable** (one row per rule, list columns + `enabled` + labels); `Ontology` normalizes them **at load**, identically to the Excel parse, so matching is **byte-identical** across sources (verified: same enabled classes, rule set, and `match()` output). **Why:** a single queryable, editable source of truth for production matching (no Excel redeploy to change a keyword), versionable per row, and the natural home for the future `active`-type gate. Seeded from the Excel by `scripts/seed_ontology_rules.py` (full refresh).
-
-**Configuration** — RabbitMQ (`RABBIT_HOST/PORT/USER/PASSWORD/VIRTUALHOST/QUEUE`, `RABBIT_PREFETCH_COUNT`, `RABBIT_DLX`), kgdb (`KGDB_HOST/PORT/USER/PASSWORD/NAME`), Redis (`REDIS_HOST/PORT/PASSWORD`, `KG_PROCESSED_TTL_SECONDS`, `KG_PROCESSING_TTL_SECONDS` — short in-flight claim TTL, default 600s), `KG_RUN_TAG` (provenance), `KG_ONTOLOGY_SOURCE` (`xlsx` default / `db` to load matching rules from `ontology_matching_rules`), plus OpenRouter + geocoder. The listener loads `kg/.env.local`.
-
-### Tags (`src/entities/tags/`)
-
-The tags implementation is decoupled from extraction/linking and is moving to its own repository. The copy in this repository should not be wired into `src/entities/linking/run_linking.py`.
-
-Two complementary tag types extracted from articles, posts, and comments tied to a single **customer entity**:
-
-- **Stances** — durable attitudes/qualities expressed about the customer (cross-event, per-customer catalog).
-- **Claims** — specific factual assertions about events affecting the customer (per-event clusters with `is_new` freshness flag and `importance` score).
-
-Five-phase pipeline: bootstrap (one-shot per customer) → tag (Phase 2 — single LLM call producing both stance assignments and structured claims) → adjudicate stance catalog mutations (Phase 3) → cluster claims (Phase 4) → apply (Phase 5). Two run modes coexist: (a) the in-memory IPython driver `run_tags.py` with JSON snapshots, and (b) the userdb-backed streaming script `stream.py` — file-simulated today but RabbitMQ-shaped, writing every mutation to userdb per the schema in [`src/entities/tags/serialization_plan.md`](src/entities/tags/serialization_plan.md) (folded into [`media-backend-paid/db/user_db/schema.sql`](../../media-backend-paid/db/user_db/schema.sql)). See [`src/entities/tags/tags_overview.md`](src/entities/tags/tags_overview.md) for the design, [`src/entities/tags/tags_impl_plan.md`](src/entities/tags/tags_impl_plan.md) for the architecture, [`src/entities/tags/readme_tags.md`](src/entities/tags/readme_tags.md) for usage.
-
-### Entity Extraction (`src/entities/extraction/`)
-
-LLM-based structured extraction from unstructured text (news articles, social media). See [`src/entities/extraction/readme_extraction.md`](src/entities/extraction/readme_extraction.md) for full documentation, and [`src/entities/readme_entities.md`](src/entities/readme_entities.md) for the broader pipeline overview.
-
-- **Ontology**: three-level hierarchy (matching rule → class → supertype → schema) with rules in Excel (`keywords.xlsx`) and type mapping in CSV (`event_types.csv`). Each schema declares its category (`event`, `theme`, or `entity`) via `meta.category`
-- **16 supertypes** — 9 events + 6 themes + 1 entity/concept:
-  - **Events** (identifiable single occurrences with location and datetime): paid_mass_event, robbery_assault_event (incl. kidnapping), public_works_event (incl. trash, sinkhole, public road, water-system works), public_infrastructure_event (broader civic events around infrastructure — complaint waves, policy announcements, planning decisions, general water-supply issues), violence_event, closures_interruptions_event, emergency_event (incl. pedestrian hit), protest_event, arrest_event
-  - **Themes** (topical classifiers, no required datetime): security, civil_protection, mobility, culture, sports, civic_participation
-  - **Entities/Concepts** (specific, identifiable things that are not events): legislative_initiative (incl. law initiative, reform, decree, regulation, legislative agreement, ratification)
-- **Three-step extraction flow**: keyword matching → LLM classification (filters candidate classes to those actually discussed, with per-category selection criteria for events, themes, and entities/concepts) → per-class LLM extraction (one call per confirmed class, scoped to that class)
-- **Schema-driven prompt generation**: extraction prompts auto-generated from JSON schemas via LLM using a generate+feedback loop (`prompt_generator.py`). Each prompt is built from three context layers — class `meta.description`, field `description`, and composite type descriptions (e.g. `DateRangeFromUnstructured` contributes approximate-date and `precision_days` instructions). `paid_mass_event.txt` serves as the style exemplar. Write schema descriptions carefully — they directly affect prompt quality. `meta.example` must include ALL subfields of composite types (with null for absent values) — omitting fields causes generated prompts to miss them.
-- **Same schema infrastructure**: entity schemas use the same JSON format, `load_schema()`, `Parser`, and composite types as pipeline schemas
-
-### Ontology Categories
-
-The system classifies content into three broad ontology categories, each with different identifying characteristics:
-
-| Category | Description | Identifying features | Examples |
-|----------|-------------|---------------------|----------|
-| **Event** | A specific, identifiable occurrence that happened at a particular time and place | Location + date/time make each event distinguishable from others | A concert, an accident, a protest, an arrest |
-| **Theme** | A topical classification — any article that touches or discusses a related subject matches | Optional location (city/state level), no required date — acts as a broad classifier for article content | Security (crime, violence, policing), mobility (traffic, transit), culture (arts, heritage) |
-| **Entity/Concept** | A specific, identifiable thing that is not an event | May have a name, location, or other identifying attributes, but not necessarily a date | A real estate development, a specific technology, a chemical compound, an individual person, a law initiative |
-
-The system implements **events** (9 supertypes — identifiable single occurrences with a location and date), **themes** (6 supertypes — topical classifiers without required datetime), and **entities/concepts** (1 supertype — `legislative_initiative`, with more planned). A theme matches whenever an article addresses, reports on, or touches any subject within its domain — whether through a specific event, a complaint, statistics, policy discussion, or a passing mention. An entity/concept matches only when the article refers to a specific, identifiable item of that type (with a proper name or distinguishing attributes), not a generic mention of the domain. An article may match a theme, an event, and an entity schema simultaneously — all are extracted separately. Events have `_event` suffix in their supertype name (e.g. `arrest_event`, `emergency_event`); themes and entities do not (e.g. `security`, `mobility`, `legislative_initiative`). Category is declared explicitly on each schema via `meta.category`.
-
-The extraction pipeline (keyword matching → LLM classification → per-class extraction) is designed to work with all three categories. The classification prompt presents candidates in up to three groups (Eventos, Temas, Entidades/Conceptos) with their own selection criteria, and per-class extraction runs the schema bound to the confirmed class's supertype.
-
-### Future: Class Inheritance
-
-Classes will support inheritance, where a more specific class inherits attributes from a broader one. The current event/theme naming convention supports this:
-- **violence_event** inherits from **security** (theme) — a specific shooting inherits the general security topic attributes
-- **public_works_event** inherits from **public_infrastructure** (theme)
-- **emergency_event** inherits from **civil_protection** (theme)
-- **closures_interruptions_event** inherits from **mobility** (theme)
-- **protest_event** inherits from **civic_participation** (theme)
-- **water_usage_law** (entity) inherits from **legislative_initiative** (entity) — a specific water regulation inherits general legislative initiative attributes
-
-This allows shared attributes and behavior to be defined once at the parent level and specialized at the child level.
-
-A related future direction is **multi-class entities** — a single entity instantiating more than one ontology class simultaneously (e.g. an `arrest_event` that is also a `violence_event`, or an entity acting as a theme anchor at the same time). The `entity_types` table on the kgdb side is already a many-to-many and supports it on the schema side. The open questions are at the validation layer (which class's schema does `entities.metadata` conform to when an entity carries several?) and at the linker (does multi-class membership widen the candidate filter?). We'll address it alongside inheritance — until then, the working assumption is one supertype per entity.
+- **Schema system** (`src/schema/`) — declarative JSON schema definitions with a Python normalization pipeline (structure mapping → type parsing → defaults → validation) and auto-resolved composite types. See [src/schema/readme_schema.md](src/schema/readme_schema.md).
+- **Entity extraction** (`src/entities/extraction/`) — three-step flow (keyword matching → LLM classification → per-class extraction) over a three-level ontology (rule → class → supertype → schema), 16 supertypes (9 events + 6 themes + 1 entity/concept), schema-driven prompt generation. See [docs/extraction.md](docs/extraction.md).
+- **Entity linking** (`src/entities/linking/`) — deduplicates and merges extracted **events** into canonical records (geocode → candidate filter → hard geo gate → deterministic gate / LLM disambiguation → merge or create), caching geocode and LLM responses on disk. See [docs/linking.md](docs/linking.md).
+- **Persistence & streaming** (`src/listener.py`, `linking/persistence.py`, `linking/kgdb_retrieval.py`) — the production streaming consumer plus the `KgdbWriter` write model into kgdb, kgdb-backed cross-worker dedup, the merge mechanism, three idempotency layers, and per-document extractions. See [docs/storage.md](docs/storage.md).
+- **Tags** (`src/entities/tags/`) — decoupled customer-anchored stances + per-event claim clusters, moving to its own repository (the tags code and its docs live there).
 
 ## Infrastructure
 
 | Service | Purpose |
 |---------|---------|
-| PostgreSQL | Unified **kgdb** knowledge graph (entities/events) + geographic queries; candidate retrieval. Local dev DB on Docker `:5334` (see `media/dev/docs/db/runbook.md`) |
+| PostgreSQL | Unified **kgdb** knowledge graph (entities/events) + geographic queries; candidate retrieval. Local dev DB on Docker `:5334` (see [`media/dev/docs/db/runbook.md`](../../dev/docs/db/runbook.md)) |
 | RabbitMQ | Document queue feeding the streaming listener (`src/listener.py`) |
 | Redis | Document-level dedup guard (`processed_store.py`) — atomic in-flight claim (`SET NX EX`, short TTL) plus a 2-week processed marker, so concurrent duplicate deliveries can't both be processed. *(Legacy: LSH name-match cache — not wired into the current pipeline.)* |
 | Elasticsearch | News article indexing and retrieval (source of the document corpus) |

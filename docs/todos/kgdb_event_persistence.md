@@ -2,7 +2,7 @@
 
 **Status:** open — design ready; **sequenced after** the retrieval/linking improvements below
 **Area:** new `src/entities/linking/persistence.py`, `scripts/persist_linked.py`, `scripts/gen_kg_catalog_seed.py`; kgdb migrations in `media-backend-paid/db/kg_db/`
-**Related:** [`canonical_reconciliation.md`](canonical_reconciliation.md), [`retrieval_name_soft_type.md`](retrieval_name_soft_type.md), [`location_level_list_extraction.md`](location_level_list_extraction.md), [`../../src/entities/linking/readme_linking.md`](../../src/entities/linking/readme_linking.md), [`../../../../media-backend-paid/docs/DATABASE_POSTGRES.md`](../../../../media-backend-paid/docs/DATABASE_POSTGRES.md)
+**Related:** [`canonical_reconciliation.md`](canonical_reconciliation.md), [`retrieval_name_soft_type.md`](retrieval_name_soft_type.md), [`location_level_list_extraction.md`](location_level_list_extraction.md), [`../linking.md`](../linking.md), [`../../../../media-backend-paid/docs/DATABASE_POSTGRES.md`](../../../../media-backend-paid/docs/DATABASE_POSTGRES.md)
 
 ## Sequencing
 
@@ -23,7 +23,7 @@ the known-fragmented output (the Zona Fest split) into kgdb:
 A **RabbitMQ consumer** reads linked records continuously and **writes + merges** them into the
 unified **kgdb** Postgres DB, for both `event` and `entity` categories (streaming). The whole
 ontology maps onto existing kgdb tables — no new tables. Persistence contract: the *KG Database
-Persistence* section of [`readme_linking.md`](../../src/entities/linking/readme_linking.md) and
+Persistence* section of [`linking.md`](../linking.md) and
 *KG entity extraction & linking integration* in
 [`DATABASE_POSTGRES.md`](../../../../media-backend-paid/docs/DATABASE_POSTGRES.md), **corrected
 to the live schema** (the docs are stale — see Live-schema facts).
@@ -208,7 +208,7 @@ to `max_retries`, then `nack(requeue=False)` → DLX; validation/poison ⇒ imme
 > The listener now dedups against kgdb across processes; validated cross-process on dev.
 
 `link_one` resolves candidates against the in-memory `CandidateIndex` (`linker.events` /
-`linker.index`), which `readme_linking.md` marks "in-memory today, **kgdb-backed later**". A
+`linker.index`), which `linking.md` marks "in-memory today, **kgdb-backed later**". A
 batch writer (Step Zero) builds that index in-process for one file and exits; a streaming
 worker must share candidate state across messages, restarts, and parallel workers ⇒ a
 **kgdb-backed `CandidateIndex`** (querying `event_properties` / `entity_locations` /

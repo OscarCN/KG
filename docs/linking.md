@@ -1,8 +1,8 @@
 # Entities — Linking
 
-Deduplicates and merges extracted **events** (the output of `../extraction/`) into canonical event records, each carrying a `source_ids` list of every document that mentions it. Future versions will link entities/concepts and themes too — see [KG Database Persistence](#kg-database-persistence) below for the persistence model that already accounts for them.
+Deduplicates and merges extracted **events** (the output of [extraction.md](extraction.md)) into canonical event records, each carrying a `source_ids` list of every document that mentions it. Future versions will link entities/concepts and themes too — see [storage.md](storage.md) for the persistence model that already accounts for them.
 
-For an overview of the broader pipeline and ontology categories, see [`../readme_entities.md`](../readme_entities.md).
+For an overview of the broader pipeline and ontology categories, see [entities.md](entities.md).
 
 ## Directory Structure
 
@@ -19,18 +19,19 @@ linking/
   link.py                 # EntityLinker: envelope parse + strategy orchestration + case log. link_one(raw) → LinkResult.
   persistence.py          # KgdbWriter: idempotent write of a linked record into kgdb (Step Zero batch/stream writer)
   run_linking.py          # IPython runner — tests linking from extracted-record fixtures (env-configurable stem).
-  readme_linking.md       # This file
 ```
+
+This file lives in `docs/linking.md`; the source it documents is under `../src/entities/linking/`.
 
 The runner streams extracted records grouped by `_source_id` and invokes `EntityLinker.link_one(raw)` per record. It is only a local test harness for the linking system after extraction; it does not fetch article/comment content and does not run tags.
 
-For a document-level stream simulation that runs extraction before linking each incoming document, use [`../run_entities.py`](../run_entities.py). That script composes `EntityExtractor.extract(article)` with this linker's `EntityLinker.link_one(raw)` streaming API.
+For a document-level stream simulation that runs extraction before linking each incoming document, use [`../src/entities/run_entities.py`](../src/entities/run_entities.py). That script composes `EntityExtractor.extract(article)` with this linker's `EntityLinker.link_one(raw)` streaming API.
 
 ## Linking Pipeline
 
 **Scope: events only.** Records whose schema `meta.category != "event"` (themes, entities/concepts) are skipped by this version of the linker — they're tallied under `linker.dropped["skipped_category:..."]` and can be revisited later.
 
-The geo strategy v1 spec in [`docs/todos/retrieval_linking_per_supertype.md`](../../../docs/todos/retrieval_linking_per_supertype.md) is **implemented**; that TODO also tracks the per-supertype generalization (still open).
+The geo strategy v1 spec in [`todos/retrieval_linking_per_supertype.md`](todos/retrieval_linking_per_supertype.md) is **implemented**; that TODO also tracks the per-supertype generalization (still open).
 
 ```
 new event → schema parse (EntityLinker envelope)
@@ -114,7 +115,7 @@ Before the LLM, a cheap deterministic pass merges the high-confidence cases (`de
 #### Accepted weaknesses
 
 - **Same-street collisions (level 6).** Two *distinct* same-type events on the same street and day (e.g. two separate accidents) share `level_6_id` and will merge — accepted for now in exchange for catching the common multi-mention case. Level 7 (a specific place) is safer than level 6 (a whole street).
-- **Coarse-precision under-merge (levels 2/3/5).** Records that geocode only to municipality / city / neighborhood share no `level_6/7_id`, so nameless coarse clusters are never matched deterministically and rely on the LLM (which may under-merge). **Canonical example:** the El Marqués street-rehabilitation project on *calles San Juan del Río y Amealco* — every record nameless, all geocoded to `level_3_id=_48422011` (precision 3) — stays fragmented. The fix is list-valued location extraction so each named street geocodes to level 6: [`docs/todos/location_level_list_extraction.md`](../../../docs/todos/location_level_list_extraction.md).
+- **Coarse-precision under-merge (levels 2/3/5).** Records that geocode only to municipality / city / neighborhood share no `level_6/7_id`, so nameless coarse clusters are never matched deterministically and rely on the LLM (which may under-merge). **Canonical example:** the El Marqués street-rehabilitation project on *calles San Juan del Río y Amealco* — every record nameless, all geocoded to `level_3_id=_48422011` (precision 3) — stays fragmented. The fix is list-valued location extraction so each named street geocodes to level 6: [`todos/location_level_list_extraction.md`](todos/location_level_list_extraction.md).
 
 ### LLM disambiguation (`link_llm.py`)
 
@@ -224,121 +225,6 @@ The script loads the extracted JSON fixture, streams every record through the li
 
 The linker reads `OPENROUTER_API_KEY` (loaded from `kg/.env.local` automatically by `run_linking.py`) and the deepriver geocoder microservice URLs (`NLP_URL`, `GEOCODING_URL`) — set the latter in your shell or local `.env`. Override the linker model via `OPENROUTER_LINKER_MODEL` (default `google/gemini-2.5-flash-lite`).
 
-## KG Database Persistence
+## Persistence
 
-> **Status: streaming + kgdb-backed retrieval implemented (validated on dev).** [`persistence.py`](persistence.py) (`KgdbWriter`) writes linked records into the **kgdb** Postgres database following the model below — in batch via [`scripts/persist_linked.py`](../../../scripts/persist_linked.py) from a `data/linked/<stem>.json` fixture (validated on dev: the `geo_qro_paid_mass_event` fixture — 463 entities + 926 `entity_types` + 463 `event_properties` + 953 `entities_documents`, idempotent re-runs) and inline per message by the **streaming RabbitMQ consumer** [`src/listener.py`](../../listener.py) (consume documents → extract → link → `KgdbWriter.upsert_linked`). The consumer uses kgdb-backed candidate retrieval ([`kgdb_retrieval.py`](kgdb_retrieval.py): `KgdbCandidateIndex`/`KgdbRecordStore`), so dedup holds across restarts and workers (validated on dev over multi-hundred-document batches). Still pending: the **in-DB canonical↔canonical merge** (reconciliation) and the production **producer/retriever** — see [`docs/todos/kgdb_event_persistence.md`](../../../docs/todos/kgdb_event_persistence.md). Residual risk: candidate-lookup→adjudicate→create runs in the linker outside any DB lock, so under true multi-worker parallelism duplicate canonicals are still possible — covered by [`docs/todos/canonical_reconciliation.md`](../../../docs/todos/canonical_reconciliation.md). The full schema and cross-database conventions are documented in [`media-backend-paid/docs/DATABASE_POSTGRES.md`](../../../../../media-backend-paid/docs/DATABASE_POSTGRES.md).
-
-### Persistence model — overview
-
-The whole KG ontology is encoded in the existing kgdb tables — no new tables are introduced.
-
-| KG concept | kgdb table | Role |
-|---|---|---|
-| Category (`event` / `entity` / `theme`) | `entity_kinds_available` | Top-level enumeration; maps 1:1 to `meta.category` |
-| Supertype (e.g. `paid_mass_event`) | `entity_types_kinds_available` (row with `parent_entity_type = NULL`) | Holds the JSON schema in `metadata_template` |
-| Child type (e.g. `concert`) | `entity_types_kinds_available` (row with `parent_entity_type = <supertype id>`) | Inherits the parent's schema (`metadata_template = NULL`) |
-| Linked record | `entities` | One row per canonical entity, validated record in `metadata` JSON |
-| Alias / dedup pointer | `entities_alias` | `original_entity_id` is the stable external key; `current_entity_id` points at the surviving entity after a merge |
-| Type membership | `entity_types` | Associates the entity with its supertype and (when known) child type |
-| Location | `entity_locations` | One row per geocoded `Location`; schema mirrors the geocoder output |
-| Source-document linkage | `entities_documents` | One row per `(entity, doc)` pair the linked entity is mentioned in |
-| Event linking lookups | `event_properties` | Materialised `date_start`, `date_end`, `status`, `status_date` to avoid scanning `entities.metadata` JSON |
-
-### Categories (`entity_kinds_available`)
-
-The KG ontology has three top-level categories — **event**, **entity**, **theme** — declared on every supertype schema as `meta.category`. They map 1:1 to rows in `entity_kinds_available`. Currently the table contains `event` and `entity`; **`theme` will be added when theme rows start being written**.
-
-### Supertypes and types (`entity_types_kinds_available`)
-
-The KG ontology is two-level: a **supertype** (e.g. `paid_mass_event`, `legislative_initiative`, `security`) defines the JSON schema, and one or more **child types** (e.g. `concert`, `festival`; `law_initiative`, `decree`; `crime_trends`, `law_enforcement`) refine it. Both live as rows in `entity_types_kinds_available`, distinguished by `parent_entity_type`:
-
-| Row | `entity_kind` | `parent_entity_type` | `metadata_template` |
-|---|---|---|---|
-| Supertype | `event` / `entity` / `theme` | `NULL` | The full JSON schema (= the contents of `../extraction/schemas/{supertype}.json`) |
-| Child type | same as parent's | The supertype's `entity_type_id` | `NULL` (inherits the parent's schema) |
-
-**Inheritance scope** is intentionally limited to supertype → child type. Children do not currently override or extend the supertype schema — extracted records for any child of `paid_mass_event` are validated against `paid_mass_event.json` regardless of which child class produced them. Storing the schema only on the supertype keeps a single source of truth and avoids fan-out updates across every child row when a schema evolves. If/when child-level field overrides are needed, the child row's `metadata_template` will carry the delta (extra fields), and validation will need to merge parent + child schemas before parsing.
-
-### Canonical records (`entities`, `entity_types`)
-
-Every linked output of the pipeline becomes one row in `entities`:
-
-- `name`, `description`, `keywords`, `embedding`, `filter_llm_prompt` — populated from the linked record (or left blank for now where the pipeline doesn't produce them).
-- `metadata` (`json`) — the validated, schema-conformant extracted record (output of the schema `Parser` for the supertype). Shape depends on the supertype:
-  - `paid_mass_event`: `event_type`, `date_range`, `location`, `price_range`, `attendance`, …
-  - `legislative_initiative`: `entity_type`, `name`, `jurisdiction`, `date_introduced`, `legislative_body`, …
-  - theme supertypes: `theme_type`, optional `location`, plus per-article fields (see *Themes* below)
-
-The entity is associated with its supertype (and, when known, the child type) via `entity_types` rows pointing at `entity_types_kinds_available.entity_type_id`. `entity_types.entity_id` references `entities_alias.original_entity_id`, so entity merges remain stable across the indirection layer.
-
-> **Future: multi-class entities.** Today the linker writes one supertype (+ optional child type) per entity, but `entity_types` is already a many-to-many — a single `entity_id` can carry multiple `entity_type_id` rows. An entity instantiating more than one ontology class simultaneously (e.g. an event that's both a `paid_mass_event` and a `protest_event`, or a `legislative_initiative` that also acts as a `security` theme anchor) is a real possibility we'll address when inheritance work properly lands. The schema accommodates it; the open questions are at the validation layer (which class's schema does `entities.metadata` conform to?) and at the linker (does multi-class change the candidate filter?). Until inheritance is tackled, treat one supertype per entity as the working assumption.
-
-### Themes are degenerate single entities
-
-A theme is a topical classifier — every article matching `(theme_class, location_up_to_level_3)` should link to the **same** `entities` row. The KG never produces a unique "instance" of a theme; instead, the linker maintains one canonical theme entity per `(theme_supertype_or_child_type, level_1, level_2, level_3)` tuple and appends `entities_documents` rows for each matching article.
-
-Consequently, the theme schema's article-side fields (`description`, `tags`, `context`, `relevance`, `sentiment`, `related_subtopics`, `time_scope`) describe a particular article's take on the theme, not a stable property of the canonical theme entity. **Recommendation:** for theme rows, keep `entities.metadata` minimal — only `theme_type`/`theme_subtype` and the location reference. Per-article variations belong on the `entities_documents` link, not on the canonical entity. (Per-article sentiment already has a home in `entities_documents_sentiments`.)
-
-### Locations (`entity_locations`)
-
-Events, and some entities, carry one or more rows in `entity_locations`. The `entity_locations` schema is intentionally aligned with the deepriver geocoder output (see [`geocode.py`](geocode.py)):
-
-| `entity_locations` column | Geocoder field |
-|---|---|
-| `coords` (`point`) | `(matched_lon, matched_lat)` |
-| `formatted_name` | `formatted_name` |
-| `precision_level` | `precision_level` (1–7) |
-| `geoid` | `geoid` |
-| `level_{N}` / `level_{N}_id` | `level_N` for N=1..7 (1=country, 2=state, 3=city, 5=neighborhood, 6=street, 7=place) |
-
-Multiple locations per entity are allowed (one row per location). Themes are the only category whose canonical-entity identity *requires* a coarse location (up to level 3) — see *Themes are degenerate single entities* above.
-
-### Linking lookups (`event_properties`)
-
-`event_properties` is the index that the linker uses to find candidate matches for a new incoming event without parsing every `entities.metadata` JSON blob. It carries the fields the candidate filter needs:
-
-| Filter dimension | Source for an incoming event | Stored on the linked event row |
-|---|---|---|
-| Date overlap | `metadata.date_range.date_range.{start,end}` | `event_properties.date_start`, `event_properties.date_end` |
-| Geographic prefix | geocoded `level_2_id` of the event's location | `entity_locations.level_2_id` |
-| Type compatibility | `metadata.event_type` (resolved to `entity_type_id`) | `entity_types.entity_type_id` |
-
-Without `event_properties`, the linker would have to extract `date_start`/`date_end` from each candidate's `metadata` JSON at query time — a JSON-path scan over all events of the right type and area. Materialising them as columns lets a normal range index drive candidate retrieval.
-
-`status` and `status_date` track event lifecycle (e.g. an `arrest_event` moving from `reported` → `confirmed` → `closed`) without rewriting `metadata` — useful when only the lifecycle changed but the underlying extracted record is unchanged.
-
-#### Open question: fold `event_properties` into `entities`?
-
-The fields are small (3 timestamps, 1 status string) and tightly coupled to event rows, so folding them in would save a join.
-
-**Recommendation: keep `event_properties` separate.** Three reasons:
-
-1. `entities` is shared across all three categories. Event-only columns on it would be `NULL` for ~⅔ of rows (themes and entities/concepts) and grow as new event-only or entity-only properties emerge — the table heads toward a sparse heterogeneous schema. The same pattern (typed property tables alongside `entities`) generalises to future categories — e.g. an analogous property table for legislative initiatives carrying `date_introduced`, `voting_status`, etc.
-2. Status updates are far more frequent than full-record rewrites. Keeping them off `entities` means status churn doesn't dirty the canonical row (and its embedding/keywords/metadata) on every state transition, and doesn't compete for autovacuum on a much larger table.
-3. The linker's join cost is bounded by `(entity_type_id, level_2_id, date overlap)`, all highly selective; a covering index on `event_properties (date_start, date_end)` plus the existing `event_id` constraint keeps the candidate fetch cheap.
-
-The kgdb candidate-retrieval predicates ([`kgdb_retrieval.py`](kgdb_retrieval.py)) are now backed by indexes in the schema (`media-backend-paid/db/kg_db/schema.sql`, asserted by [`test_kgdb_indexes.py`](test_kgdb_indexes.py)): expression indexes on `entities (metadata->>'_link_id')` and `(metadata->>'_supertype')`, a GiST on the `event_properties` date range, btrees on `entity_locations.level_N_id`, and a GiST on coords. So the date/geo/type/`_link_id` lookups don't scan. Denormalising `event_properties` into `entities` remains unnecessary.
-
-### Pipeline write path (`KgdbWriter.write_linked`)
-
-`KgdbWriter` ([`persistence.py`](persistence.py)) implements the steps below — one transaction per linked record (the unit the future streaming consumer calls per message). Themes are not linked upstream, so the theme branch in step 1 is not exercised yet. For each linked record:
-
-1. Resolve or create the entity:
-   - For events/entities: insert a new `entities` row (`metadata` = the validated record **+** `_link_id`/`_link_run` provenance), then an `entities_alias` row with `original_entity_id = current_entity_id = entities.entity_id`.
-   - *(Planned)* For themes: look up the canonical `(theme_type, level_1, level_2, level_3)` entity and reuse its `entity_id`, or create one if absent.
-2. Insert `entity_types` rows linking the entity (via `entities_alias.original_entity_id`) to the supertype's `entity_type_id` and, when the leaf resolves, the child type's.
-3. For the geocoded location (`record["_geo"]`), insert an `entity_locations` row with the geocoder's level breakdown (skipped when no `_geo`). One row today; multi-row once [list locations](../../../docs/todos/location_level_list_extraction.md) land.
-4. For events, upsert the `event_properties` row (`ON CONFLICT (event_id)`) with the **slack-widened** `date_start`/`date_end` (so a `tstzrange &&` index reproduces the candidate date filter) and `status`.
-5. For each `_sources` entry, upsert `entities_documents (entity_id, doc_id)` (`doc_index='news'`) carrying that source's OWN `doc_date_created` (its `publication_date`) and `news_type` — not the canonical earliest date — with `doc_source`=host, org-agnostic, per the existing sentiment write path. (Old records without `_sources` fall back to `source_ids` + the canonical date.)
-
-`entity_id` everywhere is `entities_alias.original_entity_id` (== `entity_id` at create), so later entity merges don't break the link.
-
-**Idempotency.** The batch path (`write_linked`) is run-scoped: records already written under the run (`metadata->>'_link_id'` **+** `_link_run`) are skipped, and `KgdbWriter.reset_run()` deletes a run (child→parent order) for a clean re-write. The streaming path (`upsert_linked`) matches an existing canonical by `metadata->>'_link_id'` **alone** (run-tag-independent), so a new run or backfill merges into an existing canonical instead of duplicating it.
-
-**Concurrent merges are additive.** The in-place update locks the canonical row (`SELECT … FOR UPDATE`) and UNIONs the DB's `source_ids` / `_source_windows` / `_sources` accumulators with the incoming record before writing, so two workers merging different sources into the same canonical don't clobber each other's source accumulators (no last-writer-wins loss).
-
-Drop buckets: `no_supertype`, `unseeded_supertype:<name>`, `error`.
-
-### Direct-FK exception (recap)
-
-`event_properties.event_id`, `entity_locations.entity_id`, and `relations.ent_id_*` FK directly to `entities.entity_id` rather than `entities_alias.original_entity_id` (a known oversight pending migration). Until that migration lands, the pipeline must take care to write to the surviving `entities.entity_id` (resolve the alias indirection before insert) and entity-merge logic must rewrite these rows. See the *Cross-database references* and *Exceptions* sections of [`DATABASE_POSTGRES.md`](../../../../../media-backend-paid/docs/DATABASE_POSTGRES.md) for the canonical write.
+Persistence (the kgdb write model and the streaming pipeline) is documented in [storage.md](storage.md).

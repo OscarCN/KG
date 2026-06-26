@@ -2,7 +2,7 @@
 
 LLM-based structured extraction from unstructured text (news articles, social media). Inputs: article text + metadata. Outputs: a flat list of validated entity records, each tagged with `_source_id` and `_supertype`, ready for the linker.
 
-For an overview of the broader pipeline, ontology categories, and how extraction relates to linking, see [`../readme_entities.md`](../readme_entities.md).
+For an overview of the broader pipeline, ontology categories, and how extraction relates to linking, see [entities.md](entities.md).
 
 ## Directory Structure
 
@@ -36,8 +36,9 @@ extraction/
     classes/                 # Generated extraction prompts (one per supertype, .txt)
   extract.py                 # Extraction pipeline: matching, LLM calls, parsing
   prompt_generator.py        # Schema → LLM prompt auto-generation
-  readme_extraction.md       # This file
 ```
+
+This file lives in `docs/extraction.md`; the source it documents is under `../src/entities/extraction/`.
 
 ## Ontology Routing
 
@@ -120,11 +121,11 @@ The legacy `keywords.csv` is kept for reference but is not used by the system.
   normalized at load time exactly like the Excel path, so matching is identical.
   Disabled rows are kept (with `enabled = false`) but skipped at load.
 
-The table is seeded from the Excel by [`scripts/seed_ontology_rules.py`](../../../scripts/seed_ontology_rules.py)
+The table is seeded from the Excel by [`scripts/seed_ontology_rules.py`](../scripts/seed_ontology_rules.py)
 (full refresh: `TRUNCATE` + insert all rows). DDL lives in
 `media-backend-paid/db/kg_db/schema.sql`. This is the single, queryable,
 editable source of truth for production matching — see
-[`docs/todos/productionization_streaming_kg.md`](../../../docs/todos/productionization_streaming_kg.md).
+[`todos/productionization_streaming_kg.md`](todos/productionization_streaming_kg.md).
 
 ## Schemas
 
@@ -155,7 +156,7 @@ full prompt is reserved for on-demand enrichment of important events. The split 
 re-tag a field and regenerate to move it between tiers. No required field is secondary, so
 essential-only records still validate against the full schema (absent secondary fields default to
 null). Themes/entities are untagged, so their generation/extraction is unaffected (they keep the
-full prompt). See [`../../../docs/todos/tiered_extraction_essential_fields.md`](../../../docs/todos/tiered_extraction_essential_fields.md)
+full prompt). See [`todos/tiered_extraction_essential_fields.md`](todos/tiered_extraction_essential_fields.md)
 for the design, including the (still open) trigger for the on-demand full pass.
 
 ### Shared composite types

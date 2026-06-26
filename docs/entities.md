@@ -2,7 +2,7 @@
 
 This directory implements the knowledge graph entity pipeline: structured extraction from unstructured text (`extraction/`) and linking the extracted records into canonical entities (`linking/`). Three ontology categories — events, entities/concepts, and themes — share the same schema infrastructure, the same extraction pipeline, and the same target persistence model.
 
-> **Database status: streaming + kgdb-backed retrieval implemented (validated on dev).** Linked records are written into the unified `kgdb` Postgres database (described in [`media-backend-paid/docs/DATABASE_POSTGRES.md`](../../../../media-backend-paid/docs/DATABASE_POSTGRES.md)) by `linking/persistence.py` (`KgdbWriter`) — either in batch from a `data/linked/<stem>.json` fixture ([`scripts/persist_linked.py`](../../scripts/persist_linked.py)) or inline per message by the streaming RabbitMQ consumer [`src/listener.py`](../listener.py), which uses kgdb-backed candidate retrieval ([`linking/kgdb_retrieval.py`](linking/kgdb_retrieval.py)) so dedup holds across restarts and workers. Still pending: the in-DB canonical↔canonical reconciliation merge and the production producer/retriever — see [`linking/readme_linking.md`](linking/readme_linking.md#kg-database-persistence) and [`docs/todos/kgdb_event_persistence.md`](../../docs/todos/kgdb_event_persistence.md). Note: under true multi-worker parallelism duplicate canonicals remain possible (open [`docs/todos/canonical_reconciliation.md`](../../docs/todos/canonical_reconciliation.md)).
+> **Database status: streaming + kgdb-backed retrieval implemented (validated on dev).** Linked records are written into the unified `kgdb` Postgres database (described in [`media-backend-paid/docs/DATABASE_POSTGRES.md`](../../../media-backend-paid/docs/DATABASE_POSTGRES.md)) by `linking/persistence.py` (`KgdbWriter`) — either in batch from a `data/linked/<stem>.json` fixture ([`scripts/persist_linked.py`](../scripts/persist_linked.py)) or inline per message by the streaming RabbitMQ consumer [`src/listener.py`](../src/listener.py), which uses kgdb-backed candidate retrieval ([`linking/kgdb_retrieval.py`](../src/entities/linking/kgdb_retrieval.py)) so dedup holds across restarts and workers. Still pending: the in-DB canonical↔canonical reconciliation merge and the production producer/retriever — see [storage.md](storage.md) and [`todos/kgdb_event_persistence.md`](todos/kgdb_event_persistence.md). Note: under true multi-worker parallelism duplicate canonicals remain possible (open [`todos/canonical_reconciliation.md`](todos/canonical_reconciliation.md)).
 
 ## Directory Structure
 
@@ -15,7 +15,7 @@ entities/
     prompts/classes/         # Generated extraction prompts (one per supertype, .txt)
     extract.py               # Extraction pipeline
     prompt_generator.py      # Schema → LLM prompt auto-generation
-    readme_extraction.md     # Extraction subsystem docs
+    # (extraction subsystem docs: docs/extraction.md)
   linking/                   # Event linking/deduplication via LLM disambiguation
     geocode.py               # Geocoder wrapper (structured Location → level_2, coords, geoid)
     link_llm.py              # LLM disambiguator (gemini-2.5-flash-lite) with file cache
@@ -24,7 +24,7 @@ entities/
     strategy.py              # GeoEventStrategy: identification lifecycle (enrich → keys → adjudicate → merge)
     link.py                  # EntityLinker: envelope parse + strategy orchestration (events only); link_one(raw) → LinkResult for streaming callers
     run_linking.py           # IPython runner — tests linking from extracted-record fixtures
-    readme_linking.md        # Linking subsystem docs (incl. KG database persistence)
+    # (linking subsystem docs: docs/linking.md; persistence: docs/storage.md)
   tags/                      # Customer-anchored stances + per-event claim clusters (decoupled; moving out of this repo)
     models/                  # Pure data structures (no LLMs / no IO)
       customer.py            # Customer + ContentGraphConfig (mirrors kgdb columns)
@@ -43,19 +43,20 @@ entities/
     tags_overview.md         # Design spec
     tags_impl_plan.md        # Architecture / class / lifecycle spec
     readme_tags.md           # User-facing how-to
-  readme_entities.md         # This file (overview)
 ```
+
+This overview lives in `docs/entities.md`; the source it documents is under `../src/entities/`.
 
 ## Subsystems
 
 | Subsystem | Reads | Writes | Docs |
 |---|---|---|---|
 | **Entities stream** (`run_entities.py`) | Incoming document fixtures under `data/<subdir>/` | Debug artifacts: extracted records and linked events | This file |
-| **Extraction** (`extraction/`) | News / social-media articles | A flat list of validated entity records, each tagged with `_source_id` and `_supertype` | [`extraction/readme_extraction.md`](extraction/readme_extraction.md) |
-| **Linking** (`linking/`) | Extracted event records | In-memory / JSON canonical event records (deduped, geocoded); `KgdbWriter` (`linking/persistence.py`) persists them into `kgdb` (Step Zero — batch writer done; streaming/merge pending) | [`linking/readme_linking.md`](linking/readme_linking.md) |
-| **Tags** (`tags/`) | Linked events + the article + its comments | Decoupled from extraction/linking; this code is moving to its own repository and is not driven by `linking/run_linking.py` | [`tags/readme_tags.md`](tags/readme_tags.md), [`tags/tags_overview.md`](tags/tags_overview.md), [`tags/tags_impl_plan.md`](tags/tags_impl_plan.md) |
+| **Extraction** (`extraction/`) | News / social-media articles | A flat list of validated entity records, each tagged with `_source_id` and `_supertype` | [extraction.md](extraction.md) |
+| **Linking** (`linking/`) | Extracted event records | In-memory / JSON canonical event records (deduped, geocoded); `KgdbWriter` (`linking/persistence.py`) persists them into `kgdb` | [linking.md](linking.md), [storage.md](storage.md) |
+| **Tags** (`tags/`) | Linked events + the article + its comments | Decoupled from extraction/linking; this code is moving to its own repository and is not driven by `linking/run_linking.py` | `tags/readme_tags.md`, `tags/tags_overview.md`, `tags/tags_impl_plan.md` (live with the tags code) |
 
-The full kgdb schema and cross-database conventions are documented in [`media-backend-paid/docs/DATABASE_POSTGRES.md`](../../../../media-backend-paid/docs/DATABASE_POSTGRES.md). The linker's [KG Database Persistence](linking/readme_linking.md#kg-database-persistence) section captures the pieces relevant to the (eventual) write path.
+The full kgdb schema and cross-database conventions are documented in [`media-backend-paid/docs/DATABASE_POSTGRES.md`](../../../media-backend-paid/docs/DATABASE_POSTGRES.md). The [storage.md](storage.md) doc captures the kgdb write path and the streaming pipeline.
 
 ## Streaming Simulation
 
@@ -84,7 +85,7 @@ The system distinguishes three broad categories of extractable content. Every su
 - **Themes** (6 supertypes — topical classifiers without required datetime): `security`, `civil_protection`, `mobility`, `culture`, `sports`, `civic_participation`. No suffix.
 - **Entities / Concepts** (1 supertype — `legislative_initiative`): specific, identifiable things that are not events. Require a `name`, typically include a `jurisdiction` (Location), and date fields describe entity attributes (e.g. `date_introduced`) rather than an occurrence time.
 
-An article may match a theme, an event, and an entity schema simultaneously — all are extracted separately. Extraction details (matching rules, classification, schemas) live in [`extraction/readme_extraction.md`](extraction/readme_extraction.md); linking details (candidate filter, LLM disambiguation, persistence) live in [`linking/readme_linking.md`](linking/readme_linking.md).
+An article may match a theme, an event, and an entity schema simultaneously — all are extracted separately. Extraction details (matching rules, classification, schemas) live in [extraction.md](extraction.md); linking details (candidate filter, LLM disambiguation) live in [linking.md](linking.md) and the persistence model in [storage.md](storage.md).
 
 **Planned**: more entity/concept supertypes (e.g. real estate developments, persons, technologies). All use the same extraction pipeline (keyword matching → LLM classification → per-class extraction) with schemas that reflect each category's identifying features.
 
@@ -102,6 +103,6 @@ Classes will support inheritance, where a more specific class inherits attribute
 
 This allows shared attributes and behavior to be defined once at the parent level and specialized at the child level.
 
-In the database (`kgdb.entity_types_kinds_available`), inheritance is currently scoped to **supertype → child type** (e.g. `paid_mass_event` → `concert`). The supertype carries the schema in `metadata_template`; child types inherit and leave it `NULL`. See [Supertypes and types](linking/readme_linking.md#supertypes-and-types-entity_types_kinds_available) in the linking docs for details.
+In the database (`kgdb.entity_types_kinds_available`), inheritance is currently scoped to **supertype → child type** (e.g. `paid_mass_event` → `concert`). The supertype carries the schema in `metadata_template`; child types inherit and leave it `NULL`. See [Supertypes and types](storage.md#supertypes-and-types-entity_types_kinds_available) in the storage docs for details.
 
 A related future direction is **multi-class entities** — a single entity instantiating more than one ontology class simultaneously (orthogonal to parent-child inheritance, but tangled with it: a single `arrest_event` row could also be a `violence_event`, and a multi-typed entity may need to satisfy several schemas at once). The `entity_types` table is already a many-to-many and supports this on the schema side. We'll deal with it as part of the broader inheritance work — until then, the working assumption is one supertype per entity.

@@ -18,9 +18,11 @@ Before changing entity extraction, linking, or tags code, read the relevant docs
 
 - Root overview: `README.md`
 - Project conventions: `CLAUDE.md`
-- Entity overview: `src/entities/readme_entities.md`
-- Extraction: `src/entities/extraction/readme_extraction.md`
-- Linking: `src/entities/linking/readme_linking.md`
+- Architecture: `docs/architecture.md`
+- Entity overview: `docs/entities.md`
+- Extraction: `docs/extraction.md`
+- Linking: `docs/linking.md`
+- Storage / kgdb persistence: `docs/storage.md`
 - Tags design: `src/entities/tags/tags_overview.md`
 - Tags usage: `src/entities/tags/readme_tags.md`
 - Tags Stage-1 architecture: `src/entities/tags/tags_impl_plan.md`
@@ -60,7 +62,7 @@ Linking lives in `src/entities/linking/`.
 - `EntityLinker.link_one(raw)` is the streaming entry point used by `run_linking.py`.
 - Supertype-specific behaviour (geo partitioning, date windows, LLM payload, merge policy) lives in `strategy.py` (`GeoEventStrategy`); candidate storage is behind the `CandidateIndex` protocol in `index.py`. `link.py` only parses the envelope and orchestrates.
 - Candidate filtering uses event type, the geo partition key (geocoder `level_2` normalized via `mx_states.py`, with extracted state text as fallback), and slack-expanded date overlap (`precision_days`-aware).
-- Every precision behaviour is a `GeoEventStrategy` constructor parameter; legacy values reproduce the pre-refactor behaviour for regression (see the parameters table in `readme_linking.md`).
+- Every precision behaviour is a `GeoEventStrategy` constructor parameter; legacy values reproduce the pre-refactor behaviour for regression (see the parameters table in `docs/linking.md`).
 - LLM disambiguation happens in `link_llm.py` and is cached under `cache/link_llm/` — keep its payload shape byte-stable (`strategy._llm_payload`).
 - Geocoding happens through `geocode.py` and is cached under `cache/geocode/`.
 
@@ -128,9 +130,10 @@ There is no `requirements.txt` or `pyproject.toml` yet. Dependencies are current
 After any non-trivial implementation or behavioral change, update the relevant docs in the same change:
 
 - Root or cross-system behavior: `README.md`
-- Entity-wide behavior: `src/entities/readme_entities.md`
-- Extraction changes: `src/entities/extraction/readme_extraction.md`
-- Linking changes: `src/entities/linking/readme_linking.md`
+- Entity-wide behavior: `docs/entities.md`
+- Extraction changes: `docs/extraction.md`
+- Linking changes: `docs/linking.md`
+- Storage / kgdb persistence / streaming changes: `docs/storage.md`
 - Tags changes: `src/entities/tags/readme_tags.md`, `tags_overview.md`, or `tags_impl_plan.md`
 - Roadmap / design TODOs: one self-contained file per TODO under `docs/todos/`, linked from README.md
 

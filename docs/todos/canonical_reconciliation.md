@@ -2,7 +2,7 @@
 
 **Status:** open — design + prototype
 **Area:** `src/entities/linking/strategy.py`, `src/entities/linking/link.py`, `src/entities/linking/index.py`
-**Related:** [`retrieval_linking_per_supertype.md`](retrieval_linking_per_supertype.md), [`location_level_list_extraction.md`](location_level_list_extraction.md), [`../../src/entities/linking/readme_linking.md`](../../src/entities/linking/readme_linking.md)
+**Related:** [`retrieval_linking_per_supertype.md`](retrieval_linking_per_supertype.md), [`location_level_list_extraction.md`](location_level_list_extraction.md), [`../linking.md`](../linking.md)
 
 ## Problem
 

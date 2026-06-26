@@ -5,7 +5,7 @@
 kgdb catalog `entity_types_kinds_available`; couples to the catalog seed in
 [`kgdb_event_persistence.md`](kgdb_event_persistence.md) (P2)
 **Related:** [`kgdb_event_persistence.md`](kgdb_event_persistence.md),
-[`../../src/entities/extraction/readme_extraction.md`](../../src/entities/extraction/readme_extraction.md)
+[`../extraction.md`](../extraction.md)
 
 ## Goal
 
@@ -22,7 +22,7 @@ Activation already exists, but **only in Excel**: `catalogues/keywords.xlsx` has
 column that gates each matching rule at load time — `enabled = FALSE` rows are skipped, so the
 class is "never matched, classified or extracted" (missing column/value ⇒ TRUE, backward
 compatible). See *Matching rules* in
-[`readme_extraction.md`](../../src/entities/extraction/readme_extraction.md). This is
+[`extraction.md`](../extraction.md). This is
 rule-level (a class with several rows can be partly disabled) and lives in a file, not the DB.
 
 ## Proposed: kgdb as the source of truth for activation

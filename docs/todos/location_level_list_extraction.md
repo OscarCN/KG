@@ -2,7 +2,7 @@
 
 **Status:** open — a **geocoder-side workaround now exists** (`refine_mentions`, see below) that covers the dominant compound-street case without the schema change; the linker/writer multi-location plumbing is still required
 **Area:** `src/entities/extraction/` (schema + prompt); knock-on in `src/entities/linking/` (`strategy.py`, `geocode.py`)
-**Related:** [`retrieval_linking_per_supertype.md`](retrieval_linking_per_supertype.md), [`../../src/entities/linking/readme_linking.md`](../../src/entities/linking/readme_linking.md), geocoder [`flask.md` §`refine_mentions`](/Users/oscarcuellar/ocn/geocoding/docs/flask.md)
+**Related:** [`retrieval_linking_per_supertype.md`](retrieval_linking_per_supertype.md), [`../linking.md`](../linking.md), geocoder [`flask.md` §`refine_mentions`](/Users/oscarcuellar/ocn/geocoding/docs/flask.md)
 
 ## Geocoder-side workaround: `refine_mentions` (preferred for compound-street fields)
 
@@ -60,7 +60,7 @@ multi-street events fragment.
 project on *calles San Juan del Río y Amealco* fragmented into **4 linked events** — every
 record nameless (`name=None`) and geocoded only to `level_3_id=_48422011` (the
 municipality). This is the level-2/3/5 weakness recorded in
-[`readme_linking.md`](../../src/entities/linking/readme_linking.md): coarse-precision
+[`linking.md`](../linking.md): coarse-precision
 nameless clusters can't be matched deterministically. See the linking docs' *Deterministic
 merge gate* section.
 
@@ -106,7 +106,7 @@ deterministically, **no name required**.
 
 - **Over-merge slack:** two *different* projects/incidents sharing a common street
   (+ same type + day) will merge — the accepted level-6 slack (see the same-street
-  weakness in `readme_linking.md`).
+  weakness in `linking.md`).
 - **Still precision-gated:** this only helps when the geocoder resolves the listed places
   to level 6/7. Events whose streets still resolve only to the municipality gain nothing.
 - **List hygiene:** bound the list size, dedup geocoded results, and decide a primary

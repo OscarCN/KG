@@ -91,13 +91,13 @@ Suggested fix: add migrations for the actual retrieval predicates, or switch the
 
 ### Low — docs are stale/inconsistent around streaming status
 
-`README.md` says streaming + kgdb-backed retrieval are implemented and validated, while `src/entities/readme_entities.md`, `src/listener.py` docstring, and `src/entities/linking/readme_linking.md` still say streaming or kgdb-backed candidate retrieval is pending/in-memory.
+`README.md` says streaming + kgdb-backed retrieval are implemented and validated, while `docs/entities.md`, `src/listener.py` docstring, and `docs/linking.md` still say streaming or kgdb-backed candidate retrieval is pending/in-memory.
 
 References:
-- `README.md:121`
-- `src/entities/readme_entities.md:7`
+- `README.md`
+- `docs/entities.md`
 - `src/listener.py:17`
-- `src/entities/linking/readme_linking.md:228`
+- `docs/storage.md` (persistence model; formerly the linking doc's "KG Database Persistence" section)
 
 ## Residual Risk
 

@@ -2,7 +2,7 @@
 
 **Status:** geo strategy v1 **implemented** (see [Geo strategy v1](#geo-strategy-v1) and the decision log below); per-supertype generalization still open
 **Area:** `src/entities/linking/`
-**Related:** [`src/entities/readme_entities.md`](../../src/entities/readme_entities.md), [`src/entities/linking/readme_linking.md`](../../src/entities/linking/readme_linking.md)
+**Related:** [`entities.md`](../entities.md), [`linking.md`](../linking.md)
 
 ## Problem
 
@@ -125,7 +125,7 @@ Normative definition of identification for geo-events. **Implemented** in
 by a supertype-agnostic `EntityLinker` (`link.py`) — every fix below is a
 strategy constructor parameter with a legacy value that reproduces the
 pre-refactor behaviour for regression runs. Implemented behaviour is
-documented in [`readme_linking.md`](../../src/entities/linking/readme_linking.md);
+documented in [`linking.md`](../linking.md);
 the decision log at the end of this section records what changed against this
 spec during implementation.
 
@@ -239,7 +239,7 @@ Two geo-event records denote the **same event** iff:
 ### Decision log (geo v2 — hierarchical retrieval + deterministic gate, 2026-06)
 
 Both deferred items above **landed**, generalized (see
-[`readme_linking.md`](../../src/entities/linking/readme_linking.md)):
+[`linking.md`](../linking.md)):
 
 - **Hierarchical + coordinate retrieval** (`geo_retrieval="hierarchy"`). A located
   event registers/looks up under its `level_N_id` buckets (`partition_levels=(3,5,6,7)`)
@@ -347,5 +347,5 @@ cost guardrails → declared short-circuits and caps per stage (4).)*
   above).
 - ✅ Themes and schema-less supertypes are explicit declared skips/drops, not
   fall-throughs.
-- ✅ Behaviour documented in `readme_linking.md`; README and entity docs point
+- ✅ Behaviour documented in `linking.md`; README and entity docs point
   here.
