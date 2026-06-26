@@ -86,6 +86,7 @@ data/
 scripts/
   build_customer_fixture.py  # Materialises a customer fixture from kgdb (Stage-1 stand-in)
   gen_kg_catalog_seed.py     # Generates the kgdb KG type-catalog seed SQL (P2) from schemas + event_types.csv
+  seed_ontology_rules.py     # Seeds kgdb ontology_matching_rules from keywords.xlsx (full refresh; prod rule source)
   persist_linked.py          # Step Zero: writes a data/linked/<stem>.json fixture into kgdb via KgdbWriter
   enqueue_from_es.py         # Testing producer: ES date-window fetch (geo/precision/category filter) → kg RabbitMQ doc queue
   publish_document.py        # Publish a JSON document file to a RabbitMQ queue (dev-vhost listener loop)

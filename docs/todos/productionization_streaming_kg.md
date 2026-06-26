@@ -31,17 +31,17 @@ TODOs linked below.
 Schema-first: all DDL goes through `media-backend-paid/db/kg_db/schema.sql`
 (+ a standalone migration file), then applied to live.
 
-- [ ] **Ontology keywords → kgdb table.** Move the matching rules out of
-  `src/entities/extraction/catalogues/keywords.xlsx` into a kgdb table
-  (e.g. `ontology_matching_rules`) mirroring the Excel columns: `class`
-  (FK → `entity_types_kinds_available`), `enabled`/`active`, `kw[]`,
-  `phrase[]`, `not[]`, `categories[]`, `dismiss_categories[]`,
-  `document_type[]`, plus labels (`section`/`subsection`/`tag`). Seed the
-  table from the current `keywords.xlsx`. Make `Ontology` (`extract.py:150`)
-  load rules from kgdb, keeping Excel only as a local-dev fallback. Add an
-  edit path (SQL now; admin UI later). **Couples to**
-  [active_type_extraction.md](active_type_extraction.md) — the `active` gate is
-  sourced from the type catalog, elevating today's Excel-only `enabled` gate.
+- [x] **Ontology keywords → kgdb table. Done (dev).** `ontology_matching_rules`
+  holds every rule (raw/human-editable list columns `kw`/`phrase`/`not_kw`/
+  `categories`/`dismiss_categories`/`document_type` + `enabled` + labels).
+  `Ontology` loads from kgdb when `KG_ONTOLOGY_SOURCE=db` (Excel stays the
+  dev/test default), normalizing at load so matching is byte-identical (verified:
+  same 47 enabled classes, identical rule set, identical match output on the
+  fixture). Seeded by `scripts/seed_ontology_rules.py` (full refresh from
+  `keywords.xlsx`); DDL applied to dev kgdb. **Remaining:** apply to live; a
+  proper edit path (SQL now, admin UI later); and the **`active` gate** sourced
+  from the type catalog ([active_type_extraction.md](active_type_extraction.md)),
+  which elevates today's `enabled` gate.
 - [ ] **Apply the retrieval index migration** (branch
   `persistence-review-kgdb-indexes` in `media-backend-paid`) to live kgdb.
 - [ ] **Verify/apply on live:** P1 (`entity_locations` identity fix), P2

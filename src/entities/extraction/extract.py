@@ -16,6 +16,7 @@ import csv
 import hashlib
 import json
 import logging
+import os
 import re
 import unicodedata
 from datetime import datetime
@@ -131,6 +132,8 @@ class Ontology:
         self,
         event_types_path: Path = _CATALOGUES_DIR / "event_types.csv",
         keywords_path: Path = _CATALOGUES_DIR / "keywords.xlsx",
+        source: Optional[str] = None,
+        conn: Any = None,
     ):
         # event_type → supertype
         self.type_to_supertype: Dict[str, str] = {}
@@ -146,14 +149,48 @@ class Ontology:
                     "label_en": row["label_en"],
                 }
 
-        # Load matching rules from Excel
+        # Matching rules: from kgdb (production) or the Excel catalogue (dev/test).
+        # `KG_ONTOLOGY_SOURCE=db` (or source="db") loads from the
+        # `ontology_matching_rules` table; default is the Excel file.
+        source = (source or os.environ.get("KG_ONTOLOGY_SOURCE", "xlsx")).lower()
+        if source == "db":
+            self.rules = self._load_rules_from_db(conn)
+        else:
+            self.rules = self._load_rules_from_xlsx(keywords_path)
+        # Restrict downstream lookups to classes that survived the enabled filter.
+        self.enabled_classes: Set[str] = {r["ontology_class"] for r in self.rules}
+
+    @staticmethod
+    def _build_rule(
+        ontology_class: str, kw, phrase, not_kw, categories,
+        dismiss_categories, document_type,
+    ) -> Dict[str, Any]:
+        """Assemble one rule dict, normalizing exactly as the xlsx path does:
+        kw/phrase/not lowercased + accent-stripped, categories stripped (case
+        kept), document_type lowercased. kw stemming is precomputed."""
+        kw_norm = [_normalize_text(x) for x in (kw or []) if str(x).strip()]
+        return {
+            "ontology_class": ontology_class,
+            "kw": kw_norm,
+            "kw_stemmed": [_stem_text(k) for k in kw_norm],
+            "phrase": [_normalize_text(x) for x in (phrase or []) if str(x).strip()],
+            "not": [_normalize_text(x) for x in (not_kw or []) if str(x).strip()],
+            "categories": [str(x).strip() for x in (categories or []) if str(x).strip()],
+            "dismiss_categories": [
+                str(x).strip() for x in (dismiss_categories or []) if str(x).strip()
+            ],
+            "document_type": [
+                str(x).strip().lower() for x in (document_type or []) if str(x).strip()
+            ],
+        }
+
+    def _load_rules_from_xlsx(self, keywords_path: Path) -> List[Dict[str, Any]]:
         df = pd.read_excel(keywords_path)
-        self.rules: List[Dict[str, Any]] = []
+        rules: List[Dict[str, Any]] = []
         n_disabled = 0
         for _, row in df.iterrows():
-            rule: Dict[str, Any] = {}
-            rule["ontology_class"] = str(row["class"]).strip() if pd.notna(row.get("class")) else None
-            if not rule["ontology_class"]:
+            ontology_class = str(row["class"]).strip() if pd.notna(row.get("class")) else None
+            if not ontology_class:
                 continue
             # `enabled` column gates whether the rule is active. Missing column
             # or missing value → treated as enabled (backward compatible).
@@ -162,24 +199,44 @@ class Ontology:
                 if pd.notna(enabled_raw) and not bool(enabled_raw):
                     n_disabled += 1
                     continue
-            rule["kw"] = _parse_quoted_list(row.get("kw"))
-            rule["kw_stemmed"] = [_stem_text(kw) for kw in rule["kw"]]
-            rule["phrase"] = _parse_quoted_list(row.get("phrase"))
-            rule["not"] = _parse_quoted_list(row.get("not"))
-            rule["categories"] = _parse_pipe_list(row.get("categories"))
-            rule["dismiss_categories"] = _parse_pipe_list(row.get("dismiss_categories"))
-            rule["document_type"] = _parse_comma_list(row.get("document_type"))
-            self.rules.append(rule)
-        # Restrict downstream lookups to classes that survived the enabled filter.
-        self.enabled_classes: Set[str] = {r["ontology_class"] for r in self.rules}
+            rules.append(self._build_rule(
+                ontology_class,
+                _parse_quoted_list(row.get("kw")),
+                _parse_quoted_list(row.get("phrase")),
+                _parse_quoted_list(row.get("not")),
+                _parse_pipe_list(row.get("categories")),
+                _parse_pipe_list(row.get("dismiss_categories")),
+                _parse_comma_list(row.get("document_type")),
+            ))
         if n_disabled:
             logger.info(
-                "Ontology: %d rules disabled via `enabled` column; %d rules active "
-                "(%d distinct classes).",
-                n_disabled,
-                len(self.rules),
-                len(self.enabled_classes),
+                "Ontology: %d rules disabled via `enabled` column; %d rules active.",
+                n_disabled, len(rules),
             )
+        return rules
+
+    def _load_rules_from_db(self, conn: Any = None) -> List[Dict[str, Any]]:
+        """Load enabled rules from kgdb `ontology_matching_rules`. Values are
+        stored RAW (human-editable) and normalized here, identically to the
+        xlsx path. Connects via KGDB_* env when no connection is passed."""
+        close_after = conn is None
+        if conn is None:
+            from src.entities.linking.persistence import KgdbWriter
+            conn = KgdbWriter._connect()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT ontology_class, kw, phrase, not_kw, categories, "
+                    "dismiss_categories, document_type "
+                    "FROM ontology_matching_rules WHERE enabled = true"
+                )
+                rows = cur.fetchall()
+        finally:
+            if close_after:
+                conn.close()
+        rules = [self._build_rule(*row) for row in rows if row[0]]
+        logger.info("Ontology: loaded %d enabled rules from kgdb.", len(rules))
+        return rules
 
     def match(
         self,
