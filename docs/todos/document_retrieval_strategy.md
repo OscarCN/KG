@@ -6,7 +6,7 @@ pre-filter** (ES-query retriever deferred as a scale optimization); not implemen
 (unchanged)
 **Related:** [`active_type_extraction.md`](active_type_extraction.md),
 [`kgdb_event_persistence.md`](kgdb_event_persistence.md),
-[`../../src/entities/extraction/readme_extraction.md`](../../src/entities/extraction/readme_extraction.md),
+[`../extraction.md`](../extraction.md),
 `src/PoC/get_entities_data.py` (keywords→ES prototype), shared lib `elastic_client`
 
 ## Problem

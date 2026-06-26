@@ -289,7 +289,7 @@ context = {"date_now": date_now, "body": body, "source_type": source_type}
 - Document `DateFromUnstructured` composite type
 - Document env vars: `OPENROUTER_GENERATION_MODEL`, `OPENROUTER_FEEDBACK_MODEL`
 
-### `src/entities/readme_entities.md` (detailed)
+### `docs/entities.md` (detailed)
 
 - Update directory structure (add `prompt_generator.py`, note `prompts/classes/` is generated output)
 - Replace "Prompt Generation (Phase 2)" section — no longer "(future)". New content:
@@ -332,7 +332,7 @@ context = {"date_now": date_now, "body": body, "source_type": source_type}
 | `src/entities/extraction/schemas/public_works_event.json` | `completion_date` type → `DateFromUnstructured` |
 | `src/entities/extraction/prompt_generator.py` | **New file** — PromptGenerationContextManager + PromptGeneration |
 | `src/entities/extraction/extract.py` | Prompt path fix (line 313) + source_type context (line 561) |
-| `src/entities/readme_entities.md` | Documentation update |
+| `docs/entities.md` | Documentation update |
 | `README.md` | Documentation update |
 
 ## Verification

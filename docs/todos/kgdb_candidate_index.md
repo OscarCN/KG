@@ -17,7 +17,7 @@
 > in both the lookup (`LEAST`/`GREATEST`) and the writer (swap guard). Remaining nuances under
 > *Open questions* (grid as a stored column, SQL recency cap, the multi-worker race → reconciliation).
 **Related:** [`kgdb_event_persistence.md`](kgdb_event_persistence.md) (Streaming consumer — this
-is its named correctness blocker), [`../../src/entities/linking/readme_linking.md`](../../src/entities/linking/readme_linking.md),
+is its named correctness blocker), [`../linking.md`](../linking.md),
 [`../../../../media-backend-paid/docs/DATABASE_POSTGRES.md`](../../../../media-backend-paid/docs/DATABASE_POSTGRES.md)
 
 ## Why

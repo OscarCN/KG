@@ -221,7 +221,7 @@ src/entities/
     extractor.py          # Orchestrates: match → route → extract → parse
     ontology.py           # Loads catalogues, keyword→type→supertype lookups
   linking/                # (future) Entity linking/mapping
-  readme_entities.md
+  # (entity overview docs: docs/entities.md)
 ```
 
 ### 5.2 Extractor pipeline
@@ -266,7 +266,7 @@ File-based implementation reads from `data/` directory. Later replaced with mess
 - [x] Design composite types (Location, PriceRange, Attendance, VenueCapacity)
 - [x] Write all 7 entity schemas in JSON
 - [x] Write ontology catalogues (event_types.csv, keywords.csv)
-- [x] Document in readme_entities.md
+- [x] Document in docs/entities.md
 
 ### Phase 2 — Prompt Generation
 - [ ] Implement `prompt_generator.py` — reads schema JSON, produces LLM messages

@@ -2,7 +2,7 @@
 
 **Status:** open
 **Area:** `src/entities/extraction/catalogues/keywords.xlsx` (and `event_types.csv`)
-**Related:** [`src/entities/extraction/readme_extraction.md`](../../src/entities/extraction/readme_extraction.md), [`retrieval_linking_per_supertype.md`](retrieval_linking_per_supertype.md)
+**Related:** [`extraction.md`](../extraction.md), [`retrieval_linking_per_supertype.md`](retrieval_linking_per_supertype.md)
 
 ## Problem
 

@@ -2,7 +2,7 @@
 
 **Status:** open — essential-by-default extraction **shipped**; the on-demand enrichment trigger is the remaining work
 **Area:** `src/entities/extraction/extract.py` (enrichment trigger), downstream linking / saved-search task wiring
-**Related:** [`../../src/entities/extraction/readme_extraction.md`](../../src/entities/extraction/readme_extraction.md), [`kgdb_event_persistence.md`](kgdb_event_persistence.md)
+**Related:** [`../extraction.md`](../extraction.md), [`kgdb_event_persistence.md`](kgdb_event_persistence.md)
 
 ## Already shipped (essential-by-default)
 
