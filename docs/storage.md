@@ -332,7 +332,10 @@ new run or backfill merges into an existing canonical instead of duplicating it.
 (`SELECT … FOR UPDATE`) and UNIONs the DB's `source_ids` / `_source_windows` / `_sources`
 accumulators with the incoming record before writing, so two workers merging different sources
 into the same canonical don't clobber each other's source accumulators (no last-writer-wins
-loss).
+loss). All three are **de-duped by value** (`_sources` by `source_id`, `_source_windows` by the
+full window object): the incoming record already carries the accumulated list from the in-memory
+merge, so a plain concat would double it on every merge (`2^n` growth, eventually exceeding
+Postgres' 1 GB per-datum limit and failing the `UPDATE`) — de-duping keeps growth linear.
 
 Drop buckets: `no_supertype`, `unseeded_supertype:<name>`, `error`.
 

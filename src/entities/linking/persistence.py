@@ -335,10 +335,27 @@ class KgdbWriter:
         if merged_sources:
             metadata["_sources"] = merged_sources
 
-        # _source_windows — concatenate (DB first, then incoming).
-        merged_windows = (current.get("_source_windows") or []) + (
+        # _source_windows — union by value (DB first, then incoming). The
+        # incoming record already carries the full accumulated window list from
+        # the in-memory merge, and the DB copy holds the same, so a plain concat
+        # DOUBLES the list every merge (2^n growth → the JSON value eventually
+        # exceeds Postgres' 1 GB per-datum limit and the UPDATE dies). De-dupe by
+        # value, exactly like _sources, so growth stays linear (one window per
+        # real source).
+        merged_windows: list = []
+        seen_windows: set = set()
+        for w in (current.get("_source_windows") or []) + (
             metadata.get("_source_windows") or []
-        )
+        ):
+            key = (
+                json.dumps(w, sort_keys=True, default=_json_default)
+                if isinstance(w, (dict, list))
+                else w
+            )
+            if key in seen_windows:
+                continue
+            seen_windows.add(key)
+            merged_windows.append(w)
         if merged_windows:
             metadata["_source_windows"] = merged_windows
         return metadata
