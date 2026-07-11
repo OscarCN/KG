@@ -314,10 +314,13 @@ linked upstream, so the theme branch in step 1 is not exercised yet. For each li
    **slack-widened** `date_start`/`date_end` (so a `tstzrange &&` index reproduces the
    candidate date filter) and `status`.
 5. For each `_sources` entry, upsert `entities_documents (entity_id, doc_id)`
-   (`doc_index='news'`) carrying that source's OWN `doc_date_created` (its `publication_date`)
-   and `news_type` — not the canonical earliest date — with `doc_source`=host, org-agnostic,
-   per the existing sentiment write path. (Old records without `_sources` fall back to
-   `source_ids` + the canonical date.)
+   (`doc_index='news'`) carrying that source's OWN `doc_date_created` (its `publication_date`),
+   `news_type` and `doc_images` (the article's `media_pictures` as `[{url, url_md5}]`; `[]` =
+   article has no images, NULL = not captured) — not the canonical earliest date — with
+   `doc_source`=host, org-agnostic, per the existing sentiment write path. On conflict,
+   `doc_images` fills a NULL from the new message but never clobbers captured images.
+   (Old records without `_sources` fall back to `source_ids` + the canonical date,
+   `doc_images` NULL.)
 
 `entity_id` everywhere is `entities_alias.original_entity_id` (== `entity_id` at create), so
 later entity merges don't break the link.

@@ -156,6 +156,27 @@ def test_write_documents_falls_back_to_canonical_without_sources():
     assert inserts[0][1][5] == "ElUniversal"
 
 
+def test_write_documents_carries_per_source_images():
+    cur = FakeCursor()
+    imgs = [{"url": "http://cdn.a/1.jpg", "url_md5": "aaa"}]
+    record = {
+        "_sources": [
+            {"source_id": "http://a/1", "publication_date": "2026-01-05T00:00:00",
+             "news_type": "ElUniversal", "images": imgs},
+            {"source_id": "http://b/2", "publication_date": "2026-03-09T00:00:00",
+             "news_type": "Milenio"},  # pre-images ledger entry -> NULL, not []
+        ],
+    }
+    KgdbWriter._write_documents(cur, 42, record)
+    inserts = [c for c in cur.calls if "INSERT INTO entities_documents" in c[0]]
+    assert len(inserts) == 2
+    # Redelivery must fill a NULL doc_images but never clobber captured ones.
+    assert "DO UPDATE" in inserts[0][0] and "COALESCE" in inserts[0][0]
+    by_doc = {c[1][1]: c[1] for c in inserts}
+    assert by_doc["http://a/1"][6].adapted == imgs  # psycopg2 Json wrapper
+    assert by_doc["http://b/2"][6] is None
+
+
 # --- Fix D: concurrent merge must union accumulators -------------------------
 
 

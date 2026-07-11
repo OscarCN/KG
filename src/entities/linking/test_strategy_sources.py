@@ -13,7 +13,7 @@ class FakeIndex:
         pass
 
 
-def _prep(source_id, date_created, news_type):
+def _prep(source_id, date_created, news_type, images=None):
     record = {
         "_source_id": source_id,
         "event_type": "accidente_vehicular_event",
@@ -21,6 +21,8 @@ def _prep(source_id, date_created, news_type):
         "date_created": date_created,
         "news_type": news_type,
     }
+    if images is not None:
+        record["_images"] = images
     window = DateWindow(
         start=datetime.fromisoformat(date_created),
         end=datetime.fromisoformat(date_created),
@@ -54,6 +56,26 @@ def test_create_then_merge_accumulates_per_source():
     assert by_id["src-A"]["publication_date"] == "2026-01-01T00:00:00"
     assert by_id["src-B"]["news_type"] == "Milenio"
     assert by_id["src-B"]["publication_date"] == "2026-02-15T00:00:00"
+
+
+def test_sources_carry_per_source_images_and_strip_toplevel():
+    strat = GeoEventStrategy(geocode=False)
+    idx = FakeIndex()
+    img_a = [{"url": "http://cdn.a/1.jpg", "url_md5": "aaa"}]
+    img_b = [{"url": "http://cdn.b/2.jpg", "url_md5": "bbb"}]
+
+    _eid, linked = strat.create(_prep("src-A", "2026-01-01T00:00:00", "ElUniversal", img_a), idx)
+    assert linked["_sources"][0]["images"] == img_a
+    assert "_images" not in linked  # ledger-only; not on the canonical record
+
+    strat.merge(linked, _prep("src-B", "2026-02-15T00:00:00", "Milenio", img_b), idx)
+    by_id = {s["source_id"]: s for s in linked["_sources"]}
+    assert by_id["src-A"]["images"] == img_a
+    assert by_id["src-B"]["images"] == img_b
+
+    # A source without media_pictures records an empty list, not a missing key.
+    strat.merge(linked, _prep("src-C", "2026-02-16T00:00:00", "Reforma"), idx)
+    assert {s["source_id"]: s for s in linked["_sources"]}["src-C"]["images"] == []
 
 
 def test_merge_dedupes_by_source_id():

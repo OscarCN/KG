@@ -794,8 +794,8 @@ class GeoEventStrategy:
         # canonical date range can be chosen (not just widened) on merges.
         linked["_date_source"] = window.source
         linked["_source_windows"] = [window.to_json()]
-        # Per-source ledger: each source records its OWN publication date and
-        # news_type, so the persistence layer can write a faithful
+        # Per-source ledger: each source records its OWN publication date,
+        # news_type and images, so the persistence layer can write a faithful
         # entities_documents row per source (not the canonical/earliest date).
         if record.get("_source_id"):
             linked["_sources"] = [
@@ -804,8 +804,13 @@ class GeoEventStrategy:
                     "publication_date": record.get("date_created")
                     or record.get("publication_date"),
                     "news_type": record.get("news_type"),
+                    "images": record.get("_images") or [],
                 }
             ]
+        # `_images` lives on the per-source ledger only — drop the top-level
+        # copy so the canonical record (persisted as entities.metadata) doesn't
+        # carry one source's images as if they were the event's.
+        linked.pop("_images", None)
         self._register(linked, prep.partition, window, index)
         return eid, linked
 
@@ -824,8 +829,8 @@ class GeoEventStrategy:
         if sid and sid not in base["source_ids"]:
             base["source_ids"].append(sid)
 
-        # Per-source ledger: append the incoming source's own publication date
-        # and news_type (de-duped by source_id).
+        # Per-source ledger: append the incoming source's own publication date,
+        # news_type and images (de-duped by source_id).
         if sid:
             sources = base.setdefault("_sources", [])
             if not any(s.get("source_id") == sid for s in sources):
@@ -835,6 +840,7 @@ class GeoEventStrategy:
                         "publication_date": new.get("date_created")
                         or new.get("publication_date"),
                         "news_type": new.get("news_type"),
+                        "images": new.get("_images") or [],
                     }
                 )
 

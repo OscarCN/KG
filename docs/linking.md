@@ -187,7 +187,7 @@ Each linked event extends the original schema with these link-level fields:
 | `publication_date` | str | Earliest publication timestamp across the merged sources (when any source had one) |
 | `_date_source` | str | Provenance of the first source's window (`extracted` / `publication`) |
 | `_source_windows` | List[dict] | Every source's resolved window: `{start, end, slack_days, source, precision_days}` |
-| `_sources` | List[dict] | Per-source document metadata, de-duped by `source_id`: `{source_id, publication_date, news_type}` — each source's OWN publication date and `news_type` (carried article → record → `_sources`), so `entities_documents` can be written per source rather than stamping the canonical earliest date on every document |
+| `_sources` | List[dict] | Per-source document metadata, de-duped by `source_id`: `{source_id, publication_date, news_type, images}` — each source's OWN publication date, `news_type` and `images` (the article's `media_pictures` as `[{url, url_md5}]`, carried article → record `_images` → `_sources`, ledger-only: the top-level `_images` is dropped from the canonical record), so `entities_documents` can be written per source rather than stamping the canonical earliest date on every document |
 | `_geo_source` | str | Which tier produced the geo partition key (`geocoder` / `state_catalogue` / `none`) |
 
 Linked events also carry the canonical `date_range` (the most precise extracted window seen across sources), the most-populated `location` fields seen across sources within the same geo partition, and the `_geo` block from the geocoder.

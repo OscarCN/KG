@@ -62,6 +62,28 @@ def _coerce_publication_date(article: Dict[str, Any]) -> Optional[str]:
     return None
 
 
+_MAX_IMAGES_PER_DOC = 8
+
+
+def _coerce_images(article: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Normalize the article's `media_pictures` (ES `news`: [{url, url_md5, ...}])
+    to a bounded [{url, url_md5}] list — the per-document image provenance that
+    rides `_images` on each extracted entity, lands on the linker's `_sources`
+    ledger, and persists as `entities_documents.doc_images`. `url_md5` is the
+    cross-source image-dedup key at read time."""
+    out: List[Dict[str, Any]] = []
+    for pic in article.get("media_pictures") or []:
+        if not isinstance(pic, dict):
+            continue
+        url = pic.get("url") or pic.get("main_url")
+        if not url:
+            continue
+        out.append({"url": url, "url_md5": pic.get("url_md5")})
+        if len(out) >= _MAX_IMAGES_PER_DOC:
+            break
+    return out
+
+
 def _prompt_reference_date(article: Dict[str, Any]) -> str:
     """Anchor for the LLM's interpretation of relative dates in the article.
 
@@ -1224,15 +1246,18 @@ class EntityExtractor:
 
             all_entities.extend(entities)
 
-        # Backfill `date_created` and `news_type` on every entity, including
-        # those that came from older caches that predated these provenance
-        # fields. Post-validation so it survives schema normalization.
+        # Backfill `date_created`, `news_type` and `_images` on every entity,
+        # including those that came from older caches that predated these
+        # provenance fields. Post-validation so it survives schema normalization.
         news_type = article.get("news_type")
-        if publication_date or news_type:
+        images = _coerce_images(article)
+        if publication_date or news_type or images:
             for entity in all_entities:
                 if publication_date and not entity.get("date_created"):
                     entity["date_created"] = publication_date
                 if news_type and not entity.get("news_type"):
                     entity["news_type"] = news_type
+                if images and not entity.get("_images"):
+                    entity["_images"] = images
 
         return all_entities

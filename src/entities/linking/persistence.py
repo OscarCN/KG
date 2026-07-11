@@ -252,7 +252,8 @@ class KgdbWriter:
         sources = record.get("_sources")
         if sources:
             rows = [
-                (s.get("source_id"), s.get("publication_date"), s.get("news_type"))
+                (s.get("source_id"), s.get("publication_date"), s.get("news_type"),
+                 s.get("images"))
                 for s in sources
                 if s.get("source_id")
             ]
@@ -260,17 +261,24 @@ class KgdbWriter:
             pub = record.get("publication_date")
             news_type = record.get("news_type")
             rows = [
-                (source_id, pub, news_type)
+                (source_id, pub, news_type, None)
                 for source_id in record.get("source_ids") or []
             ]
-        for source_id, pub, news_type in rows:
+        for source_id, pub, news_type, images in rows:
             host = urlparse(source_id).netloc or None
+            # doc_images: NULL = "not captured" (old records / no ledger), [] =
+            # "article has no images". On redelivery, fill a NULL from the new
+            # message but never clobber captured images.
             cur.execute(
                 "INSERT INTO entities_documents "
-                "(entity_id, doc_id, doc_index, doc_date_created, doc_source, news_type) "
-                "VALUES (%s, %s, %s, %s, %s, %s) "
-                "ON CONFLICT (entity_id, doc_id) DO NOTHING",
-                (entity_id, source_id, "news", pub, host, news_type),
+                "(entity_id, doc_id, doc_index, doc_date_created, doc_source, "
+                " news_type, doc_images) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s) "
+                "ON CONFLICT (entity_id, doc_id) DO UPDATE SET "
+                "doc_images = COALESCE(entities_documents.doc_images, "
+                "EXCLUDED.doc_images)",
+                (entity_id, source_id, "news", pub, host, news_type,
+                 _json(images) if images is not None else None),
             )
 
     # -- create / update ------------------------------------------------------

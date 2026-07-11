@@ -193,7 +193,8 @@ NEWS_FIELDS = [
     "custom_categories",
     "locations_mentioned",
     "comments",
-    "news_type"
+    "news_type",
+    "media_pictures"
 ]
 
 
