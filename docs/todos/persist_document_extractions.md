@@ -80,6 +80,12 @@ write that also requeues on failure).
 
 ## Status
 
-Design locked (dedicated table). Implementation pending — part of
-[productionization_streaming_kg.md](productionization_streaming_kg.md) Phase 1.
-Could ship **before** full go-live so we stop losing extraction data now.
+**Done (dev).** `document_extractions` table + `KgdbWriter.write_extraction`
+shipped; the listener persists one row per extracted record (incl. linker
+drops/skips), idempotent on `(doc_id, record_hash)`, with `reset_run` cleanup.
+Validated on dev. The implemented row shape matches the design above, with one
+addition: a `record_hash` column powering the redelivery-idempotency unique
+`(doc_id, record_hash)` (resolves the "one row vs upsert" open question — upsert
+on the content hash). **Remaining:** apply the migration to live (tracked in
+[productionization_streaming_kg.md](productionization_streaming_kg.md) Phase 1);
+retention policy still open.

@@ -42,16 +42,21 @@ Schema-first: all DDL goes through `media-backend-paid/db/kg_db/schema.sql`
   proper edit path (SQL now, admin UI later); and the **`active` gate** sourced
   from the type catalog ([active_type_extraction.md](active_type_extraction.md)),
   which elevates today's `enabled` gate.
-- [ ] **Apply the retrieval index migration** (branch
-  `persistence-review-kgdb-indexes` in `media-backend-paid`) to live kgdb.
+- [ ] **Apply the retrieval index migration** (`db/kg_db/add_retrieval_indexes.sql`)
+  to live kgdb. **Applied to dev**; live pending. (All three kgdb migrations —
+  retrieval indexes, `document_extractions`, `ontology_matching_rules` — are now
+  on dev; none on live yet.)
 - [ ] **Verify/apply on live:** P1 (`entity_locations` identity fix), P2
   (type-catalog seed via `scripts/gen_kg_catalog_seed.py`), and the
   `entities_documents.news_type` column.
-- [ ] **Persist per-document extractions.** Add the `document_extractions`
-  table (pre-merge ground truth) and have the listener write one row per
-  extracted record — including linker drops/skips, which currently produce no DB
-  row at all. See [persist_document_extractions.md](persist_document_extractions.md).
-  Can ship before full go-live so we stop losing extraction data now.
+- [x] **Persist per-document extractions. Done (dev).** `document_extractions`
+  table + `KgdbWriter.write_extraction`; the listener writes one row per extracted
+  record (pre-merge ground truth) — including the linker drops/skips that produce
+  no `entities_documents` row. Idempotent on `(doc_id, record_hash)`;
+  `reset_run` clears the tag's rows. Validated on dev (5-doc `--once`: all 7
+  records incl. 2 skipped entities persisted; idempotent on rerun). DDL applied
+  to dev kgdb. **Remaining:** apply to live (part of the migrations item above).
+  See [persist_document_extractions.md](persist_document_extractions.md).
 - [ ] **Provenance scheme** for `KG_RUN_TAG` in prod, so `reset_run(tag)` stays
   a usable per-batch/day rollback.
 
