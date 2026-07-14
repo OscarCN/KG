@@ -105,12 +105,12 @@ def _build_mentions(loc: Dict[str, Any]) -> Dict[str, List[Tuple[str, int]]]:
     # extracted record, just isn't used for geocoding.
     add("COL", loc.get("neighborhood") or "")
 
-    street = (loc.get("street") or "").strip()
-    number = (loc.get("number") or "").strip()
-    if street:
-        add("CALLE", f"{street} {number}".strip())
-    elif number:
-        add("CALLE", number)
+    # The house number is deliberately NOT part of the CALLE mention: the
+    # geocoder retrieves streets by normalized-name LSH, and "Calz. Tlalpan 136"
+    # misses the buckets for "Calz. Tlalpan" entirely — a systematic L6 recall
+    # killer (2026-07 kgdb repair: 25 events upgraded 5->6 just by dropping the
+    # number). `number` stays on the record for display / address building.
+    add("CALLE", (loc.get("street") or "").strip())
 
     add("LUG", loc.get("place_name") or "")
     return mentions
