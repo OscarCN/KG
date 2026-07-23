@@ -1,0 +1,11 @@
+.git
+.env
+.env*
+cache/
+data/
+docs/
+**/__pycache__
+**/.DS_Store
+*.pyc
+.mcp.json
+~$*.xlsx

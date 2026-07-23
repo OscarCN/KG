@@ -79,6 +79,8 @@ scripts/
   enqueue_from_es.py         # Testing producer: ES date-window fetch (geo/precision/category filter) → kg RabbitMQ doc queue
   publish_document.py        # Publish a JSON document file to a RabbitMQ queue (dev-vhost listener loop)
 cache/              # Extraction + linking LLM-call cache (sha256-keyed, auto-generated)
+Dockerfile          # Streaming-listener image (social_tags-standard; build/run: docker_examples)
+docker_examples     # Build/run/smoke commands for the Docker image
 docs/
   architecture.md   # System overview
   entities.md / extraction.md / linking.md / storage.md  # Subsystem docs

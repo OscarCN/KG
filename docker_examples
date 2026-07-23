@@ -1,0 +1,25 @@
+Docker build with (amd64 — the pinned pandas/numpy only have musllinux wheels
+for x86_64; an arm64 build compiles them from source):
+
+docker image build \
+--platform linux/amd64 \
+--secret id=gh-ssh-priv,src=/path-to-ssh-apify_client-deploy-private-key \
+--tag kg:test \
+.
+
+Docker run with (the listener reads /kg/.env.local when present; in k8s the
+same variables come from the secret/configmap instead):
+
+docker run --rm -it \
+--env-file=.env.local.dockerized \
+--mount type=bind,source=.env.local.dockerized,target=/kg/.env.local,readonly \
+--network=host \
+kg:test
+
+Offline smoke test without RabbitMQ (same image, one fixture document):
+
+docker run --rm -it \
+--env-file=.env.local.dockerized \
+--network=host \
+--mount type=bind,source=./data,target=/kg/data,readonly \
+kg:test --once data/<dir>/<doc>.json

@@ -81,10 +81,21 @@ Schema-first: all DDL goes through `media-backend-paid/db/kg_db/schema.sql`
 
 ## Phase 4 — Deployment & ops
 
-- [ ] **Dockerfile + k8s deployment** for `kg` (via the `api_revival` k3s
-  inventory, as the sibling workers deploy), resource limits, **1 replica**
-  (per launch decision), `prefetch=1`, SIGTERM graceful shutdown (already
-  implemented).
+- [x] **Dockerfile** — done, sibling-worker standard (`social_tags` pattern):
+  BuildKit + SSH-secret downloader stage pulling `apify_client` at a pinned
+  commit (for the path-imported `helpers.geocode`; `APIFY_CLIENT_SRC` baked in),
+  non-root `ejecutor`, `python -u src/listener.py` entrypoint. Deviations:
+  `python:3.12-alpine` (pinned pandas/numpy stop at cp312 — build
+  `--platform linux/amd64`), `git fetch` instead of `pip download` (apify_client
+  isn't packaged), explicit writable `cache/`. Build/run/smoke commands in
+  [`../../docker_examples`](../../docker_examples). Validated: containerized
+  `--once` ran extract → geocode → link → persist against dev kgdb
+  (`created:1`, then `reset_run`). **Prod needs an `apify_client` deploy key**
+  as the build secret (local builds currently reuse the elastic_client one,
+  which happens to have access).
+- [ ] **k8s deployment** for `kg` (via the `api_revival` k3s inventory, as the
+  sibling workers deploy), resource limits, **1 replica** (per launch decision),
+  `prefetch=1`, SIGTERM graceful shutdown (already implemented).
 - [ ] **Cache strategy.** `cache/{geocode,extraction,link_llm}` are local files
   — unshared across pods. Decide ephemeral (re-bill) vs Redis/shared volume for
   at least the geocode cache (highest reuse).
