@@ -143,10 +143,10 @@ When a match is found — by the deterministic gate or the LLM — the strategy:
 
 - appends the new record's `_source_id` to the canonical event's `source_ids` (de-duped),
 - fills nulls on `name`, `description`, `context`, `status` from the new record; keeps the earliest `publication_date`,
-- appends the incoming window to `_source_windows` and sets the canonical `date_range` to the **most precise extracted window seen** (smallest `precision_days`, `None` = exact; ties keep the earliest-seen) — the canonical range no longer widens unconditionally, which prevented one imprecise source from permanently inflating the window and snowballing future merges. Registration stays generous: the incoming window's day-keys are registered regardless, so recall is unchanged,
+- appends the incoming window to `_source_windows` and sets the canonical `date_range` to the **most precise extracted window seen** — narrowness is `precision_days` when present, else the window **width** (`end - start`), else `inf` for a start-only unknown (`None` means *unknown*, **not** exact — it ranks last, never wins; ties keep the earliest-seen) — the canonical range no longer widens unconditionally, which prevented one imprecise source from permanently inflating the window and snowballing future merges. Registration stays generous: the incoming window's day-keys are registered regardless, so recall is unchanged,
 - promotes the canonical record's `location` to the new one by **precision** under the hard geo gate (`hard_geo_gate=True`): a merge only joins geo-compatible records, so a higher-`precision_level` incoming location refines the canonical (`location`, `_geo`, `_geo_source`), and the re-registration step re-indexes the event under the finer geo keys — a coarse seed can't stay a magnet. With the gate off, it falls back to the legacy rule (promote when the new `location` has more populated subfields **and** resolves to the same geo partition).
 
-When no match is found, a new linked event is minted with id `{YYYYMMDD}_{state-slug-or-noloc}_{rand}`.
+When no match is found, a new linked event is minted with id `{YYYYMMDD}_{state-slug-or-noloc}_{rand}`, where `rand` is a wide UUID hex — it must be collision-resistant *within* a (date, state) bucket, since `KgdbWriter._find_existing` binds records by `_link_id` (a 6-digit `rand` once collided a `concert` onto a `protest_event`; that lookup is also supertype-gated now).
 
 ### Drop reasons
 

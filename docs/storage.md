@@ -95,7 +95,12 @@ Cheapest first:
 3. **Writer `_link_id` upsert** — the streaming `upsert_linked` finds an existing canonical by
    `metadata->>'_link_id'` **alone** (run-tag-independent), so a new run or backfill merges
    into the existing row instead of duplicating; the batch `write_linked` stays run-scoped
-   (`_link_id` + `_link_run`) for per-run idempotency and `reset_run(tag)`.
+   (`_link_id` + `_link_run`) for per-run idempotency and `reset_run(tag)`. The lookup is
+   **always gated by `_supertype`**: minted ids are `{date}_{state}_{rand}`, and a `rand`
+   collision within a (date, state) bucket would otherwise bind a freshly-created record onto an
+   unrelated existing entity (observed once — a `concert` onto a `protest_event`). The suffix is
+   now a wide UUID hex (was a 6-digit int) so collisions are negligible, and the supertype gate
+   blocks any cross-supertype collision outright.
 
 ### Per-document extractions (`document_extractions`)
 

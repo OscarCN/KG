@@ -24,11 +24,12 @@ from __future__ import annotations
 
 import copy
 import logging
-import random
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+from .aggregate import effective_precision_days
 from .geocode import geocode_location
 from .geo_util import grid_cell, grid_neighbors, haversine
 from .index import CandidateIndex, IndexKey
@@ -776,7 +777,13 @@ class GeoEventStrategy:
         record, window = prep.record, prep.window
         ref_dt = window.start or window.end
         slug_part = (prep.geo_key or "noloc").replace(" ", "-")
-        eid = f"{ref_dt.strftime('%Y%m%d')}_{slug_part}_{random.randint(100000, 999999)}"
+        # The random suffix must be collision-resistant *within* a (date, state)
+        # bucket: two distinct events minting the same {date}_{slug}_{rand} would be
+        # bound together by `KgdbWriter._find_existing` (which matches on `_link_id`).
+        # A 6-digit rand collided in practice (a concert onto a protest); use a wide
+        # 96-bit hex suffix so a collision is astronomically unlikely. The supertype
+        # gate in `_find_existing` additionally blocks any cross-supertype collision.
+        eid = f"{ref_dt.strftime('%Y%m%d')}_{slug_part}_{uuid.uuid4().hex[:24]}"
         linked = copy.deepcopy(record)
         linked["id"] = eid
         linked["source_ids"] = (
@@ -922,20 +929,33 @@ class GeoEventStrategy:
             else:
                 self._register(base, prep.partition, None, index)
 
+    @staticmethod
+    def _effective_precision_days(w: Dict[str, Any]) -> float:
+        """Narrowness of a window, in days — smaller = more precise.
+
+        Delegates to the shared `linking/aggregate.py` (single source of truth):
+        explicit `precision_days`, else the window width (`end - start`), else
+        `inf` for a start-only unknown (`None` means *unknown*, not *exact* — the
+        old `or 0` bug ranked it as most-precise).
+        """
+        return effective_precision_days(
+            _parse_dt(w.get("start")), _parse_dt(w.get("end")), w.get("precision_days"))
+
     def _apply_best_window(
         self, base: Dict[str, Any], base_dr: Dict[str, Any]
     ) -> None:
         """Set the canonical date range to the most precise extracted window.
 
-        Extracted beats publication; smaller `precision_days` wins
-        (None counts as exact, i.e. 0); ties keep the earliest-seen window.
+        Extracted beats publication; the narrowest window wins by
+        `_effective_precision_days` (explicit `precision_days`, else the window
+        width, else `inf` for a start-only unknown); ties keep the earliest-seen.
         """
         extracted = [
             w for w in base.get("_source_windows", []) if w.get("source") == "extracted"
         ]
         if not extracted:
             return
-        best = min(extracted, key=lambda w: w.get("precision_days") or 0)
+        best = min(extracted, key=self._effective_precision_days)
         base_dr["start"] = _parse_dt(best.get("start"))
         base_dr["end"] = _parse_dt(best.get("end"))
         base.setdefault("date_range", {})["precision_days"] = best.get("precision_days")

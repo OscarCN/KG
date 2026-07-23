@@ -395,7 +395,8 @@ class KgdbWriter:
             self._write_event_properties(cur, entity_id, record)
         self._write_documents(cur, entity_id, record)
 
-    def _find_existing(self, cur, link_id: Any, *, run_scoped: bool) -> Optional[int]:
+    def _find_existing(self, cur, link_id: Any, *, run_scoped: bool,
+                       supertype: Optional[str] = None) -> Optional[int]:
         """Locate an existing canonical row by its logical ``_link_id``.
 
         Batch (``run_scoped=True``) scopes the match to this run's ``_link_run``
@@ -403,26 +404,31 @@ class KgdbWriter:
         (``run_scoped=False``) matches by ``_link_id`` alone: a backfill/new run
         merging into a canonical written under another run must update that one
         row, not create a duplicate — identity for the streaming path is the
-        logical ``_link_id`` globally (as ``KgdbCandidateIndex`` retrieves it)."""
+        logical ``_link_id`` globally (as ``KgdbCandidateIndex`` retrieves it).
+
+        **Always gated by ``_supertype``**: minted ids are ``{date}_{state}_{rand}``
+        and a ``rand`` collision within a (date, state) bucket can otherwise bind a
+        freshly-created record onto an *unrelated* existing entity — observed once as
+        a `concert` bound to a `protest_event`. A re-linked record always carries the
+        same supertype, so this never breaks the intended idempotent match; it only
+        rejects a cross-supertype id collision (→ insert a new row instead)."""
+        clauses = ["metadata->>'_link_id' = %s"]
+        params: list = [str(link_id)]
         if run_scoped:
-            cur.execute(
-                "SELECT entity_id FROM entities "
-                "WHERE metadata->>'_link_id' = %s AND metadata->>'_link_run' = %s",
-                (str(link_id), self.run_tag),
-            )
-        else:
-            cur.execute(
-                "SELECT entity_id FROM entities "
-                "WHERE metadata->>'_link_id' = %s",
-                (str(link_id),),
-            )
+            clauses.append("metadata->>'_link_run' = %s")
+            params.append(self.run_tag)
+        if supertype is not None:
+            clauses.append("metadata->>'_supertype' = %s")
+            params.append(supertype)
+        cur.execute("SELECT entity_id FROM entities WHERE " + " AND ".join(clauses), params)
         row = cur.fetchone()
         return row["entity_id"] if row else None
 
     def _persist(self, record: dict, *, upsert: bool) -> Optional[int]:
         """Core write. Raises on DB error; returns None for a permanent drop."""
         with self._conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            existing = self._find_existing(cur, record.get("id"), run_scoped=not upsert)
+            existing = self._find_existing(cur, record.get("id"), run_scoped=not upsert,
+                                           supertype=record.get("_supertype"))
             if existing is not None and not upsert:
                 self._conn.rollback()
                 self.skipped += 1
