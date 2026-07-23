@@ -42,7 +42,7 @@ Schema-first: all DDL goes through `media-backend-paid/db/kg_db/schema.sql`
   proper edit path (SQL now, admin UI later); and the **`active` gate** sourced
   from the type catalog ([active_type_extraction.md](active_type_extraction.md)),
   which elevates today's `enabled` gate.
-- [ ] **Apply the retrieval index migration** (`db/kg_db/add_retrieval_indexes.sql`)
+- [x] **Apply the retrieval index migration** — applied to staging kgdb 2026-07-20 via `media-backend-paid/docs/db/migrations/staging_kgdb_catchup_2026-07-20.sql` (formerly `db/kg_db/add_retrieval_indexes.sql`)
   to live kgdb. **Applied to dev**; live pending. (All three kgdb migrations —
   retrieval indexes, `document_extractions`, `ontology_matching_rules` — are now
   on dev; none on live yet.)

@@ -67,7 +67,7 @@ foundation, not a throwaway.
 > **live** as a deliberate production step.
 
 **P1 — fix `entity_locations` identity** ✅ — moved identity off `entity_id` onto `record_id`.
-Standalone idempotent DDL `media-backend-paid/docs/kg_event_persistence_kgdb.sql` (safe on
+Standalone idempotent DDL `media-backend-paid/docs/db/migrations/staging_kgdb_catchup_2026-07-20.sql` §1 (formerly `docs/kg_event_persistence_kgdb.sql`; applied to staging kgdb 2026-07-20) (safe on
 populated live), **folded into** `media-backend-paid/db/kg_db/schema.sql`. The live-shape
 reconciliation (corrected `entity_locations` names + `entities_documents`
 `parent_doc_id`/`news_type`) was done via a fresh `pg_dump` of the live DB.
@@ -78,7 +78,7 @@ supertype row (`entity_kind` from `meta.category`, `parent_entity_type=NULL`, `m
 type (parent = the supertype id). Supertype→child mapping from
 `src/entities/extraction/catalogues/event_types.csv`. Includes `legislative_initiative`
 (+children) so the `entity` category is ready; themes skipped (no `theme` kind yet). Generator
-`scripts/gen_kg_catalog_seed.py` → `media-backend-paid/docs/kg_catalog_seed_kgdb.sql` (10
+`scripts/gen_kg_catalog_seed.py` → `media-backend-paid/docs/db/migrations/kg_catalog_seed_kgdb.sql` (10
 supertypes + 54 children). Upsert uses the existing live `UNIQUE (entity_type, entity_kind)`
 constraint for `ON CONFLICT` re-runnability. The seeded catalog will also gain an `active` flag
 as the source of truth for which types are extracted — designed in
