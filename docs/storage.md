@@ -342,6 +342,25 @@ Postgres' 1 GB per-datum limit and failing the `UPDATE`) — de-duping keeps gro
 
 Drop buckets: `no_supertype`, `unseeded_supertype:<name>`, `error`.
 
+### Canonical↔canonical merge (reconciliation)
+
+Two canonicals that turn out to be the same event (a forked twin) are merged by
+[`../src/entities/linking/merge.py`](../src/entities/linking/merge.py) (`CanonicalMerger`),
+the primitive the consistency sweep and future link-time multi-match share. It's
+**tombstone, not delete** — an absorbed `entities` row is referenced by its own
+`entities_alias.original_entity_id` FK, so it can't be dropped. Instead, one transaction:
+picks the **survivor** (most `_sources`, tie → lowest `entity_id`); unions
+`source_ids`/`_source_windows`/`_sources` and sets a **layer-aware** aggregated
+`date_range`/`location` (`umbrella` → envelope + venue set, `instance` → most-precise +
+finest venue, via [`aggregate.py`](../src/entities/linking/aggregate.py)); **deletes the
+absorbed `event_properties`/`entity_locations`** so the row is **invisible to retrieval**
+(the candidate query JOINs `event_properties`); **consolidates** the alias-routed children
+(`entities_documents`/`entity_types`/`document_extractions`) and `relations` onto the
+survivor (deduped); repoints `entities_alias.current_entity_id → survivor`; and tombstones
+the absorbed rows (`metadata._merged_into`). The sweep excludes tombstoned entities
+(`_merged_into IS NULL`), so it's idempotent. Design + productionization (debt-driven trigger,
+merge-aware `upsert_linked`) in [`todos/canonical_reconciliation.md`](todos/canonical_reconciliation.md).
+
 ### Direct-FK exception (recap)
 
 `event_properties.event_id`, `entity_locations.entity_id`, and `relations.ent_id_*` FK directly
