@@ -11,8 +11,11 @@ TODOs linked below.
   append-only ground-truth DB — *not* userdb. Running staging+production writers
   into one kgdb would double-write, so there is **one continuous writer into
   live kgdb**. The **dev kgdb** (Docker Postgres `:5334`, see
-  `media/dev/docs/db/runbook.md`) is the pre-prod test target. *(Open: confirm
-  no separate staging kgdb exists.)*
+  `media/dev/docs/db/runbook.md`) is the pre-prod test target. **Confirmed
+  (2026-08-04): there is no separate staging kgdb** — the kgdb at
+  `192.168.1.52:5434` (db `kgunified`, the host the
+  `staging_kgdb_catchup_2026-07-20.sql` migration called "staging") **is the
+  live kgdb**.
 - **Launch concurrency: single worker first.** Known gap (deferred review
   finding): true parallel workers can mint duplicate canonicals because the
   linker's `lookup → adjudicate → create` is not under a DB lock. Launch with
@@ -31,34 +34,47 @@ TODOs linked below.
 Schema-first: all DDL goes through `media-backend-paid/db/kg_db/schema.sql`
 (+ a standalone migration file), then applied to live.
 
-- [x] **Ontology keywords → kgdb table. Done (dev).** `ontology_matching_rules`
+Phase 1 is **done**: all items below were verified applied on **live kgdb**
+(`192.168.1.52:5434/kgunified`) on 2026-08-04 via the migration's own VERIFY
+queries — P1 identity on `record_id`, all 8 new tables present, catalog seed
+(70 `entity_types_kinds_available` rows), ontology rules seeded (93 rows / 57
+enabled), all 9 retrieval indexes, `entities_documents.news_type` +
+`doc_images`. Only the sub-items marked *remaining* below are still open.
+
+- [x] **Ontology keywords → kgdb table. Done (dev + live).** `ontology_matching_rules`
   holds every rule (raw/human-editable list columns `kw`/`phrase`/`not_kw`/
   `categories`/`dismiss_categories`/`document_type` + `enabled` + labels).
   `Ontology` loads from kgdb when `KG_ONTOLOGY_SOURCE=db` (Excel stays the
   dev/test default), normalizing at load so matching is byte-identical (verified:
   same 47 enabled classes, identical rule set, identical match output on the
   fixture). Seeded by `scripts/seed_ontology_rules.py` (full refresh from
-  `keywords.xlsx`); DDL applied to dev kgdb. **Remaining:** apply to live; a
+  `keywords.xlsx`); DDL applied to dev **and live** kgdb (live seeded: 93 rows,
+  57 enabled). **Remaining:** a
   proper edit path (SQL now, admin UI later); and the **`active` gate** sourced
   from the type catalog ([active_type_extraction.md](active_type_extraction.md)),
   which elevates today's `enabled` gate.
-- [x] **Apply the retrieval index migration** — applied to staging kgdb 2026-07-20 via `media-backend-paid/docs/db/migrations/staging_kgdb_catchup_2026-07-20.sql` (formerly `db/kg_db/add_retrieval_indexes.sql`)
-  to live kgdb. **Applied to dev**; live pending. (All three kgdb migrations —
-  retrieval indexes, `document_extractions`, `ontology_matching_rules` — are now
-  on dev; none on live yet.)
-- [ ] **Verify/apply on live:** P1 (`entity_locations` identity fix), P2
+- [x] **Apply the retrieval index migration** — applied to live kgdb 2026-07-20
+  via `media-backend-paid/docs/db/migrations/staging_kgdb_catchup_2026-07-20.sql`
+  (formerly `db/kg_db/add_retrieval_indexes.sql`). All three kgdb migrations —
+  retrieval indexes, `document_extractions`, `ontology_matching_rules` — are on
+  **dev and live** (live verified 2026-08-04: all 9 retrieval indexes present).
+- [x] **Verify/apply on live:** P1 (`entity_locations` identity fix), P2
   (type-catalog seed via `scripts/gen_kg_catalog_seed.py`), and the
-  `entities_documents.news_type` column.
-- [x] **Persist per-document extractions. Done (dev).** `document_extractions`
+  `entities_documents.news_type` column — all verified applied on live
+  2026-08-04 (`record_id` identity, 70 catalog rows, `news_type` + `doc_images`
+  columns present).
+- [x] **Persist per-document extractions. Done (dev + live DDL).** `document_extractions`
   table + `KgdbWriter.write_extraction`; the listener writes one row per extracted
   record (pre-merge ground truth) — including the linker drops/skips that produce
   no `entities_documents` row. Idempotent on `(doc_id, record_hash)`;
   `reset_run` clears the tag's rows. Validated on dev (5-doc `--once`: all 7
   records incl. 2 skipped entities persisted; idempotent on rerun). DDL applied
-  to dev kgdb. **Remaining:** apply to live (part of the migrations item above).
+  to dev and live kgdb (live verified 2026-08-04).
   See [persist_document_extractions.md](persist_document_extractions.md).
-- [ ] **Provenance scheme** for `KG_RUN_TAG` in prod, so `reset_run(tag)` stays
-  a usable per-batch/day rollback.
+- [x] **Provenance scheme** for `KG_RUN_TAG` in prod: **dated tags for bounded
+  runs** (canary/backfills, e.g. `canary-2026-08-04` — set in `.env.stg`), so
+  `reset_run(tag)` wipes exactly that batch; switch to a stable/periodic tag
+  once continuous consumption is on.
 
 ## Phase 2 — Config & secrets
 
