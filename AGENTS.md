@@ -107,6 +107,7 @@ Most end-to-end scripts require external services and credentials:
 
 - `OPENROUTER_API_KEY` for extraction, linking, prompt generation, and tags LLM calls.
 - Geocoder URL: `GEOCODING_URL`.
+- Streaming geo scope: `FILTER_GEO` (comma-separated geoid prefixes; unset = no geo filter — see `src/geo_scope.py`).
 - Elasticsearch credentials when not using local fixture retrieval.
 - kgdb credentials only for fixture generation or future DB-backed work.
 

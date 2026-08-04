@@ -75,6 +75,14 @@ Schema-first: all DDL goes through `media-backend-paid/db/kg_db/schema.sql`
   queue** (fan-out exchange / extra binding, or a small bridge consumer).
   Message shape = the enriched ES doc (same as `scripts/enqueue_from_es.py`
   publishes). **Cross-repo seam — touches `gp3`.**
+- [x] **Demo geo scope, consumer-side.** The producer stays a dumb firehose;
+  the listener drops out-of-scope docs before `Ontology.match` via
+  `src/geo_scope.py` (`FILTER_GEO` env, comma-separated geoid prefixes; unset
+  = no filter). Demo scope: CDMX municipios BJ/Cuauhtémoc/MH + Querétaro +
+  Baja California (`_48409014,_48409015,_48409016,_48422,_48402`).
+  `enqueue_from_es.py` shares the same rule (plus its coarse ES `cvegeo`
+  pre-fetch derived from the scope). Verified equivalent to the script's
+  previous inline rule on a 244-doc fixture (0 disagreements).
 - [ ] Keep `enqueue_from_es.py` as the **backfill/test** producer; fix its
   `cvegeo` to OR + dedupe per municipality (currently ANDs both via
   `elastic_client`, discarding ~96% of the corpus).

@@ -28,6 +28,9 @@ Env:
             RABBIT_PREFETCH_COUNT, RABBIT_RETRY_DELAY_SECONDS, RABBIT_MAX_RETRIES, RABBIT_DLX
   kgdb      KGDB_HOST/PORT/USER/PASSWORD/NAME
   pipeline  OPENROUTER_API_KEY, GEOCODING_URL
+  FILTER_GEO  optional comma-separated geoid prefixes (e.g. _48409014,_48422);
+            docs with no in-scope locations_mentioned entry are acked without
+            processing (see src/geo_scope.py). Unset = process everything.
   KG_RUN_TAG  optional provenance tag stored on metadata._link_run (default "stream")
 
 Run:
@@ -66,6 +69,7 @@ from src.entities.linking.kgdb_retrieval import (  # noqa: E402
 )
 from src.entities.linking.link import EntityLinker, _category_for  # noqa: E402
 from src.entities.linking.persistence import KgdbWriter  # noqa: E402
+from src.geo_scope import GeoScope  # noqa: E402
 from src.processed_store import ProcessedStore  # noqa: E402
 
 logger = logging.getLogger(__name__)
@@ -132,8 +136,12 @@ class KgPipeline:
     """
 
     def __init__(self, *, geocode: bool = True, run_tag: str = "stream",
-                 writer: Optional[KgdbWriter] = None):
+                 writer: Optional[KgdbWriter] = None,
+                 geo_scope: Optional[GeoScope] = None):
         self.extractor = EntityExtractor(ontology=Ontology())
+        # Consumer-side geo pre-scope (FILTER_GEO): the producer streams the
+        # full firehose; out-of-scope docs are acked before keyword matching.
+        self.geo_scope = geo_scope
         self.writer = writer or KgdbWriter(run_tag=run_tag)
         # Candidate lookup + record resolution read from kgdb (durable dedup
         # across restarts / workers), on a SEPARATE autocommit connection so
@@ -151,6 +159,10 @@ class KgPipeline:
         article = record_to_article(message)
         source_id = article.get("id")
         self.documents += 1
+
+        if self.geo_scope is not None and not self.geo_scope.matches_doc(message):
+            logger.info("trace=%s doc=%s out_of_scope", trace_id, source_id)
+            return {"source_id": source_id, "extracted": 0, "persisted": 0, "statuses": {}}
 
         matched = self.extractor.match(article)
         if not matched:
@@ -340,7 +352,11 @@ def _run_once(path: Path, *, geocode: bool, limit: Optional[int]) -> dict:
     documents = payload if isinstance(payload, list) else [payload]
     if limit:
         documents = documents[:limit]
-    pipeline = KgPipeline(geocode=geocode, run_tag=os.environ.get("KG_RUN_TAG", "stream"))
+    pipeline = KgPipeline(
+        geocode=geocode,
+        run_tag=os.environ.get("KG_RUN_TAG", "stream"),
+        geo_scope=GeoScope.from_env(),
+    )
     totals = {"documents": 0, "extracted": 0, "persisted": 0}
     try:
         for message in documents:
@@ -366,9 +382,12 @@ def main() -> int:
         _run_once(args.once, geocode=not args.no_geocode, limit=args.limit)
         return 0
 
+    geo_scope = GeoScope.from_env()
+    logger.info("geo scope: %s", geo_scope or "disabled (FILTER_GEO unset)")
     pipeline = KgPipeline(
         geocode=not args.no_geocode,
         run_tag=os.environ.get("KG_RUN_TAG", "stream"),
+        geo_scope=geo_scope,
     )
     listener = DocumentListener(
         rabbit_config=RabbitConfig.from_env(),

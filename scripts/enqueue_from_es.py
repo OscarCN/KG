@@ -2,20 +2,19 @@
 kg RabbitMQ doc queue — a testing producer for the streaming listener.
 
 Producer-side filter (a geo pre-scope only; keyword filtering stays in the
-listener via Ontology.match). Keep a document iff it has a `locations_mentioned`
-entry matching ANY of:
-
-  - `geoid` starts with one of GEOID_PREFIXES (municipios 014/015/016 of 48409 —
-    a geoid prefix is inherently precision >= 3), OR
-  - `level_2_id` in PREC3_LEVEL2 (48422) **and that same entry** has
-    `precision_level >= 3` (city or finer).
+listener via Ontology.match). The geo rule is the shared `src/geo_scope.py`
+one, configured via `FILTER_GEO` (comma-separated geoid prefixes; defaults to
+the demo scope `DEMO_FILTER_GEO`): a document is kept iff any
+`locations_mentioned` entry matches a prefix — municipio-or-finer prefixes on
+`geoid` alone, state-level prefixes additionally requiring
+`precision_level >= 3` (city or finer) on that entry.
 
 Then drop documents tagged category "Deportes".
 
-ES is coarse-filtered by `cvegeo` per covering level_2 (48409, 48422) — fetched
-as SEPARATE queries and merged (one cvegeo value per request, since the
-FilterRequest AND-combines multiple cvegeo wildcards). The precise per-entry
-rule above is applied in Python.
+ES is coarse-filtered by `cvegeo` per covering level_2 (derived from the scope
+prefixes) — fetched as SEPARATE queries and merged (one cvegeo value per
+request, since the FilterRequest AND-combines multiple cvegeo wildcards). The
+precise per-entry rule above is applied in Python.
 
 Env (from kg/.env.local): RABBIT_HOST/PORT/USER/PASSWORD/VIRTUALHOST/QUEUE,
 ELASTIC_* (used by elastic_client).
@@ -48,27 +47,12 @@ import pika  # noqa: E402
 
 # get_data adds the sibling elastic_client to sys.path and exposes the helpers.
 from src.PoC.get_data import NEWS_FIELDS, fetch_docs  # noqa: E402
+from src.geo_scope import DEMO_FILTER_GEO, GeoScope  # noqa: E402
 
-# geoid prefixes kept at any precision (a prefix already implies level_3+).
-# 48409 + municipio 014/015/016.
-GEOID_PREFIXES = ("48409014", "48409015", "48409016")
-# level_2 ids kept only when the same entry resolves to precision >= 3.
-PREC3_LEVEL2 = ("48422",)
-MIN_PRECISION = 3
+# FILTER_GEO env overrides; the demo scope is the default (the coarse ES fetch
+# needs a scope, so unlike the listener this producer never runs unscoped).
+GEO_SCOPE = GeoScope.from_env(default=DEMO_FILTER_GEO)
 SKIP_CATEGORY = "deportes"
-# Covering level_2 ids to coarse-fetch from ES (one cvegeo per request).
-COARSE_LEVEL2 = sorted({p[:5] for p in GEOID_PREFIXES} | set(PREC3_LEVEL2))
-
-
-def _norm_id(value: Any) -> str:
-    return str(value or "").lstrip("_").strip()
-
-
-def _precision(value: Any) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return -1
 
 
 def _flatten_categories(custom_categories: Any) -> set[str]:
@@ -84,22 +68,8 @@ def _flatten_categories(custom_categories: Any) -> set[str]:
     return out
 
 
-def _geo_match(doc: dict) -> bool:
-    """True if any locations_mentioned entry matches the geo rule."""
-    for loc in (doc.get("locations_mentioned") or []):
-        geoid = _norm_id(loc.get("geoid"))
-        if geoid and any(geoid.startswith(p) for p in GEOID_PREFIXES):
-            return True
-        if (
-            _norm_id(loc.get("level_2_id")) in PREC3_LEVEL2
-            and _precision(loc.get("precision_level")) >= MIN_PRECISION
-        ):
-            return True
-    return False
-
-
 def _keep(doc: dict) -> bool:
-    if not _geo_match(doc):
+    if not GEO_SCOPE.matches_doc(doc):
         return False
     return SKIP_CATEGORY not in _flatten_categories(doc.get("custom_categories"))
 
@@ -139,7 +109,7 @@ def _fetch_window(start: str, end: str) -> dict[str, dict]:
     """Coarse-fetch each covering level_2 separately (cvegeo AND-combines, so one
     value per request), deduped by _id."""
     by_id: dict[str, dict] = {}
-    for l2 in COARSE_LEVEL2:
+    for l2 in GEO_SCOPE.covering_level2s():
         request = {
             "doctype": "news",
             "period": [start, end],
@@ -165,8 +135,8 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true", help="filter only; print counts + a sample, do not publish")
     args = parser.parse_args()
 
-    print(f"geo rule: geoid prefix in {GEOID_PREFIXES} OR level_2 in {PREC3_LEVEL2} "
-          f"@precision>={MIN_PRECISION}; drop Deportes")
+    print(f"geo scope: {GEO_SCOPE} (coarse level_2s {GEO_SCOPE.covering_level2s()}); "
+          f"drop Deportes")
     by_id = _fetch_window(args.start, args.end)
     kept = [d for d in by_id.values() if _keep(d)]
     if args.exclude_regex:

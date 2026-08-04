@@ -41,9 +41,14 @@ canonical↔canonical merge** (reconciliation) and the production **producer/ret
 A `pika` `BlockingConnection` consumer (modeled on the workspace's `social_tags`/`ai_assist`
 workers): durable queue, `prefetch=1`, dead-letter exchange, bounded retry→requeue,
 `trace_id` at the message top level, graceful shutdown. Per message it does document-level
-dedup first (see [Idempotency](#three-idempotency-layers) below), then `record_to_article →
-Ontology.match` (the keyword pre-filter; non-matches are dropped) `→ extract → link_one →
-KgdbWriter.upsert_linked`. Scale by running N listeners — cross-worker dedup holds. A
+dedup first (see [Idempotency](#three-idempotency-layers) below), then `record_to_article →`
+geo scope check `→ Ontology.match` (the keyword pre-filter; non-matches are dropped) `→
+extract → link_one → KgdbWriter.upsert_linked`. The geo scope
+([`../src/geo_scope.py`](../src/geo_scope.py), `FILTER_GEO` env — comma-separated geoid
+prefixes, e.g. `_48409014,_48422,_48402`) is the consumer-side pre-scope for the demo: the
+producer streams the full firehose and out-of-scope docs are acked with an `out_of_scope`
+log before keyword matching; unset means process everything. Scale by running N listeners —
+cross-worker dedup holds. A
 `--once <fixture>` mode runs the same pipeline offline (no broker). Producers today are
 test-only: [`../scripts/enqueue_from_es.py`](../scripts/enqueue_from_es.py) (ES date-window
 fetch → doc queue) and [`../scripts/publish_document.py`](../scripts/publish_document.py);
