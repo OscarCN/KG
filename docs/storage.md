@@ -49,11 +49,14 @@ prefixes, e.g. `_48409014,_48422,_48402`) is the consumer-side pre-scope for the
 producer streams the full firehose and out-of-scope docs are acked with an `out_of_scope`
 log before keyword matching; unset means process everything. Scale by running N listeners —
 cross-worker dedup holds. A
-`--once <fixture>` mode runs the same pipeline offline (no broker). Producers today are
-test-only: [`../scripts/enqueue_from_es.py`](../scripts/enqueue_from_es.py) (ES date-window
-fetch → doc queue) and [`../scripts/publish_document.py`](../scripts/publish_document.py);
-the eventual global retriever is the open producer-side work
-([`todos/document_retrieval_strategy.md`](todos/document_retrieval_strategy.md)).
+`--once <fixture>` mode runs the same pipeline offline (no broker). The continuous producer
+is gp3's `KgStreamPipeline` (last in its news pipeline chain): it publishes each enriched
+document — re-serialized to the ES-doc shape and whitelisted to the fields kg consumes — to
+the `kg_doc_stream` queue via `rabbit_enqueuer`, gated by gp3's `KG_QUEUE` env (unset =
+off). Backfill/test producers:
+[`../scripts/enqueue_from_es.py`](../scripts/enqueue_from_es.py) (ES date-window fetch →
+doc queue) and [`../scripts/publish_document.py`](../scripts/publish_document.py). Retrieval
+strategy context: [`todos/document_retrieval_strategy.md`](todos/document_retrieval_strategy.md).
 
 ### kgdb-backed retrieval (`src/entities/linking/kgdb_retrieval.py`)
 

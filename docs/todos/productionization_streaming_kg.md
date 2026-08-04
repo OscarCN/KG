@@ -71,10 +71,21 @@ Schema-first: all DDL goes through `media-backend-paid/db/kg_db/schema.sql`
 
 ## Phase 3 — Producer (the missing half)
 
-- [ ] Wire `gp3`'s post-enrichment output to also publish to the **kg doc
-  queue** (fan-out exchange / extra binding, or a small bridge consumer).
-  Message shape = the enriched ES doc (same as `scripts/enqueue_from_es.py`
-  publishes). **Cross-repo seam — touches `gp3`.**
+- [x] **gp3 firehose wired (code).** `KgStreamPipeline` (last in gp3's
+  `NEWS_PIPELINES`) re-serializes the enriched doc to the ES-doc shape via
+  `News.initialize_with_processor_message(...).format()`, whitelists to kg's
+  `NEWS_FIELDS` + `_id`/`trace_id` (no embeddings), and POSTs to
+  `rabbit_enqueuer` (`ENQUEUER_BACKEND_URL/enqueue`, queue **`kg_doc_stream`**
+  via new `KG_QUEUE` env; unset = pipeline no-op, so gp3 deploys unchanged
+  until flipped on). Publish failures log-and-swallow — gaps backfill via
+  `enqueue_from_es.py`. Validated end-to-end: gp3 pipeline → real
+  rabbit_enqueuer → dev queue → listener (geo scope pass → match → extract →
+  link → `created:1` in dev kgdb, gp3 trace id throughout). **Remaining
+  (deploy):** set `KG_QUEUE=kg_doc_stream` in gp3 prod; point the kg listener
+  at the enqueuer's rabbit/vhost. NOTE: rabbit_enqueuer declares queues with
+  no arguments — the listener must not set `RABBIT_DLX` for this queue
+  (declare-args mismatch is a hard AMQP error); apply DLX later via a
+  RabbitMQ **policy** instead.
 - [x] **Demo geo scope, consumer-side.** The producer stays a dumb firehose;
   the listener drops out-of-scope docs before `Ontology.match` via
   `src/geo_scope.py` (`FILTER_GEO` env, comma-separated geoid prefixes; unset
