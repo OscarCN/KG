@@ -40,7 +40,7 @@ _PROJECT_ROOT = Path("/Users/oscarcuellar/ocn/media/kg/kg/")
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-# Load OPENROUTER_API_KEY, NLP_URL, GEOCODING_URL, etc. from local env files.
+# Load OPENROUTER_API_KEY, GEOCODING_URL, etc. from local env files.
 load_dotenv(_PROJECT_ROOT / ".env.local")
 
 logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")

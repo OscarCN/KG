@@ -27,8 +27,8 @@ extraction concatenate the streets into `location.street`, and have the geocode 
   `violence`/`security` (locations given by streets and corners); rare in `paid_mass_event`, which
   happens at named venues — so this does **not** block the persistence Step Zero on the paid fixture.
 - **Integration touchpoints (still needed):**
-  - `geocode.py` currently calls the `apify_client` `helpers.geocode.geocode` helper, **not** the
-    Flask `refine_mentions` flag — route through the flag (or confirm the helper forwards it).
+  - `geocode.py` is now an in-repo client that POSTs the mention list straight to `GEOCODING_URL`;
+    it does **not** send the Flask `refine_mentions` flag — add it to the request payload.
   - **Open question — does `refine_mentions` return *multiple matches* in the context group (one per
     street), or a single combined match?** The response is keyed by context group with a *list* of
     matches; verify against the live geocoder. The linker wants the **list** (each street → its own

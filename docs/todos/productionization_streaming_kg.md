@@ -64,9 +64,9 @@ Schema-first: all DDL goes through `media-backend-paid/db/kg_db/schema.sql`
 
 - [ ] Prod config via k8s secret/configmap (not `.env.local`): `RABBIT_*`
   (prod vhost/queue/DLX), `KGDB_*` (live), `REDIS_*`, `OPENROUTER_*`,
-  `NLP_URL`/`GEOCODING_URL` (prod geocoder), and the TTLs
+  `GEOCODING_URL` (prod geocoder), and the TTLs
   (`KG_PROCESSED_TTL_SECONDS`, `KG_PROCESSING_TTL_SECONDS`).
-- [ ] Point at **prod geocoder/NLP** and **prod Redis** (the dedup claim; and
+- [ ] Point at **prod geocoder** and **prod Redis** (the dedup claim; and
   ideally a shared geocode cache — see Phase 4).
 
 ## Phase 3 — Producer (the missing half)
@@ -82,17 +82,16 @@ Schema-first: all DDL goes through `media-backend-paid/db/kg_db/schema.sql`
 ## Phase 4 — Deployment & ops
 
 - [x] **Dockerfile** — done, sibling-worker standard (`social_tags` pattern):
-  BuildKit + SSH-secret downloader stage pulling `apify_client` at a pinned
-  commit (for the path-imported `helpers.geocode`; `APIFY_CLIENT_SRC` baked in),
-  non-root `ejecutor`, `python -u src/listener.py` entrypoint. Deviations:
-  `python:3.12-alpine` (pinned pandas/numpy stop at cp312 — build
-  `--platform linux/amd64`), `git fetch` instead of `pip download` (apify_client
-  isn't packaged), explicit writable `cache/`. Build/run/smoke commands in
+  single-stage, non-root `ejecutor`, `python -u src/listener.py` entrypoint.
+  Deviations: `python:3.12-alpine` (pinned pandas/numpy stop at cp312 — build
+  `--platform linux/amd64`), explicit writable `cache/`. The geocoder client
+  is in-repo (`src/entities/linking/geocode.py` POSTs to `GEOCODING_URL`
+  directly), so the former SSH-secret downloader stage pulling `apify_client`
+  at a pinned commit — and its prod deploy-key requirement — is gone; no
+  build secrets needed. Build/run/smoke commands in
   [`../../docker_examples`](../../docker_examples). Validated: containerized
   `--once` ran extract → geocode → link → persist against dev kgdb
-  (`created:1`, then `reset_run`). **Prod needs an `apify_client` deploy key**
-  as the build secret (local builds currently reuse the elastic_client one,
-  which happens to have access).
+  (`created:1`, then `reset_run`).
 - [ ] **k8s deployment** for `kg` (via the `api_revival` k3s inventory, as the
   sibling workers deploy), resource limits, **1 replica** (per launch decision),
   `prefetch=1`, SIGTERM graceful shutdown (already implemented).

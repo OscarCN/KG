@@ -174,7 +174,7 @@ When no match is found, a new linked event is minted with id `{YYYYMMDD}_{state-
 
 `zone` is **not** geocoded. Per the `Location` schema it is a generic directional/functional area with no residential proper name ("zona norte", "corredor industrial"), distinct from `neighborhood` (a named colonia). Sent as `COL` it mis-matched a literal colonia of that name in another state — e.g. `zone="corredor industrial"` dragged *caseta de cobro Palmillas* to a Tamaulipas colonia (precision 5), and `zone="sur"` dragged *Riviera Maya* to colonia SUR, Sonora. Dropping it removed those cross-state mismatches (and let Palmillas resolve correctly to its level-7 caseta in Querétaro). `zone` is still kept on the extracted record, just not used for geocoding.
 
-The geocoder is deepriver's own NLP + geocoding microservice pair, reached via `NLP_URL` and `GEOCODING_URL` env vars. The wrapper picks the highest-precision match from context group `'1'` of the response and exposes `geoid`, `precision_level` (int 1–7), `formatted_name`, the full admin hierarchy as both names (`level_1`…`level_7`) and hierarchical ids (`level_1_id`…`level_7_id`), and `matched_lat`/`matched_lon`. The `level_N_id`s nest as strict prefixes (`_484` ⊂ `_48422` ⊂ `_48422016`), mirror kgdb `entity_locations.level_N_id`, and are what the geo partition keys are built from. Results are cached as JSON under `cache/geocode/<sha256>.json` keyed by the canonicalized Location dict, so re-runs avoid hitting the geocoding service — note the cache stores the normalized output, so changing which fields the wrapper retains requires clearing `cache/geocode/` to repopulate.
+The geocoder is deepriver's own geocoding microservice, reached via the `GEOCODING_URL` env var (the wrapper builds the mention list from the structured Location dict itself, so the companion NLP service is not needed). The wrapper picks the highest-precision match from context group `'1'` of the response and exposes `geoid`, `precision_level` (int 1–7), `formatted_name`, the full admin hierarchy as both names (`level_1`…`level_7`) and hierarchical ids (`level_1_id`…`level_7_id`), and `matched_lat`/`matched_lon`. The `level_N_id`s nest as strict prefixes (`_484` ⊂ `_48422` ⊂ `_48422016`), mirror kgdb `entity_locations.level_N_id`, and are what the geo partition keys are built from. Results are cached as JSON under `cache/geocode/<sha256>.json` keyed by the canonicalized Location dict, so re-runs avoid hitting the geocoding service — note the cache stores the normalized output, so changing which fields the wrapper retains requires clearing `cache/geocode/` to repopulate.
 
 ### Output record shape
 
@@ -194,10 +194,10 @@ Linked events also carry the canonical `date_range` (the most precise extracted 
 
 ### Running
 
-`run_linking.py` is a step-by-step IPython script (mirrors `src/PoC/run_extraction.py`) for testing linking against an extracted-record fixture. Select the fixture with `LINK_STEM` (or `LINK_INPUT_STEM`/`LINK_OUTPUT_STEM`) and point the geocoder via `GEOCODING_URL`/`NLP_URL`; `GEOCODE` (env or the constant) toggles geocoding:
+`run_linking.py` is a step-by-step IPython script (mirrors `src/PoC/run_extraction.py`) for testing linking against an extracted-record fixture. Select the fixture with `LINK_STEM` (or `LINK_INPUT_STEM`/`LINK_OUTPUT_STEM`) and point the geocoder via `GEOCODING_URL`; `GEOCODE` (env or the constant) toggles geocoding:
 
 ```bash
-GEOCODING_URL=http://localhost:8090/geocoder NLP_URL=http://localhost:8210/tag \
+GEOCODING_URL=http://localhost:8090/geocoder \
 LINK_STEM=geo_qro_public_works_event \
 ipython src/entities/linking/run_linking.py
 # or from a Jupyter/IPython session:
@@ -223,7 +223,7 @@ The script loads the extracted JSON fixture, streams every record through the li
 
 ### Required environment
 
-The linker reads `OPENROUTER_API_KEY` (loaded from `kg/.env.local` automatically by `run_linking.py`) and the deepriver geocoder microservice URLs (`NLP_URL`, `GEOCODING_URL`) — set the latter in your shell or local `.env`. Override the linker model via `OPENROUTER_LINKER_MODEL` (default `google/gemini-2.5-flash-lite`).
+The linker reads `OPENROUTER_API_KEY` (loaded from `kg/.env.local` automatically by `run_linking.py`) and the deepriver geocoder microservice URL (`GEOCODING_URL`) — set the latter in your shell or local `.env`. Override the linker model via `OPENROUTER_LINKER_MODEL` (default `google/gemini-2.5-flash-lite`).
 
 ## Persistence
 

@@ -3,7 +3,6 @@ for x86_64; an arm64 build compiles them from source):
 
 docker image build \
 --platform linux/amd64 \
---secret id=gh-ssh-priv,src=/path-to-ssh-apify_client-deploy-private-key \
 --tag kg:test \
 .
 

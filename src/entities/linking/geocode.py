@@ -1,11 +1,10 @@
 """Geocoder wrapper for structured Location dicts.
 
-Thin client for deepriver's geocoder microservice. Calls the geocoder
-helper's `geocode` entry point through the structured-input path of
-`format_mentions` (which short-circuits the NLP step when its `main`
-argument is already a dict).
+Thin client for deepriver's geocoder microservice: builds the mention list
+from an already-structured Location dict (no NLP step needed) and POSTs it
+to `GEOCODING_URL`.
 
-Location fields → geocoder level keys (per `levels` in geocode.py):
+Location fields → geocoder level keys:
 
     country      → PAIS  (level 1)
     state        → EST   (level 2)
@@ -25,38 +24,82 @@ import hashlib
 import json
 import logging
 import os
-import sys
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+import requests
+
 logger = logging.getLogger(__name__)
-
-# Deepriver's geocoder helper lives outside this repo. We add its src/
-# to sys.path so that `from helpers.geocode import geocode` resolves.
-_GEOCODER_SRC = os.environ.get(
-    "APIFY_CLIENT_SRC",
-    "/Users/oscarcuellar/ocn/media/apify_client/src",
-)
-if _GEOCODER_SRC not in sys.path:
-    sys.path.insert(0, _GEOCODER_SRC)
-
-try:
-    from helpers.geocode import geocode as _deepriver_geocode  # type: ignore
-except Exception as ex:  # pragma: no cover
-    logger.warning(
-        "Could not import deepriver geocoder helper from %s: %s. "
-        "Geocoding will be disabled.",
-        _GEOCODER_SRC, ex,
-    )
-    _deepriver_geocode = None  # type: ignore
 
 
 # Cache directory mirrors the extraction cache pattern.
 _CACHE_DIR = Path(__file__).resolve().parents[3] / "cache" / "geocode"
 
 
-# Mapping from Location field name → geocoder level key.
-_LEVEL_KEYS = ("PAIS", "EST", "MUN", "COL", "CALLE", "LUG")
+# Geocoder level key → precision level. Iteration order (most → least
+# precise) also fixes mention_id assignment in the request payload.
+_LEVELS = {"LUG": 7, "CALLE": 6, "COL": 5, "MUN": 3, "EST": 2, "PAIS": 1}
+_LEVEL_KEYS = tuple(_LEVELS)
+
+_GEOCODE_MAX_RETRIES = 3
+_GEOCODE_RETRY_SLEEP = 5  # seconds between retries
+_GEOCODE_TIMEOUT = 10  # seconds
+
+
+def _mentions_payload(
+    mentions: Dict[str, List[Tuple[str, int]]],
+) -> List[Dict[str, Any]]:
+    """Flatten level-keyed mentions into the geocoder's mention-dict list."""
+    payload: List[Dict[str, Any]] = []
+    for level_key in _LEVELS:
+        for text, position in mentions.get(level_key, []):
+            payload.append({
+                "confidence": 0.6,
+                "level": _LEVELS[level_key],
+                "text": text,
+                "position_in_text": position,
+                "mention_id": len(payload),
+                "context_group": 1,
+            })
+    return payload
+
+
+def _geocode_request(
+    mentions: Dict[str, List[Tuple[str, int]]],
+) -> Optional[Dict[str, Any]]:
+    """POST the mentions to the geocoder microservice, with retries.
+
+    Returns the parsed response dict (keyed by context group), or None when
+    `GEOCODING_URL` is unset or the service stays unreachable.
+    """
+    url = os.environ.get("GEOCODING_URL")
+    if not url:
+        logger.warning("GEOCODING_URL not set; geocoding disabled.")
+        return None
+
+    arguments = {"mentions": _mentions_payload(mentions)}
+    for attempt in range(1, _GEOCODE_MAX_RETRIES + 1):
+        try:
+            response = requests.post(
+                url,
+                json=arguments,
+                headers={"Content-Type": "application/json"},
+                timeout=_GEOCODE_TIMEOUT,
+            )
+            response.raise_for_status()
+            return response.json()
+        except Exception as ex:
+            logger.warning(
+                "Geocoding attempt %d/%d failed: %s",
+                attempt, _GEOCODE_MAX_RETRIES, ex,
+            )
+            if attempt < _GEOCODE_MAX_RETRIES:
+                time.sleep(_GEOCODE_RETRY_SLEEP)
+    logger.warning(
+        "Geocoding service unavailable after %d attempts.", _GEOCODE_MAX_RETRIES
+    )
+    return None
 
 
 def _normalize_location(loc: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -195,24 +238,15 @@ def geocode_location(
             # Cached `null` (no match) is stored as a JSON null → loaded as None.
             return cached or None
 
-    if _deepriver_geocode is None:
-        return None
-
     mentions = _build_mentions(loc)
     if not any(mentions.values()):
         if use_cache:
             _cache_write(cache_key, None)
         return None
 
-    try:
-        response = _deepriver_geocode(mentions)
-    except Exception as ex:
-        logger.warning("Geocoder call failed for %s: %s", loc, ex)
-        return None
-
-    if not isinstance(response, dict) or "error" in response:
-        if use_cache:
-            _cache_write(cache_key, None)
+    response = _geocode_request(mentions)
+    if response is None:
+        # Transient service failure — don't cache as a no-match.
         return None
 
     matches = response.get("1", []) or []

@@ -106,7 +106,7 @@ Do not treat cache files or Stage-1 tag snapshots as durable source of truth.
 Most end-to-end scripts require external services and credentials:
 
 - `OPENROUTER_API_KEY` for extraction, linking, prompt generation, and tags LLM calls.
-- Geocoder URLs: `NLP_URL`, `GEOCODING_URL`.
+- Geocoder URL: `GEOCODING_URL`.
 - Elasticsearch credentials when not using local fixture retrieval.
 - kgdb credentials only for fixture generation or future DB-backed work.
 
