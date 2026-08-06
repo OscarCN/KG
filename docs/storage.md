@@ -162,7 +162,7 @@ kgdb tables** — no new tables are introduced for the ontology itself.
 | Type membership | `entity_types` | Associates the entity with its supertype and (when known) child type |
 | Location | `entity_locations` | One row per geocoded `Location`; schema mirrors the geocoder output |
 | Source-document linkage | `entities_documents` | One row per `(entity, doc)` pair the linked entity is mentioned in |
-| Event linking lookups | `event_properties` | Materialised `date_start`, `date_end`, `status`, `status_date` to avoid scanning `entities.metadata` JSON |
+| Event dates | `event_properties` | Two materialised date pairs: `date_start`/`date_end` (the linker's slack-widened retrieval window) and `event_date_start`/`event_date_end` (asserted event dates for user-facing reads); plus `status`, `status_date` |
 
 ### Categories (`entity_kinds_available`)
 
@@ -273,6 +273,21 @@ candidate filter needs:
 Without `event_properties`, the linker would have to extract `date_start`/`date_end` from each
 candidate's `metadata` JSON at query time — a JSON-path scan over all events of the right type
 and area. Materialising them as columns lets a normal range index drive candidate retrieval.
+
+**`event_properties` carries two date pairs with different semantics:**
+
+| Pair | Semantics | Written by |
+|---|---|---|
+| `date_start` / `date_end` | The linker's **slack-widened retrieval confidence window** (each source window widened by its `slack_days`, union across sources) — reproduces the candidate date filter as a `tstzrange &&`. **Not** the event's asserted dates. | `KgdbWriter._confidence_window` |
+| `event_date_start` / `event_date_end` | The **asserted event dates for user-facing reads** — the extracted `date_range` verbatim, no slack. `event_date_end` NULL = punctual / no known end (consumers must fall back as a *pair*, never mix one column from each pair). When nothing was extracted, the publication date is stored as **both** start and end. | `KgdbWriter._event_dates` |
+
+Both pairs are rewritten from the merged record on every create/merge, so `event_date_*`
+tracks the canonical most-precise window as merges refine it. Instants are anchored to
+`America/Mexico_City` by the extraction-side timezone normalization (see
+[`todos/extraction_date_timezone_normalization.md`](todos/extraction_date_timezone_normalization.md));
+`idx_event_properties_event_date_start` supports user-facing date filters. Live/staging DDL:
+`media-backend-paid/docs/db/migrations/event_dates_user_facing_kgdb.sql` (includes the
+one-time backfill).
 
 `status` and `status_date` track event lifecycle (e.g. an `arrest_event` moving from
 `reported` → `confirmed` → `closed`) without rewriting `metadata` — useful when only the

@@ -21,6 +21,7 @@ import re
 import unicodedata
 from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 import pandas as pd
@@ -777,6 +778,61 @@ def _validate_entity(
 
 
 # ---------------------------------------------------------------------------
+# Date timezone normalization
+# ---------------------------------------------------------------------------
+
+
+_DEFAULT_TZ = ZoneInfo("America/Mexico_City")
+
+
+def _resolve_zone(name: Any) -> Optional[ZoneInfo]:
+    """Resolve an extracted `timezone` string to a ZoneInfo, or None."""
+    if isinstance(name, str) and name.strip():
+        try:
+            return ZoneInfo(name.strip())
+        except Exception:
+            return None
+    return None
+
+
+def _reanchor(dt: datetime, zone: ZoneInfo) -> datetime:
+    """Re-anchor a datetime's wall-clock time to `zone` when its offset is
+    untrustworthy: naive, or an explicit UTC stamp (offset 0). The extraction
+    LLM never legitimately means UTC for Mexican news — a trailing `Z`/+00:00
+    is an artifact — while a genuine non-zero offset is kept as-is."""
+    if dt.tzinfo is not None and dt.utcoffset():
+        return dt
+    return dt.replace(tzinfo=zone)
+
+
+def _normalize_date_timezones(obj: Any, zone: Optional[ZoneInfo] = None) -> None:
+    """Normalize every datetime in an extracted record, in place.
+
+    Walks nested dicts/lists (so any `DateRangeFromUnstructured` /
+    `DateFromUnstructured` composite is covered, wherever the schema puts
+    it). A dict's own `timezone` field, when valid, becomes the anchor zone
+    for its subtree; otherwise the nearest enclosing zone or the Mexico City
+    default applies. Dicts that carry a `timezone` key get the applied zone
+    stamped back so the stored record says which zone the instants are in.
+    """
+    if isinstance(obj, list):
+        for item in obj:
+            _normalize_date_timezones(item, zone)
+        return
+    if not isinstance(obj, dict):
+        return
+    own_zone = _resolve_zone(obj.get("timezone")) or zone
+    applied = own_zone or _DEFAULT_TZ
+    for key, value in obj.items():
+        if isinstance(value, datetime):
+            obj[key] = _reanchor(value, applied)
+        else:
+            _normalize_date_timezones(value, own_zone)
+    if "timezone" in obj:
+        obj["timezone"] = getattr(applied, "key", str(applied))
+
+
+# ---------------------------------------------------------------------------
 # Extraction attempt helpers
 # ---------------------------------------------------------------------------
 
@@ -844,6 +900,7 @@ def _validate_all_entities(
                 supertype, type(e).__name__, e, pretty,
             )
             raise
+        _normalize_date_timezones(normalized)
         normalized.update(meta)
         validated.append(normalized)
     return validated

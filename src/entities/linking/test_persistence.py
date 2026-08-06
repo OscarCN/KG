@@ -277,3 +277,75 @@ def test_record_hash_stable_and_distinct():
     b = {"_source_id": "d", "_supertype": "x", "name": "two"}
     assert KgdbWriter._record_hash(a) == KgdbWriter._record_hash(dict(a))
     assert KgdbWriter._record_hash(a) != KgdbWriter._record_hash(b)
+
+
+# --- event_properties: asserted event dates (event_date_start/_end) ----------
+
+
+def test_event_dates_extracted_verbatim_no_slack():
+    record = {
+        "date_range": {"date_range": {"start": "2026-08-06T10:00:00-06:00",
+                                      "end": "2026-08-08T22:00:00-06:00"}},
+        "publication_date": "2026-08-01T00:00:00-06:00",
+        "_source_windows": [{"start": "2026-08-06T10:00:00-06:00",
+                             "end": "2026-08-08T22:00:00-06:00",
+                             "slack_days": 1, "source": "extracted"}],
+    }
+    start, end = KgdbWriter._event_dates(record)
+    assert start.isoformat() == "2026-08-06T10:00:00-06:00"
+    assert end.isoformat() == "2026-08-08T22:00:00-06:00"
+
+
+def test_event_dates_start_only_keeps_null_end():
+    record = {
+        "date_range": {"date_range": {"start": "2026-08-06T10:00:00-06:00",
+                                      "end": None}},
+        "publication_date": "2026-08-06T06:48:00-06:00",
+    }
+    start, end = KgdbWriter._event_dates(record)
+    assert start.isoformat() == "2026-08-06T10:00:00-06:00"
+    assert end is None  # punctual / no known end — NOT the publication date
+
+
+def test_event_dates_fallback_publication_both_ends():
+    record = {
+        "date_range": {"date_range": {"start": None, "end": None}},
+        "publication_date": "2026-08-05T19:40:00-06:00",
+    }
+    start, end = KgdbWriter._event_dates(record)
+    assert start == end
+    assert start.isoformat() == "2026-08-05T19:40:00-06:00"
+
+
+def test_event_dates_inverted_range_swapped():
+    record = {
+        "date_range": {"date_range": {"start": "2026-08-08T00:00:00-06:00",
+                                      "end": "2026-08-06T00:00:00-06:00"}},
+    }
+    start, end = KgdbWriter._event_dates(record)
+    assert start < end
+
+
+def test_write_event_properties_writes_both_pairs():
+    cur = FakeCursor()
+    w = KgdbWriter("run-x", conn=FakeConn())
+    record = {
+        "date_range": {"date_range": {"start": "2026-08-06T10:00:00-06:00",
+                                      "end": None},
+                       "precision_days": 0},
+        "publication_date": "2026-08-06T06:48:00-06:00",
+        "_source_windows": [{"start": "2026-08-06T10:00:00-06:00", "end": None,
+                             "slack_days": 1, "source": "extracted",
+                             "precision_days": 0}],
+        "status": "planned",
+    }
+    w._write_event_properties(cur, 483, record)
+    sql, params = cur.calls[0]
+    assert "event_date_start" in sql and "event_date_end" in sql
+    entity_id, ds, de, eds, ede, status = params
+    assert entity_id == 483 and status == "planned"
+    # confidence window: slack-widened around the extracted start
+    assert (de - ds).days == 2
+    # asserted dates: verbatim, end NULL
+    assert eds.isoformat() == "2026-08-06T10:00:00-06:00"
+    assert ede is None

@@ -78,10 +78,14 @@ def test_list_of_composite_types():
     assert d0["mention"] == "del 1 al 3 de junio"
     assert isinstance(d0["precision_days"], int)
 
+    # Naive datetimes get the pinned Mexico City default, not the machine zone
+    assert str(d0["date_range"]["start"].tzinfo) == "America/Mexico_City"
+
     d1 = result["dates"][1]
     assert isinstance(d1["date_range"]["start"], datetime)
     assert d1["date_range"]["end"] is None  # null preserved
     assert d1["precision_days"] == 15
+    assert str(d1["date_range"]["start"].tzinfo) == "America/Mexico_City"
 
     # -- List[LocationCoords] --
     assert len(result["locations"]) == 2

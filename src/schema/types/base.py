@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 from typing import Any, Dict, Optional
-from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from .string_helpers import _is_null
 
-local_tz = datetime.now().astimezone().tzinfo
+# Default timezone for naive datetimes. Pinned to Mexico City (the documented
+# repo convention) rather than the machine-local zone: the Dockerized listener
+# runs on a UTC clock, so a machine-local default stamped Mexico-local wall
+# times as +00:00. Requires the `tzdata` package on slim/alpine images.
+local_tz = ZoneInfo("America/Mexico_City")
 
 # Try to import pandas for Timestamp support
 try:

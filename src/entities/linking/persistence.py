@@ -198,6 +198,26 @@ class KgdbWriter:
         pub = _parse_dt(record.get("publication_date"))
         return pub, pub
 
+    @staticmethod
+    def _event_dates(record: dict) -> tuple[Optional[datetime], Optional[datetime]]:
+        """The event's asserted dates for user-facing reads — the extracted
+        `date_range` verbatim (end stays NULL for punctual/no-known-end
+        events), falling back to the publication date as both start and end
+        when nothing was extracted. Unlike `_confidence_window`, no slack is
+        applied — these columns answer "when is/was the event", not "which
+        retrieval window covers it"."""
+        date_range = (record.get("date_range") or {}).get("date_range") or {}
+        start = _parse_dt(date_range.get("start"))
+        end = _parse_dt(date_range.get("end"))
+        if start is None and end is None:
+            pub = _parse_dt(record.get("publication_date"))
+            return pub, pub
+        if start is None:  # end-only extraction — keep start populated
+            start = end
+        elif end is not None and start > end:  # guard inverted extracted ranges
+            start, end = end, start
+        return start, end
+
     # -- per-table writes -----------------------------------------------------
 
     @staticmethod
@@ -234,13 +254,17 @@ class KgdbWriter:
         start, end = self._confidence_window(record)
         if start and end and start > end:  # guard inverted windows (bad extracted range)
             start, end = end, start
+        event_start, event_end = self._event_dates(record)
         cur.execute(
-            "INSERT INTO event_properties (event_id, date_start, date_end, status) "
-            "VALUES (%s, %s, %s, %s) "
+            "INSERT INTO event_properties (event_id, date_start, date_end, "
+            "event_date_start, event_date_end, status) "
+            "VALUES (%s, %s, %s, %s, %s, %s) "
             "ON CONFLICT (event_id) DO UPDATE SET "
             "date_start = EXCLUDED.date_start, date_end = EXCLUDED.date_end, "
+            "event_date_start = EXCLUDED.event_date_start, "
+            "event_date_end = EXCLUDED.event_date_end, "
             "status = EXCLUDED.status, record_updated = now()",
-            (entity_id, start, end, record.get("status")),
+            (entity_id, start, end, event_start, event_end, record.get("status")),
         )
 
     @staticmethod

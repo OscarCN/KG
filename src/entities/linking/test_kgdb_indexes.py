@@ -80,6 +80,13 @@ def test_event_properties_date_range_index(schema_sql: str) -> None:
     ), "missing CREATE INDEX on event_properties date range (tstzrange/date_start)"
 
 
+def test_event_properties_event_date_index(schema_sql: str) -> None:
+    stmts = _create_index_statements(schema_sql)
+    assert any(
+        "event_properties" in s and "event_date_start" in s for s in stmts
+    ), "missing CREATE INDEX on event_properties (event_date_start)"
+
+
 @pytest.mark.parametrize("level", ["level_2_id", "level_3_id", "level_5_id",
                                    "level_6_id", "level_7_id"])
 def test_entity_locations_level_index(schema_sql: str, level: str) -> None:
