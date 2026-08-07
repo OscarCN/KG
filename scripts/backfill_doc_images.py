@@ -5,7 +5,9 @@ The streaming pipeline now captures each article's ``media_pictures`` at ingest
 written before that change have ``doc_images IS NULL``. This script fills them:
 
   1. SELECT DISTINCT doc_id FROM entities_documents
-     WHERE doc_index='news' AND doc_images IS NULL
+     WHERE doc_index='news' AND (doc_images IS NULL OR doc_images = '[]')
+     — ``[]`` rows are re-checked too: the 2026-08 ``record_to_article``
+     regression wrote [] for docs that actually had pictures.
   2. ES ``news`` search by ids (doc_id == ES ``_id`` == article url), pulling
      only ``media_pictures``.
   3. UPDATE doc_images = [{url, url_md5}, ...] (capped, same normalization as
@@ -85,9 +87,14 @@ def main() -> None:
 
     conn = _kgdb()
     with conn.cursor() as cur:
+        # `doc_images = '[]'` rows are included: the 2026-08 record_to_article
+        # regression dropped media_pictures from every streamed article, so the
+        # listener wrote [] ("no images") for docs that actually had them.
+        # Genuine no-image docs just get [] again — idempotent.
         cur.execute(
             "SELECT DISTINCT doc_id FROM entities_documents "
-            "WHERE doc_index = 'news' AND doc_images IS NULL ORDER BY doc_id"
+            "WHERE doc_index = 'news' "
+            "AND (doc_images IS NULL OR doc_images = '[]'::jsonb) ORDER BY doc_id"
         )
         doc_ids = [r[0] for r in cur.fetchall()]
     if args.limit:
@@ -106,7 +113,8 @@ def main() -> None:
             for doc_id, images in images_by_id.items():
                 cur.execute(
                     "UPDATE entities_documents SET doc_images = %s "
-                    "WHERE doc_id = %s AND doc_index = 'news' AND doc_images IS NULL",
+                    "WHERE doc_id = %s AND doc_index = 'news' "
+                    "AND (doc_images IS NULL OR doc_images = '[]'::jsonb)",
                     (psycopg2.extras.Json(images), doc_id),
                 )
                 updated += cur.rowcount

@@ -30,6 +30,7 @@ def record_to_article(record: Dict[str, Any]) -> Dict[str, Any]:
         tags = msg.get("source_tags")
         if tags:
             categories.extend(tags) if isinstance(tags, list) else categories.append(tags)
+        media_pictures = msg.get("media_pictures") or record.get("media_pictures")
     else:
         body = record.get("text") or record.get("summary") or ""
         title = record.get("title") or ""
@@ -54,6 +55,7 @@ def record_to_article(record: Dict[str, Any]) -> Dict[str, Any]:
                     categories.extend(level_vals)
                 elif isinstance(level_vals, str):
                     categories.append(level_vals)
+        media_pictures = record.get("media_pictures")
 
     source_id = str(record.get("_id") or url or id(record))
     return {
@@ -66,4 +68,9 @@ def record_to_article(record: Dict[str, Any]) -> Dict[str, Any]:
         "source_type": doc_type,
         "publication_date": publication_date,
         "news_type": news_type,
+        # Image provenance: consumed by extraction's _coerce_images →
+        # per-entity `_images` → linker `_sources[].images` →
+        # entities_documents.doc_images. Dropping it here silently emptied
+        # doc_images for every streamed document (2026-08 regression).
+        "media_pictures": media_pictures or [],
     }
