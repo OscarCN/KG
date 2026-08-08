@@ -30,7 +30,7 @@ Para cada incidente de emergencia mencionado en el texto, extrae los siguientes 
 - `"fire"` — Incendio: incendio estructural, forestal, vehicular o de cualquier tipo
 - `"crash"` — Choque: colisión vehicular, accidente de tránsito, choque múltiple
 - `"explosion"` — Explosión: explosión de gas, pirotecnia, industrial o de cualquier tipo
-- `"flood"` — Inundación: inundación por lluvias, desbordamiento de ríos, encharcamientos severos
+- `"flood"` — Inundación / lluvia: inundación por lluvias, desbordamiento de ríos, encharcamientos, lluvia intensa o continua con afectaciones, y en general cualquier disrupción causada por lluvia o inundación (p. ej. un servicio detenido por lluvia, vialidades cerradas, daños por lluvia)
 - `"accident"` — Accidente: accidente industrial, laboral, doméstico u otro no vehicular
 - `"pedestrian_hit"` — Atropellamiento: peatón golpeado por un vehículo
 - `"emergency_general"` — Emergencia general: emergencia que no encaja en las categorías anteriores

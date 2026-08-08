@@ -2,7 +2,7 @@
     "EmergencyEvent": {
         "meta": {
             "category": "event",
-            "description": "An identifiable single emergency incident such as a fire, vehicle crash, explosion, flood, accident, or general emergency. Each incident is a specific occurrence distinguishable by its location and date — not a trend, overview, or general topic about emergencies. Extracted from news articles and social media.",
+            "description": "An identifiable single emergency incident such as a fire, vehicle crash, explosion, flood, accident, or general emergency. Floods include intense or sustained rain episodes (lluvia intensa, lluvia continua) and any disruption caused by rain or flooding — e.g. a service suspended, a road closed, or damage due to rain — even when the text does not use the word 'inundación'. Each incident is a specific occurrence distinguishable by its location and date — not a trend, overview, or general topic about emergencies. Extracted from news articles and social media.",
             "example": {
                 "event_type": "fire",
                 "event_subtype": "structural_fire",

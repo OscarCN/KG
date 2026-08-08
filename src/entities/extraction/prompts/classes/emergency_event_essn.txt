@@ -20,7 +20,7 @@ Para cada incidente mencionado en la nota, extrae los siguientes campos. Si no s
 "fire" — Incendio: fuego no controlado en un inmueble, vehículo, terreno, etc.
 "crash" — Choque vehicular: colisión entre vehículos, volcadura, choque contra objeto fijo
 "explosion" — Explosión: detonación, estallido de gas, pirotecnia, etc.
-"flood" — Inundación: anegamiento por lluvia, desbordamiento de río, rotura de tubería, etc.
+"flood" — Inundación / lluvia: anegamiento por lluvia, desbordamiento de río, rotura de tubería, lluvia intensa o continua con afectaciones, o cualquier disrupción causada por lluvia (servicio detenido por lluvia, vialidades cerradas, daños por lluvia, etc.)
 "accident" — Accidente: accidente general no vehicular (caída, derrumbe, accidente laboral, etc.)
 "pedestrian_hit" — Atropellamiento: vehículo que impacta a un peatón o ciclista
 "emergency_general" — Emergencia general: cualquier emergencia que no encaje en las categorías anteriores
