@@ -82,7 +82,13 @@ def _geocode_request(
     payload = _mentions_payload(mentions)
     if extra_mentions:
         payload = payload + list(extra_mentions)
-    arguments = {"mentions": payload}
+    # refine_mentions: the geocoder re-tags compound street fields through its
+    # NER so "Calle A y Calle B" splits into two street mentions instead of one
+    # unmatchable string. ["CALLE"] only — the documented safe set (geocoding
+    # repo docs/flask.md): single streets and venues pass through untouched,
+    # and the geocoder falls back to the original mentions if the tagger is
+    # down or returns nothing.
+    arguments = {"mentions": payload, "refine_mentions": ["CALLE"]}
     for attempt in range(1, _GEOCODE_MAX_RETRIES + 1):
         try:
             response = requests.post(
