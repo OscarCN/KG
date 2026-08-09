@@ -246,7 +246,11 @@ class GeoEventStrategy:
         Returns `(prepared, None)` or `(None, drop_reason)`.
         """
         if self.geocode:
-            geo = geocode_location(record.get("location"))
+            # `_author_geo` (extraction provenance, ES `location_author`) is
+            # geocoder CONTEXT for anchor-less locations — see geocode.py.
+            geo = geocode_location(
+                record.get("location"), author_geo=record.get("_author_geo"),
+            )
             if geo:
                 record["_geo"] = geo
 

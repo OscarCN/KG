@@ -67,6 +67,7 @@ def _mentions_payload(
 
 def _geocode_request(
     mentions: Dict[str, List[Tuple[str, int]]],
+    extra_mentions: Optional[List[Dict[str, Any]]] = None,
 ) -> Optional[Dict[str, Any]]:
     """POST the mentions to the geocoder microservice, with retries.
 
@@ -78,7 +79,10 @@ def _geocode_request(
         logger.warning("GEOCODING_URL not set; geocoding disabled.")
         return None
 
-    arguments = {"mentions": _mentions_payload(mentions)}
+    payload = _mentions_payload(mentions)
+    if extra_mentions:
+        payload = payload + list(extra_mentions)
+    arguments = {"mentions": payload}
     for attempt in range(1, _GEOCODE_MAX_RETRIES + 1):
         try:
             response = requests.post(
@@ -164,6 +168,43 @@ def _location_cache_key(loc: Dict[str, Any]) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+def _author_context_mentions(author_geo: Optional[Dict[str, Any]],
+                             start_id: int) -> List[Dict[str, Any]]:
+    """Author-location context mentions (SEPARATE context group, low confidence).
+
+    The document author's declared location (ES `location_author`) gives the
+    collective matcher an anchor when the extracted location has none — a local
+    account posting "se inundó la colonia Del Valle" usually means its own city.
+    Shape decided empirically (2026-08-08, geocoding repo
+    `docs/todos/kg_social_cdmx_lluvias_geo_review.md` §3.4): mentions ride in
+    `context_group` 2 — the geocoder's native `context` shape — NOT the event's
+    group 1 (same-group perturbed correct matches in testing). State (level 2)
+    and municipality (level 3) names only; author precision must be state or
+    finer (a country-only author location anchors nothing).
+    """
+    if not isinstance(author_geo, dict):
+        return []
+    try:
+        prec = int(author_geo.get("precision_level") or 0)
+    except (TypeError, ValueError):
+        prec = 0
+    if prec < 2:
+        return []
+    out: List[Dict[str, Any]] = []
+    for field, level in (("level_2", 2), ("level_3", 3)):
+        text = (author_geo.get(field) or "").strip()
+        if text:
+            out.append({
+                "confidence": 0.3,
+                "level": level,
+                "text": text,
+                "position_in_text": len(out),
+                "mention_id": start_id + len(out),
+                "context_group": 2,
+            })
+    return out
+
+
 def _cache_read(key: str) -> Optional[Dict[str, Any]]:
     path = _CACHE_DIR / f"{key}.json"
     if not path.exists():
@@ -221,17 +262,35 @@ def _normalize_response(match: Dict[str, Any]) -> Dict[str, Any]:
 def geocode_location(
     location: Optional[Dict[str, Any]],
     use_cache: bool = True,
+    author_geo: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
     """Geocode a structured Location dict and return a normalized result.
 
     Returns None when the location is empty, the geocoder is unavailable,
     or no match is returned.
+
+    `author_geo` (the document author's declared location, ES
+    `location_author`) is used as CONTEXT — a separate low-confidence mention
+    group the collective matcher can lean on. Evidence (2026-08-08 behavioral
+    test, geocoding repo spec §3.4): the separate group changed nothing on 19/22
+    already-anchored locations, rescued an anchored-but-unresolved street
+    (prec 2 → 6), and its one failure mode (losing a match the bare location
+    would find) is covered by the bare-call fallback below — so context is sent
+    whenever the author location is state-or-finer, not only for anchor-less
+    records.
     """
     loc = _normalize_location(location)
     if not loc:
         return None
 
-    cache_key = _location_cache_key(loc)
+    ctx_mentions: List[Dict[str, Any]] = (
+        _author_context_mentions(author_geo, start_id=100) if author_geo else []
+    )
+
+    cache_key = _location_cache_key(
+        {**loc, "_author_ctx": [m["text"] for m in ctx_mentions]}
+        if ctx_mentions else loc
+    )
     if use_cache:
         cached = _cache_read(cache_key)
         if cached is not None:
@@ -244,19 +303,31 @@ def geocode_location(
             _cache_write(cache_key, None)
         return None
 
-    response = _geocode_request(mentions)
+    response = _geocode_request(mentions, extra_mentions=ctx_mentions or None)
     if response is None:
         # Transient service failure — don't cache as a no-match.
         return None
 
+    # The event's match is context group "1"; the author group ("2") is context
+    # only and never read as a result.
     matches = response.get("1", []) or []
     best = _pick_best_match(matches)
+    if not best and ctx_mentions:
+        # Fallback: the context attempt found nothing — retry bare (its own
+        # cache key), and memoize the resolved outcome under the context key.
+        logger.info("author-context geocode found no match; falling back bare")
+        result = geocode_location(location, use_cache=use_cache)
+        if use_cache:
+            _cache_write(cache_key, result)
+        return result
     if not best:
         if use_cache:
             _cache_write(cache_key, None)
         return None
 
     result = _normalize_response(best)
+    if ctx_mentions:
+        result["_author_context_used"] = True
     if use_cache:
         _cache_write(cache_key, result)
     return result

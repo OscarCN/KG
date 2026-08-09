@@ -1303,12 +1303,16 @@ class EntityExtractor:
 
             all_entities.extend(entities)
 
-        # Backfill `date_created`, `news_type` and `_images` on every entity,
-        # including those that came from older caches that predated these
-        # provenance fields. Post-validation so it survives schema normalization.
+        # Backfill `date_created`, `news_type`, `_images` and `_author_geo` on
+        # every entity, including those that came from older caches that
+        # predated these provenance fields. Post-validation so it survives
+        # schema normalization. `_author_geo` (the document author's declared
+        # location, ES `location_author`) is NEVER shown to the LLMs — it rides
+        # as provenance for the linker's geocoding context (docs/linking.md).
         news_type = article.get("news_type")
         images = _coerce_images(article)
-        if publication_date or news_type or images:
+        author_geo = article.get("location_author")
+        if publication_date or news_type or images or author_geo:
             for entity in all_entities:
                 if publication_date and not entity.get("date_created"):
                     entity["date_created"] = publication_date
@@ -1316,5 +1320,7 @@ class EntityExtractor:
                     entity["news_type"] = news_type
                 if images and not entity.get("_images"):
                     entity["_images"] = images
+                if author_geo and not entity.get("_author_geo"):
+                    entity["_author_geo"] = author_geo
 
         return all_entities

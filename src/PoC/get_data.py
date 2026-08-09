@@ -194,7 +194,10 @@ NEWS_FIELDS = [
     "locations_mentioned",
     "comments",
     "news_type",
-    "media_pictures"
+    "media_pictures",
+    # Author declared location (populated for social authors) — geocoder
+    # context for anchor-less extracted locations (linking/geocode.py).
+    "location_author",
 ]
 
 

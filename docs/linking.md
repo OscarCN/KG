@@ -174,6 +174,26 @@ When no match is found, a new linked event is minted with id `{YYYYMMDD}_{state-
 
 `zone` is **not** geocoded. Per the `Location` schema it is a generic directional/functional area with no residential proper name ("zona norte", "corredor industrial"), distinct from `neighborhood` (a named colonia). Sent as `COL` it mis-matched a literal colonia of that name in another state — e.g. `zone="corredor industrial"` dragged *caseta de cobro Palmillas* to a Tamaulipas colonia (precision 5), and `zone="sur"` dragged *Riviera Maya* to colonia SUR, Sonora. Dropping it removed those cross-state mismatches (and let Palmillas resolve correctly to its level-7 caseta in Querétaro). `zone` is still kept on the extracted record, just not used for geocoding.
 
+**Author-location context (social docs).** When the document carries the author's
+declared location (ES `location_author`, populated for ~half of X authors; Facebook
+needs the apify profile-enrichment warm-up), it rides the chain as provenance —
+gp3 whitelists it into the kg stream → `record_to_article` passes `location_author`
+→ extraction stamps it on every record as `_author_geo` (never shown to the LLMs; an
+extraction-side variant was tested and rejected — it degraded fine-location
+extraction) → `strategy.prepare` hands it to `geocode_location(loc, author_geo=...)`.
+The wrapper turns the author's `level_2`/`level_3` names into **low-confidence
+mentions in a separate `context_group` (2)** — the geocoder's native `context`
+shape — so the collective matcher can use them as anchors without them competing as
+the event's own address. Guards: author precision must be state-or-finer (a
+country-only author location anchors nothing), and a **no-match with context falls
+back to the bare call** (context must never lose a match the bare location would
+find — the one failure mode observed in testing). A context-assisted match carries
+`_author_context_used: true`. Measured (2026-08-08, CDMX-lluvias X batch): no state
+changes on anchored locations, an anchored-but-unresolved street rescued 2→6, and
+the previously-unmatchable bare-colonia case ("Del Valle" + CDMX author) now
+resolves at level 5. Full evidence + the pending multi-context training-samples
+stream: geocoding repo `docs/todos/kg_social_cdmx_lluvias_geo_review.md` §3.4–3.5.
+
 The geocoder is deepriver's own geocoding microservice, reached via the `GEOCODING_URL` env var (the wrapper builds the mention list from the structured Location dict itself, so the companion NLP service is not needed). The wrapper picks the highest-precision match from context group `'1'` of the response and exposes `geoid`, `precision_level` (int 1–7), `formatted_name`, the full admin hierarchy as both names (`level_1`…`level_7`) and hierarchical ids (`level_1_id`…`level_7_id`), and `matched_lat`/`matched_lon`. The `level_N_id`s nest as strict prefixes (`_484` ⊂ `_48422` ⊂ `_48422016`), mirror kgdb `entity_locations.level_N_id`, and are what the geo partition keys are built from. Results are cached as JSON under `cache/geocode/<sha256>.json` keyed by the canonicalized Location dict, so re-runs avoid hitting the geocoding service — note the cache stores the normalized output, so changing which fields the wrapper retains requires clearing `cache/geocode/` to repopulate.
 
 ### Output record shape

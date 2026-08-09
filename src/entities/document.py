@@ -58,6 +58,15 @@ def record_to_article(record: Dict[str, Any]) -> Dict[str, Any]:
         media_pictures = record.get("media_pictures")
 
     source_id = str(record.get("_id") or url or id(record))
+    # Author-location provenance (ES `location_author`, populated for social
+    # authors): consumed by the linker's geocoder as context mentions when the
+    # extracted location lacks admin anchors. Never shown to the LLMs.
+    if isinstance(msg, dict):
+        location_author = msg.get("location_author")
+    else:
+        location_author = record.get("location_author")
+    if not (isinstance(location_author, dict) and location_author.get("geoid")):
+        location_author = None
     return {
         "id": source_id,
         "text": body,
@@ -73,4 +82,5 @@ def record_to_article(record: Dict[str, Any]) -> Dict[str, Any]:
         # entities_documents.doc_images. Dropping it here silently emptied
         # doc_images for every streamed document (2026-08 regression).
         "media_pictures": media_pictures or [],
+        "location_author": location_author,
     }
