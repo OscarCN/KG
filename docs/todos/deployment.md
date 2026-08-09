@@ -62,10 +62,13 @@ mentions, 24 `no_match` on tokenization/keyword gaps):
   rules 1/39 in place): `concert` += auditorio, gira; `flood` += tormenta +
   phrases "alerta purpura/roja/amarilla", "corriente(s) de agua".
 - [x] **`refine_mentions: ["CALLE"]` client hunk committed** (`geocode.py` — was
-  a leftover uncommitted change from the 08-08 cycle). Live-tested: the
-  geocoder returns a **single best match per context group**, so the
-  multi-street half of [location_level_list_extraction.md](location_level_list_extraction.md)
-  is blocked on a geocoder-side change (ask filed in the geocoding repo).
+  a leftover uncommitted change from the 08-08 cycle). Live-tested (corrected
+  2026-08-09): the geocoder **does** return multiple matches per context group
+  (Insurgentes+Amsterdam → 3); the earlier single-match result was a KB gap
+  (Amealco de Bonfil street missing in El Marqués). The multi-street half of
+  [location_level_list_extraction.md](location_level_list_extraction.md) is
+  therefore **kg-side** (`_pick_best_match` discards all but one match); the
+  geocoder-side item is KB street coverage (noted in the geocoding repo).
 - [ ] `scripts/seed_ontology_rules.py` full refresh fails as `backend` user
   (`TRUNCATE … RESTART IDENTITY` needs the sequence owner) — reseed as owner or
   grant, next time the xlsx is the source of a bulk change.

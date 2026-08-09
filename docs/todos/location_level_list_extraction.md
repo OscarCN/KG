@@ -29,18 +29,21 @@ extraction concatenate the streets into `location.street`, and have the geocode 
 - **Integration touchpoints (still needed):**
   - ~~`geocode.py` does not send the flag~~ **Done:** the client sends
     `refine_mentions: ["CALLE"]` on every `POST /geocoder` call.
-  - **Open question answered (2026-08-09, live test): the geocoder returns a
-    single best match per context group** — sending the compound string with the
-    flag, or the two streets pre-split, both yield ONE level-6 match (San Juan
-    del Río; Amealco never surfaces). So refinement rescues *precision* (level 6
-    instead of the municipality centroid) but the second street is discarded
-    server-side, before kg's `_pick_best_match` even runs. The linker's
-    multi-location half is therefore **blocked on the geocoder** returning
-    multiple matches per group (or one group per street) — ask filed in the
-    geocoding repo — not just on kg-side plumbing. (Also observed: the
-    *unflagged* compound resolved to level 6 too on this fixture — the CER finds
-    the leading street inside the compound — so the flag's value case is
-    compounds where leading tokens confuse the matcher.)
+  - **Open question answered (2026-08-09, live tests): the geocoder DOES return
+    multiple matches per context group** — Insurgentes + Amsterdam (Condesa,
+    CDMX; non-cornering streets) return **3 matches** in one group (colonia +
+    both streets), identically for the pre-split mentions and for the compound
+    string with `refine_mentions`. The earlier El Marqués test that suggested a
+    single best match was a **KB coverage gap**: "Calle Amealco de Bonfil"
+    doesn't exist in the KB there (alone it falls back to the precision-3
+    municipality centroid), so only San Juan del Río could surface. Two
+    consequences: (a) the multi-location blocker is **kg-side** —
+    `_pick_best_match` keeps one match and discards the rest; the wrapper must
+    return the list of `_geo` results (changes 3–5 below); (b) missing streets
+    are a geocoder **KB/street-creation** item, not a response-shape one.
+    (Also observed: the *unflagged* compound resolved to level 6 too — the CER
+    finds the leading street inside the compound — so the flag's value case is
+    compounds whose leading tokens confuse the matcher.)
   - The linker (`strategy.py`) multi-location keys/gate and the kgdb writer's per-location
     `entity_locations` loop (proposed changes 3–5 below) are required **either way** — `refine_mentions`
     replaces the *schema/prompt* half (changes 1–2) for the compound-street case, not the
