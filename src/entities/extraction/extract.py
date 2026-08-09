@@ -112,7 +112,12 @@ _stemmer = SpanishStemmer()
 
 
 def _normalize_text(text: str) -> str:
-    """Lowercase, strip accents, collapse whitespace."""
+    """Lowercase, strip accents, collapse whitespace.
+
+    CamelCase runs are split before lowercasing so hashtag compounds
+    ("#AlertaPúrpura") tokenize into matchable words ("alerta purpura").
+    """
+    text = re.sub(r"(?<=[a-zá-úñ])(?=[A-ZÁ-ÚÑ])", " ", text)
     text = text.lower()
     text = unicodedata.normalize("NFD", text)
     text = "".join(c for c in text if unicodedata.category(c) != "Mn")
@@ -121,8 +126,13 @@ def _normalize_text(text: str) -> str:
 
 
 def _stem_text(text: str) -> str:
-    """Stem each word in a normalized text string."""
-    return " ".join(_stemmer.stem(w) for w in text.split())
+    """Stem each word in a normalized text string.
+
+    Tokenizes on alphanumeric runs (not whitespace) so punctuation never
+    glues to a token — '#lluvias' and 'congreso".' both yield matchable
+    stems; whitespace-split left them unmatchable.
+    """
+    return " ".join(_stemmer.stem(w) for w in re.findall(r"[a-z0-9]+", text))
 
 
 # ---------------------------------------------------------------------------
