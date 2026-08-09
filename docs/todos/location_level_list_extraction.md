@@ -27,13 +27,20 @@ extraction concatenate the streets into `location.street`, and have the geocode 
   `violence`/`security` (locations given by streets and corners); rare in `paid_mass_event`, which
   happens at named venues — so this does **not** block the persistence Step Zero on the paid fixture.
 - **Integration touchpoints (still needed):**
-  - `geocode.py` is now an in-repo client that POSTs the mention list straight to `GEOCODING_URL`;
-    it does **not** send the Flask `refine_mentions` flag — add it to the request payload.
-  - **Open question — does `refine_mentions` return *multiple matches* in the context group (one per
-    street), or a single combined match?** The response is keyed by context group with a *list* of
-    matches; verify against the live geocoder. The linker wants the **list** (each street → its own
-    `level_6_id` bucket), so the wrapper must return a list of `_geo` results, not just the
-    highest-precision one.
+  - ~~`geocode.py` does not send the flag~~ **Done:** the client sends
+    `refine_mentions: ["CALLE"]` on every `POST /geocoder` call.
+  - **Open question answered (2026-08-09, live test): the geocoder returns a
+    single best match per context group** — sending the compound string with the
+    flag, or the two streets pre-split, both yield ONE level-6 match (San Juan
+    del Río; Amealco never surfaces). So refinement rescues *precision* (level 6
+    instead of the municipality centroid) but the second street is discarded
+    server-side, before kg's `_pick_best_match` even runs. The linker's
+    multi-location half is therefore **blocked on the geocoder** returning
+    multiple matches per group (or one group per street) — ask filed in the
+    geocoding repo — not just on kg-side plumbing. (Also observed: the
+    *unflagged* compound resolved to level 6 too on this fixture — the CER finds
+    the leading street inside the compound — so the flag's value case is
+    compounds where leading tokens confuse the matcher.)
   - The linker (`strategy.py`) multi-location keys/gate and the kgdb writer's per-location
     `entity_locations` loop (proposed changes 3–5 below) are required **either way** — `refine_mentions`
     replaces the *schema/prompt* half (changes 1–2) for the compound-street case, not the

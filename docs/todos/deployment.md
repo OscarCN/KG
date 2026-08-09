@@ -44,6 +44,35 @@ Broader go-live context: [productionization_streaming_kg.md](productionization_s
 - [ ] Optional: re-enqueue the one dead-lettered doc from the run (extraction JSON
   truncation) via `scripts/enqueue_from_es.py`.
 
+## kg — 2026-08-09 social-matching fixes (uncommitted)
+
+Root-caused why yesterday's 260-post CDMX social batch produced only 14 events
+(see session notes: 121 dropped `out_of_scope` on bare precision-2 "CDMX"
+mentions, 24 `no_match` on tokenization/keyword gaps):
+
+- [x] **Matcher tokenization fix committed** (`src/entities/extraction/extract.py`):
+  camelCase split before lowercasing (hashtag compounds → words) and
+  alphanumeric-run tokenization for `kw` matching (punctuation no longer glues
+  to tokens — `#lluvias`, `congreso".` now match). Docs: `docs/extraction.md`.
+- [x] **Geo-scope city-state exemption committed** (`src/geo_scope.py` +
+  `FILTER_GEO_CITY_STATES=_48409` in `.env.stg`): bare state-level CDMX
+  mentions (precision 2) count as in scope — social posts usually carry only
+  the bare "CDMX" mention (the Bunbury miss).
+- [x] **Keyword additions committed** (`keywords.xlsx`, applied to live kgdb
+  rules 1/39 in place): `concert` += auditorio, gira; `flood` += tormenta +
+  phrases "alerta purpura/roja/amarilla", "corriente(s) de agua".
+- [x] **`refine_mentions: ["CALLE"]` client hunk committed** (`geocode.py` — was
+  a leftover uncommitted change from the 08-08 cycle). Live-tested: the
+  geocoder returns a **single best match per context group**, so the
+  multi-street half of [location_level_list_extraction.md](location_level_list_extraction.md)
+  is blocked on a geocoder-side change (ask filed in the geocoding repo).
+- [ ] `scripts/seed_ontology_rules.py` full refresh fails as `backend` user
+  (`TRUNCATE … RESTART IDENTITY` needs the sequence owner) — reseed as owner or
+  grant, next time the xlsx is the source of a bulk change.
+- [ ] Listener restarted 2026-08-09 on the new code/rules (run tag
+  `cdmx-lluvias-2026-08-09`, session-bound background task — same caveat as
+  above). New TODO filed: [missing_person_amber_class.md](missing_person_amber_class.md).
+
 ## gp3
 
 - [ ] **Redeploy with the widened kg whitelist**: `KgStreamPipeline.KG_DOC_FIELDS`
