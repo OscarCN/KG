@@ -47,4 +47,9 @@ The geocoding repo's `docs/todos/cleanup_next_pass.md` §2 covers re-leveling th
 verdicts — no re-extraction needed for the backlog.
 
 Related: [`location_level_list_extraction.md`](location_level_list_extraction.md)
-(multi-location events — the other structural `location` extraction gap).
+(multi-location events — the other structural `location` extraction gap);
+[`location_pueblo_neighborhood.md`](location_pueblo_neighborhood.md) — a
+REFINEMENT of the settlements-belong-in-`city` rule above: an
+alcaldía-qualified "Pueblo X" (a CDMX pueblo originario) is a colonia →
+`neighborhood`, and dropping the pueblo/alcaldía qualifiers turns street
+homonyms into coin tosses (event 324 evidence).
