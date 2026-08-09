@@ -22,6 +22,12 @@ A document is in scope iff ANY `locations_mentioned` entry matches ANY prefix:
   `precision_level >= 3` (city or finer) — so a bare state mention
   ("Querétaro") does not put a document in scope.
 
+`FILTER_GEO_CITY_STATES` (comma-separated level_2 ids, e.g. `_48409`) lists
+city-states whose bare state-level mention IS city-granular — for CDMX the
+state is the city, so a precision-2 "CDMX" mention counts as in scope. Social
+posts usually carry only that bare mention; without the exemption they are
+dropped before keyword matching (the 2026-08-08 Bunbury miss).
+
 Unset/empty `FILTER_GEO` disables the filter (the listener processes the whole
 stream).
 """
@@ -58,19 +64,25 @@ def _precision(value: Any) -> int:
 class GeoScope:
     """Prefix-based geo scope over `locations_mentioned` entries."""
 
-    def __init__(self, prefixes: Iterable[str]):
+    def __init__(self, prefixes: Iterable[str],
+                 city_states: Iterable[str] = ()):
         self.prefixes = tuple(
             p for p in (_norm_id(raw) for raw in prefixes) if p
         )
         if not self.prefixes:
             raise ValueError("GeoScope requires at least one geoid prefix")
+        self.city_states = frozenset(
+            s for s in (_norm_id(raw) for raw in city_states) if s
+        )
 
     @classmethod
     def from_env(cls, default: Optional[str] = None) -> Optional["GeoScope"]:
         """Build from `FILTER_GEO` (fallback `default`); None = no filtering."""
         raw = os.environ.get("FILTER_GEO") or default or ""
         prefixes = [p for p in (s.strip() for s in raw.split(",")) if p]
-        return cls(prefixes) if prefixes else None
+        raw_cs = os.environ.get("FILTER_GEO_CITY_STATES") or ""
+        city_states = [s for s in (c.strip() for c in raw_cs.split(",")) if s]
+        return cls(prefixes, city_states) if prefixes else None
 
     def matches_entry(self, loc: Dict[str, Any]) -> bool:
         geoid = _norm_id(loc.get("geoid"))
@@ -79,10 +91,12 @@ class GeoScope:
             if len(prefix) > _STATE_ID_DIGITS:
                 if geoid and geoid.startswith(prefix):
                     return True
-            elif (
-                geoid.startswith(prefix) or level_2_id == prefix
-            ) and _precision(loc.get("precision_level")) >= MIN_PRECISION:
-                return True
+            elif geoid.startswith(prefix) or level_2_id == prefix:
+                if _precision(loc.get("precision_level")) >= MIN_PRECISION:
+                    return True
+                # City-states: a bare state-level mention is city-granular.
+                if (level_2_id or geoid[:_STATE_ID_DIGITS]) in self.city_states:
+                    return True
         return False
 
     def matches_doc(self, doc: Dict[str, Any]) -> bool:
@@ -99,4 +113,5 @@ class GeoScope:
         return sorted({p[:_STATE_ID_DIGITS] for p in self.prefixes})
 
     def __repr__(self) -> str:
-        return f"GeoScope(prefixes={self.prefixes})"
+        return (f"GeoScope(prefixes={self.prefixes}, "
+                f"city_states={sorted(self.city_states)})")
