@@ -169,7 +169,69 @@ class KgdbWriter:
         metadata = dict(record)
         metadata["_link_id"] = record.get("id")
         metadata["_link_run"] = self.run_tag
+        if self._first_report_stamp(record) is not None:
+            metadata["_event_time_source"] = "first_report"
+        else:
+            metadata.pop("_event_time_source", None)
         return metadata
+
+    # Statuses that mean the event is announced/not-happened — a same-day
+    # publication timestamp is the announcement time, not the event time.
+    _PLANNED_STATUSES = frozenset(
+        {"planned", "postponed", "cancelled", "delayed", "suspended"})
+
+    @staticmethod
+    def _first_report_dt(record: dict) -> Optional[datetime]:
+        """Earliest publication timestamp across all merged sources."""
+        pubs = [
+            _parse_dt(s.get("publication_date"))
+            for s in record.get("_sources") or []
+        ]
+        pubs = [p for p in pubs if p is not None]
+        # min() over mixed naive/aware raises — prefer the aware subset.
+        aware = [p for p in pubs if p.tzinfo is not None]
+        if aware or pubs:
+            return min(aware or pubs)
+        return _parse_dt(record.get("publication_date"))
+
+    @classmethod
+    def _first_report_stamp(cls, record: dict) -> Optional[datetime]:
+        """First-report time stamp for a same-day, time-less extracted date.
+
+        Many documents assert the event's day but not its time, while the first
+        article/post about an already-happened event (social especially) is
+        published minutes-to-hours after it — a tight upper bound on the event
+        time. Returns the earliest source publication timestamp to use as
+        `event_date_start` when ALL of:
+
+        - an extracted start exists and sits at local midnight (date-only —
+          a time-carrying extraction is never overwritten),
+        - the range is punctual or ends that same day,
+        - status is not planned-like (announcements: post time != event time),
+        - the earliest publication timestamp falls on that same local
+          calendar day (a later-day report says nothing about the time).
+
+        Otherwise returns None. Derivation only — the extracted `date_range`
+        in metadata is never modified.
+        """
+        if (record.get("status") or "").strip() in cls._PLANNED_STATUSES:
+            return None
+        date_range = (record.get("date_range") or {}).get("date_range") or {}
+        start = _parse_dt(date_range.get("start"))
+        if start is None or (start.hour, start.minute, start.second) != (0, 0, 0):
+            return None
+        end = _parse_dt(date_range.get("end"))
+        if end is not None and end.astimezone(start.tzinfo).date() != start.date():
+            return None
+        pub = cls._first_report_dt(record)
+        if pub is None:
+            return None
+        pub_local = pub.astimezone(start.tzinfo) if start.tzinfo else pub
+        if pub_local.date() != start.date():
+            return None
+        if end is not None and end != start and pub_local > end:
+            return None  # report after the asserted end — keep verbatim
+        return pub_local
 
     @staticmethod
     def _confidence_window(record: dict) -> tuple[Optional[datetime], Optional[datetime]]:
@@ -198,14 +260,19 @@ class KgdbWriter:
         pub = _parse_dt(record.get("publication_date"))
         return pub, pub
 
-    @staticmethod
-    def _event_dates(record: dict) -> tuple[Optional[datetime], Optional[datetime]]:
+    @classmethod
+    def _event_dates(cls, record: dict) -> tuple[Optional[datetime], Optional[datetime]]:
         """The event's asserted dates for user-facing reads — the extracted
         `date_range` verbatim (end stays NULL for punctual/no-known-end
         events), falling back to the publication date as both start and end
         when nothing was extracted. Unlike `_confidence_window`, no slack is
         applied — these columns answer "when is/was the event", not "which
-        retrieval window covers it"."""
+        retrieval window covers it".
+
+        One derivation on top of verbatim: a date-only start (local midnight)
+        of a same-day, non-planned event is promoted to the earliest source
+        publication timestamp (`_first_report_stamp`), flagged in metadata as
+        `_event_time_source: "first_report"`."""
         date_range = (record.get("date_range") or {}).get("date_range") or {}
         start = _parse_dt(date_range.get("start"))
         end = _parse_dt(date_range.get("end"))
@@ -216,6 +283,11 @@ class KgdbWriter:
             start = end
         elif end is not None and start > end:  # guard inverted extracted ranges
             start, end = end, start
+        stamped = cls._first_report_stamp(record)
+        if stamped is not None:
+            if end is not None and end == start:
+                end = stamped  # punctual date-only range — promote both
+            start = stamped
         return start, end
 
     # -- per-table writes -----------------------------------------------------
