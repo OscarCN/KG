@@ -22,22 +22,22 @@ streaming pipeline.
 Two knowledge bases:
 
 - **Geographic KB** — Hierarchical geographic entities (countries, provinces, cities,
-  neighborhoods, streets, places) linked by "is in" relations. Each entity has coordinates,
-  shape, and aliases.
+neighborhoods, streets, places) linked by "is in" relations. Each entity has coordinates,
+shape, and aliases.
 - **Entities/Events KB** — Entities, concepts, themes, and events typed by an ontology. See
-  [Ontology categories](#ontology-categories) below for the distinction between these types.
-  Each entry has attributes defined by its ontology class schema.
+[Ontology categories](#ontology-categories) below for the distinction between these types.
+Each entry has attributes defined by its ontology class schema.
 
 Each entity has an **ontology class** that defines its schema (attributes, identifying
 features) and how it should be uniquely described. Ontology schemas are defined in JSON and
-parsed by the schema system ([`../src/schema/readme_schema.md`](../src/schema/readme_schema.md)).
+parsed by the schema system (`[../src/schema/readme_schema.md](../src/schema/readme_schema.md)`).
 
 ### Retrieval
 
 Multiple retrieval strategies depending on entity type:
 
 - **Name similarity** — Locality-sensitive hashing (LSH) via Redis for efficient fuzzy name
-  matching
+matching
 - **Geographic** — Coordinate-based queries (point-in-shape, nearest) via PostgreSQL
 - **Semantic** — Embedding-based similarity on descriptions via vector database
 
@@ -55,11 +55,13 @@ The system classifies content into three broad ontology categories, each with di
 identifying characteristics. Every supertype schema declares its category via `meta.category`,
 and that value drives both extraction routing and persistence behaviour.
 
-| Category | Description | Identifying features | Examples |
-|----------|-------------|---------------------|----------|
-| **Event** | A specific, identifiable occurrence that happened at a particular time and place | Location + date/time make each event distinguishable from others | A concert, an accident, a protest, an arrest |
-| **Theme** | A topical classification — any article that touches or discusses a related subject matches | Optional location (city/state level), no required date — acts as a broad classifier for article content | Security (crime, violence, policing), mobility (traffic, transit), culture (arts, heritage) |
-| **Entity/Concept** | A specific, identifiable thing that is not an event | May have a name, location, or other identifying attributes, but not necessarily a date | A real estate development, a specific technology, a chemical compound, an individual person, a law initiative |
+
+| Category           | Description                                                                                | Identifying features                                                                                    | Examples                                                                                                      |
+| ------------------ | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| **Event**          | A specific, identifiable occurrence that happened at a particular time and place           | Location + date/time make each event distinguishable from others                                        | A concert, an accident, a protest, an arrest                                                                  |
+| **Theme**          | A topical classification — any article that touches or discusses a related subject matches | Optional location (city/state level), no required date — acts as a broad classifier for article content | Security (crime, violence, policing), mobility (traffic, transit), culture (arts, heritage)                   |
+| **Entity/Concept** | A specific, identifiable thing that is not an event                                        | May have a name, location, or other identifying attributes, but not necessarily a date                  | A real estate development, a specific technology, a chemical compound, an individual person, a law initiative |
+
 
 The system implements **events** (9 supertypes — identifiable single occurrences with a
 location and date), **themes** (6 supertypes — topical classifiers without required datetime),
@@ -85,13 +87,13 @@ Classes will support inheritance, where a more specific class inherits attribute
 one. The current event/theme naming convention supports this:
 
 - **violence_event** inherits from **security** (theme) — a specific shooting inherits the
-  general security topic attributes
+general security topic attributes
 - **public_works_event** inherits from **public_infrastructure_event** (event)
 - **emergency_event** inherits from **civil_protection** (theme)
 - **closures_interruptions_event** inherits from **mobility** (theme)
 - **protest_event** inherits from **civic_participation** (theme)
 - **water_usage_law** (entity) inherits from **legislative_initiative** (entity) — a specific
-  water regulation inherits general legislative initiative attributes
+water regulation inherits general legislative initiative attributes
 
 This allows shared attributes and behavior to be defined once at the parent level and
 specialized at the child level. In kgdb (`entity_types_kinds_available`), inheritance is
@@ -110,10 +112,11 @@ until then, the working assumption is one supertype per entity.
 ## Where to go next
 
 - [entities.md](entities.md) — the entity pipeline overview (extraction + linking, ontology
-  categories, the full supertype catalogue)
+categories, the full supertype catalogue)
 - [extraction.md](extraction.md) — LLM-based structured extraction, ontology routing, prompt
-  generation
+generation
 - [linking.md](linking.md) — event deduplication/merging, geocoding, candidate filter, LLM
-  disambiguation
+disambiguation
 - [storage.md](storage.md) — the kgdb persistence model and the streaming pipeline
-- [`../src/schema/readme_schema.md`](../src/schema/readme_schema.md) — the schema system
+- `[../src/schema/readme_schema.md](../src/schema/readme_schema.md)` — the schema system
+
