@@ -109,7 +109,12 @@ Owned by `~/ocn/geocoding/docs/todos/kg_social_cdmx_lluvias_geo_review.md`:
   wrong-venue fixes) + kgdb `entity_locations` repair + batch replay.
 - [ ] **Multi-context CER training samples (required)** — the author-context change
   makes context-group-2 input routine; mint the `author_context` embedded bucket,
-  retrain, re-run the behavioral test (spec §3.5).
+  retrain, re-run the behavioral test (spec §3.5). **Not a ship gate for the kg
+  image** (2026-08-10): the feature is inert until gp3 sends `location_author`,
+  and the one measured harm (p7→p2 on conflicting author context) is neutralized
+  by the degradation guard in `geocode.py`. It *is* a gate on calling the feature
+  shipped — full evidence and the local-source re-measurement plan:
+  [author_context_geocoding_rollout.md](author_context_geocoding_rollout.md).
 - [ ] After any KB fix: clear kg `cache/geocode/` + mind the geocoder's 24 h Redis
   call cache before replay/validation.
 

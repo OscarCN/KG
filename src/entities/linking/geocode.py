@@ -240,6 +240,23 @@ def _pick_best_match(matches: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     )
 
 
+def _anchor_floor(mentions: Dict[str, List[Tuple[str, int]]]) -> int:
+    """Precision the location's OWN admin anchors imply, ignoring context.
+
+    Only `EST` (2) and `MUN` (3) count: a named state/municipality is
+    something the geocoder resolves essentially always, so a collective match
+    coarser than this is a perturbation, not a KB gap. `COL`/`CALLE`/`LUG` are
+    deliberately excluded — a colonia or street missing from the KB legitimately
+    resolves to its municipality, and treating that as degradation would fire
+    the retry constantly.
+    """
+    floor = 0
+    for key in ("MUN", "EST"):
+        if mentions.get(key):
+            floor = max(floor, _LEVELS[key])
+    return floor
+
+
 def _normalize_response(match: Dict[str, Any]) -> Dict[str, Any]:
     """Coerce the geocoder response into our linker-friendly shape."""
     coords = match.get("coords") or {}
@@ -332,6 +349,30 @@ def geocode_location(
         return None
 
     result = _normalize_response(best)
+
+    # Degradation guard. The no-match fallback above catches context that finds
+    # NOTHING; this catches context that finds something WORSE. Observed
+    # 2026-08-10 on the fb/x corpus: a Tijuana account posting about CDMX
+    # flooding ("se inunda Tlalpan") extracted a fully anchored CDMX location
+    # that resolves bare to p7, but the conflicting group-2 mention collapsed
+    # the collective match to p2 (bare state) — five levels lost, silently,
+    # because a match WAS returned. When the context result is coarser than the
+    # location's own admin anchors imply, retry bare and keep the better of the
+    # two (ties go to bare: context has already shown it perturbs this record).
+    floor = _anchor_floor(mentions)
+    if ctx_mentions and result["precision_level"] < floor:
+        bare = geocode_location(location, use_cache=use_cache)
+        bare_precision = int((bare or {}).get("precision_level") or 0)
+        if bare and bare_precision >= result["precision_level"]:
+            logger.info(
+                "author-context geocode degraded (p%s < anchors imply p%s) — "
+                "using bare match p%s",
+                result["precision_level"], floor, bare_precision,
+            )
+            if use_cache:
+                _cache_write(cache_key, bare)
+            return bare
+
     if ctx_mentions:
         result["_author_context_used"] = True
     if use_cache:
