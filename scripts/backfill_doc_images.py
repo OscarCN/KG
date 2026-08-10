@@ -20,6 +20,11 @@ for ES.
 Usage:
     python scripts/backfill_doc_images.py --dry-run
     python scripts/backfill_doc_images.py [--batch 500] [--limit N]
+    python scripts/backfill_doc_images.py --since 2026-08-07 --until 2026-08-11
+
+``--since`` / ``--until`` scope the repair to a `doc_date_created` window
+(half-open), so a run that fixes one regression's damage doesn't re-check
+every historical row against ES.
 """
 
 from __future__ import annotations
@@ -83,7 +88,21 @@ def main() -> None:
     parser.add_argument("--batch", type=int, default=500, help="ids per ES request")
     parser.add_argument("--limit", type=int, default=None, help="cap on doc_ids processed")
     parser.add_argument("--dry-run", action="store_true", help="fetch + report, no UPDATEs")
+    parser.add_argument("--since", help="only doc_date_created >= this date (YYYY-MM-DD)")
+    parser.add_argument("--until", help="only doc_date_created < this date (YYYY-MM-DD)")
     args = parser.parse_args()
+
+    # Date scoping keeps a repair run to the window a regression affected
+    # instead of re-checking every historical row against ES.
+    where = ["doc_index = 'news'",
+             "(doc_images IS NULL OR doc_images = '[]'::jsonb)"]
+    params: list = []
+    if args.since:
+        where.append("doc_date_created >= %s")
+        params.append(args.since)
+    if args.until:
+        where.append("doc_date_created < %s")
+        params.append(args.until)
 
     conn = _kgdb()
     with conn.cursor() as cur:
@@ -92,9 +111,10 @@ def main() -> None:
         # listener wrote [] ("no images") for docs that actually had them.
         # Genuine no-image docs just get [] again — idempotent.
         cur.execute(
-            "SELECT DISTINCT doc_id FROM entities_documents "
-            "WHERE doc_index = 'news' "
-            "AND (doc_images IS NULL OR doc_images = '[]'::jsonb) ORDER BY doc_id"
+            "SELECT DISTINCT doc_id FROM entities_documents WHERE "
+            + " AND ".join(where)
+            + " ORDER BY doc_id",
+            params,
         )
         doc_ids = [r[0] for r in cur.fetchall()]
     if args.limit:

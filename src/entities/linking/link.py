@@ -270,21 +270,27 @@ class EntityLinker:
     def _normalize_envelope(self, raw: Dict[str, Any], supertype: str) -> Dict[str, Any]:
         """Schema-parse the payload, then re-attach the provenance fields.
 
-        The envelope fields (`_source_id`, `_supertype`, `date_created`,
-        `news_type`) ride on extracted records but are not part of the
-        supertype schema, so they're stripped before parsing and merged back
-        after — otherwise the schema Parser drops them as unknown fields.
+        Provenance rides on extracted records but is not part of the supertype
+        schema, so it is stripped before parsing and merged back after —
+        otherwise the schema Parser drops it as unknown fields. That covers
+        `date_created` / `news_type` plus EVERY underscore-prefixed key
+        (`_source_id`, `_supertype`, `_images`, `_author_geo`, …): the
+        convention is that `_`-prefixed fields are provenance, never schema
+        fields. Whitelisting them one by one silently killed two features —
+        `_images` (→ `_sources[].images` → `entities_documents.doc_images`,
+        written as `[]` for every document) and `_author_geo` (the geocoder's
+        author-location context, always None at strategy.py) — so this keeps
+        them by rule, not by enumeration.
         """
         meta = {
-            "_source_id": raw.get("_source_id"),
-            "_supertype": supertype,
-            "date_created": raw.get("date_created"),
-            "news_type": raw.get("news_type"),
+            k: v for k, v in raw.items()
+            if k.startswith("_") or k in ("date_created", "news_type")
         }
+        meta["_supertype"] = supertype
         clean = {
             k: v
             for k, v in raw.items()
-            if k not in ("_source_id", "_supertype", "date_created", "news_type")
+            if not k.startswith("_") and k not in ("date_created", "news_type")
         }
         record = self._parse_with_schema(clean, supertype)
         record.update({k: v for k, v in meta.items() if v is not None})

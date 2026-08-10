@@ -14,6 +14,16 @@ Broader go-live context: [productionization_streaming_kg.md](productionization_s
   `src/entities/linking/strategy.py` (wire-through), `src/PoC/get_data.py`
   (NEWS_FIELDS), `docs/linking.md` (docs). Design/evidence: geocoding repo
   `docs/todos/kg_social_cdmx_lluvias_geo_review.md` §3.4.
+- [x] **2026-08-10 — envelope provenance fix + restart + doc_images backfill.**
+  `link.py::_normalize_envelope` re-attached provenance from a hardcoded
+  whitelist, so the schema Parser silently ate `_images` (→ `doc_images` written
+  `[]` for *every* streamed document, since the feature shipped) and
+  `_author_geo` (→ author-context geocoding never fired at all, despite being
+  "deployed"). Now keeps every `_`-prefixed key by rule. Backfilled Aug 7–10
+  (`--since/--until` added to `backfill_doc_images.py`): 3,577 rows repaired,
+  1,910/1,980 docs had pictures. Listener relaunched, run tag
+  `cdmx-lluvias-2026-08-10`, `REDIS_HOST=localhost` (the `.env.local`
+  `192.168.1.60` is off-LAN — see prod env hygiene below).
 - [ ] **Restart the listener on the new code.** The running bare-metal listener
   (run tag `cdmx-lluvias-2026-08-07`) predates the author-context change; restart
   also picks up any live-kgdb ontology rule edits (rules load once at startup — no
