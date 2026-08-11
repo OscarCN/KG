@@ -17,3 +17,6 @@ docs/value_offer.md
 # Excel temp/lock files
 ~$*.xlsx
 
+
+# One-off backfill snapshots (revert data for scripts/*.py) — kept locally, not in git.
+backups/
