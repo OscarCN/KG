@@ -2,7 +2,7 @@
 
 **Status:** open — diagnosed 2026-08-11 (traced from DeepRiver consumer side), fix not started
 **Area:** `src/entities/linking/strategy.py` (`_apply_best_window`), `src/entities/linking/aggregate.py`
-**Related:** [`extraction_precision_days_missing.md`](extraction_precision_days_missing.md), [`canonical_reconciliation.md`](canonical_reconciliation.md), [`../linking.md`](../linking.md)
+**Related:** [`merge_narrow_window_overwrites_span.md`](merge_narrow_window_overwrites_span.md) (sibling failure mode of the same rule), [`extraction_precision_days_missing.md`](extraction_precision_days_missing.md), [`canonical_reconciliation.md`](canonical_reconciliation.md), [`../linking.md`](../linking.md)
 
 ## Problem
 
