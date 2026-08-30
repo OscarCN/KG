@@ -12,6 +12,7 @@ Usage:
 
 from __future__ import annotations
 
+import copy
 import csv
 import hashlib
 import json
@@ -883,13 +884,49 @@ def _build_extraction_messages(
     return messages
 
 
+def _coalesce_location_list(entity: Dict[str, Any]) -> None:
+    """Collapse a list-valued `location` into a single Location the schema accepts.
+
+    The extraction prompts explicitly allow `location` to be a LIST for one
+    coordinated event affecting several places (a marathon's closures, a
+    national blockade, a march with origin and destination) — but the schema
+    types `location` as a single `Location` object, and the Parser silently
+    replaces any non-dict value with an all-null object. That destroyed the
+    geo of exactly the multi-site events (found 2026-08-30: every CDMX
+    marathon closure landed in the noloc bucket with no `entity_locations`
+    row, invisible to the map and the Ciudad situation gate).
+
+    Resolution: keep the fields on which ALL listed locations agree (the
+    common administrative prefix — typically country/state/city), null the
+    rest, and preserve the full list as `_locations` so a future multi-geo
+    persistence path can recover the per-site detail. Mutates in place.
+    """
+    loc = entity.get("location")
+    if not isinstance(loc, list):
+        return
+    locs = [l for l in loc if isinstance(l, dict) and any(v is not None for v in l.values())]
+    if not locs:
+        entity["location"] = None
+        return
+    entity["_locations"] = copy.deepcopy(locs)
+    if len(locs) == 1:
+        entity["location"] = locs[0]
+        return
+    keys = set().union(*(l.keys() for l in locs))
+    merged: Dict[str, Any] = {}
+    for k in keys:
+        vals = {json.dumps(l.get(k), ensure_ascii=False, sort_keys=True) for l in locs}
+        merged[k] = locs[0].get(k) if len(vals) == 1 else None
+    entity["location"] = merged
+
+
 def _validate_all_entities(
     entities: List[Dict[str, Any]],
     supertype: str,
     raise_validation_error: bool,
 ) -> List[Dict[str, Any]]:
     """Run schema validation on every entity, preserving the `_source_id` /
-    `_supertype` / `date_created` provenance fields."""
+    `_supertype` / `date_created` / `_locations` provenance fields."""
     validated: List[Dict[str, Any]] = []
     for entity in entities:
         meta = {
@@ -897,6 +934,11 @@ def _validate_all_entities(
             "_supertype": entity.pop("_supertype", None),
             "date_created": entity.pop("date_created", None),
         }
+        # `_locations` (the full multi-site list `_coalesce_location_list`
+        # collapsed `location` from) is provenance too: the Parser drops
+        # unknown fields, so carry it around the normalization like the rest.
+        if "_locations" in entity:
+            meta["_locations"] = entity.pop("_locations")
         try:
             normalized = _validate_entity(
                 entity, supertype, raise_validation_error=raise_validation_error,
@@ -955,6 +997,7 @@ def _attempt_extract(
         )
 
     for e in entities:
+        _coalesce_location_list(e)
         e["_source_id"] = article_id
         e["_supertype"] = supertype
         if publication_date:

@@ -61,6 +61,20 @@ y Amealco"*. With a single slot, extraction either picks one street or, more oft
 drops the street detail and the geocoder falls back to the **municipality centroid
 (precision 3)**.
 
+**Second failure mode, worse (found 2026-08-30, CDMX marathon):** the prompts already
+*allow* a list-valued `location` for one coordinated multi-site event, and the model uses
+it well (the marathon-closures article extracts 10 fully-populated sites) — but the Parser
+silently replaced any non-dict `location` with an all-null object, so exactly the
+multi-site events (marathon closures, marches, national blockades) reached linking with
+**no geo at all**: noloc bucket, no `entity_locations` row, invisible to the cc map and
+Ciudad situation gate. Over the prior 14 days ~11% of closures / ~21% of protest
+extractions had all-null locations (multi-site share unknown — the list was destroyed
+before storage, so old events need re-extraction to recover).
+**Interim fix shipped (extract.py `_coalesce_location_list`):** a list collapses to the
+common administrative prefix (typically country/state/city → at least a coarse geo row)
+and the **full list is preserved as `_locations`** in entity metadata — changes 3–5 below
+can consume it directly, no schema/prompt change needed for this case.
+
 That coarse geocode is what blocks deduplication. The deterministic no-name merge gate
 fires on `event_type ∧ (shares level_6_id or level_7_id) ∧ day overlap` — but a
 precision-3 record has **no `level_6_id`/`level_7_id` to share**, so nameless

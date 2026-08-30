@@ -177,6 +177,20 @@ Schemas reference composite types from `src/schema/types/composite_types.json`:
 | `CountMention` | mention, count, confidence_range | Generic numeric count (victims, detainees, vehicles) |
 | `PersonReference` | name, role, organization | People mentioned |
 
+**Multi-site `location` lists.** The event prompts allow `location` to be a **list** for one
+coordinated event affecting several places (a marathon's closures, a national blockade, a
+march with origin and destination), but the schema types it as a single `Location` and the
+Parser silently replaces any non-dict value with an all-null object. Until 2026-08-30 this
+destroyed the geo of exactly the multi-site events — every CDMX marathon closure landed in
+the noloc bucket with no `entity_locations` row, invisible to the map and the cc Ciudad
+situation gate. `_coalesce_location_list` (extract.py, applied right after LLM parse) now
+collapses a list to the fields all sites agree on (the common administrative prefix,
+typically country/state/city; divergent fields → null) and preserves the full list on the
+entity as `_locations` — carried through schema normalization like the other provenance
+fields — so the multi-location plumbing (geocode each site, one `entity_locations` row per
+site — [`todos/location_level_list_extraction.md`](todos/location_level_list_extraction.md)
+changes 3–5) can recover the per-site detail.
+
 ### Common fields (event supertypes)
 
 All 8 event schemas share these fields (with the same semantics):
